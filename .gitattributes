@@ -1,0 +1,4 @@
+# Treat Excel workbooks as binary to avoid noisy diffs
+*.xlsx binary
+*.xls binary
+*.xlsm binary
