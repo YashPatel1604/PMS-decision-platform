@@ -49,7 +49,9 @@ class TransactionImportResult:
     import_batch_id: int
 
 
-def parse_transaction_workbook(path: Path, sheet_name: str = "Sheet1") -> tuple[list[ParsedTransactionRow], int]:
+def parse_transaction_workbook(
+    path: Path, sheet_name: str = "Sheet1"
+) -> tuple[list[ParsedTransactionRow], int]:
     """Parse transaction rows, skipping per-stock total rows."""
     workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
     worksheet = workbook[sheet_name]
@@ -61,7 +63,9 @@ def parse_transaction_workbook(path: Path, sheet_name: str = "Sheet1") -> tuple[
     summary_rows_skipped = 0
 
     for row_number, row in enumerate(rows[1:], start=2):
-        _, stock, event_date, event_label, quantity, price, amount, source_note = (row + (None,) * 8)[:8]
+        _, stock, event_date, event_label, quantity, price, amount, source_note = (
+            row + (None,) * 8
+        )[:8]
 
         if stock is not None and str(stock).strip():
             current_stock = str(stock).strip()
@@ -104,7 +108,9 @@ def import_transaction_master(session: Session, path: Path) -> TransactionImport
     if existing_batch is not None:
         equity_count = len(
             session.scalars(
-                select(Transaction).where(Transaction.import_batch_id == existing_batch.import_batch_id)
+                select(Transaction).where(
+                    Transaction.import_batch_id == existing_batch.import_batch_id
+                )
             ).all()
         )
         liquid_count = len(
@@ -146,7 +152,9 @@ def import_transaction_master(session: Session, path: Path) -> TransactionImport
     for row in parsed_rows:
         source_key = make_source_key(row.source_file, row.source_sheet, row.source_row)
         if is_liquid_holding(row.portfolio_name):
-            if session.scalar(select(LiquidTransaction).where(LiquidTransaction.source_key == source_key)):
+            if session.scalar(
+                select(LiquidTransaction).where(LiquidTransaction.source_key == source_key)
+            ):
                 liquid_skipped += 1
                 continue
             session.add(

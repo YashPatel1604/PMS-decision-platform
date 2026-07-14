@@ -210,6 +210,12 @@ LiquidCase or equivalent liquid balances are:
 - Included in cash allocation analysis
 - Included in opportunity-cost and deployment analysis
 
+### 4.5 Manual Sell Since workbook
+
+A manually maintained “Sell Since” workbook currently records historical exit outcomes, profit/loss labels, and post-exit comparisons.
+
+The software must replace that workbook with a reproducible, versioned, and test-covered analysis generated from transactions, episodes, adjusted prices, dividends, and benchmark TRI series. Manual Sell Since classifications may be retained as historical reference labels, but they must not be the system’s source of truth for episode performance.
+
 ---
 
 ## 5. Repository structure
@@ -642,6 +648,65 @@ EXIT
 CORPORATE_ACTION
 ```
 
+### 11.8 Episode performance and sell-analysis tables
+
+Recommended datasets or tables for Historical Sell and Episode Analytics:
+
+```text
+episode_cash_flows
+episode_performance
+portfolio_period_performance
+benchmark_period_performance
+post_exit_performance
+sell_assessments
+```
+
+Example fields for `episode_performance`:
+
+```text
+episode_id
+security_id
+entry_date
+exit_date
+holding_days
+total_invested
+total_sale_proceeds
+dividends_received
+total_profit_loss
+total_return_pct
+stock_xirr
+portfolio_return_pct
+portfolio_annualized_return
+smallcap_return_pct
+smallcap_annualized_return
+excess_vs_portfolio
+excess_vs_smallcap
+max_drawdown
+max_unrealized_gain
+days_below_cost
+days_underperforming_benchmark
+calculation_version
+data_quality_status
+```
+
+Example fields for `post_exit_performance`:
+
+```text
+episode_id
+exit_date
+comparison_date
+security_return_after_exit
+portfolio_return_after_exit
+smallcap_return_after_exit
+excess_vs_portfolio_after_exit
+excess_vs_smallcap_after_exit
+maximum_gain_after_exit
+maximum_loss_after_exit
+exit_assessment
+assessment_reason
+data_quality_status
+```
+
 ---
 
 ## 12. Data contracts
@@ -763,19 +828,148 @@ Before external price data is connected, the engine should at least reproduce qu
 
 ---
 
-## 15. Third development milestone
+## 15. Historical Sell and Episode Analytics
 
-### Milestone 3: daily market data and episode analytics
+This section defines the software requirement for historical investment episode performance, sell analysis, and benchmark comparison.
 
-Add:
+It sits after investment-episode generation and portfolio reconstruction, and before frontend or decision-support application development.
+
+The system must replace the manually maintained “Sell Since” workbook with a reproducible, software-generated analysis. Every closed investment episode must produce owned-period performance, post-exit performance, and an explainable exit assessment from deterministic calculations covered by tests.
+
+Prerequisite data for this work, in order:
+
+1. Transaction ingestion
+2. Corporate-action reconciliation
+3. Investment episode generation
+4. Portfolio reconstruction
+5. Historical adjusted price ingestion
+6. Benchmark TRI ingestion
+
+### 15.1 Ownership-period metrics for every closed episode
+
+For every closed investment episode, calculate:
+
+- Episode ID
+- Security ID
+- Company name
+- First buy date
+- Final sell date
+- Holding period
+- Total invested capital
+- Total sale proceeds
+- Dividends received, when available
+- Total profit or loss in rupees
+- Total return percentage
+- XIRR using exact dated cash flows
+- Portfolio value at entry
+- Portfolio value at exit
+- Portfolio return during the same ownership period
+- Portfolio annualized return during the same ownership period
+- Small-cap benchmark level at entry
+- Small-cap benchmark level at exit
+- Small-cap benchmark total return
+- Small-cap benchmark annualized return
+- Excess return versus the portfolio
+- Excess return versus the small-cap benchmark
+- Maximum drawdown while held
+- Maximum unrealized gain while held
+- Time spent below cost
+- Time spent underperforming the benchmark
+
+### 15.2 Post-exit analysis
+
+Require a separate post-exit analysis for the period from the final sell date to the latest available date.
+
+For every closed episode, calculate:
+
+- Security or successor-security return after exit
+- Portfolio return after exit
+- Small-cap benchmark return after exit
+- Excess return of the sold security versus the portfolio
+- Excess return of the sold security versus the benchmark
+- Maximum gain after exit
+- Maximum loss after exit
+- Whether the exit avoided further losses
+- Whether the exit was potentially premature
+- An explainable exit assessment such as:
+  - Good exit
+  - Loss avoided
+  - Neutral exit
+  - Premature exit
+  - Insufficient data
+
+### 15.3 Methodology
+
+1. Use XIRR, not simple CAGR, when an episode contains multiple buys, additions, partial sells, rights subscriptions, or other dated cash flows.
+2. Treat buys and paid rights subscriptions as negative cash flows.
+3. Treat sells and dividends as positive cash flows.
+4. Splits and bonus issues change quantity but create no cash flow and must not be included directly in XIRR.
+5. Mergers, demergers, and conversions must preserve economic continuity through the successor security.
+6. Use adjusted price series and total-return indices wherever available.
+7. Do not use future information in historical point-in-time analysis.
+8. Preserve the exact source and publication date of benchmark and market data.
+9. Clearly separate “performance during ownership” from “performance after exit.”
+10. Do not calculate portfolio performance by simply comparing portfolio values if external inflows, outflows, or capital additions exist. Use a time-weighted return or cash-flow-adjusted methodology.
+11. Store both absolute rupee profit/loss and annualized return because they answer different questions.
+12. All calculations must be deterministic and covered by tests.
+
+### 15.4 Benchmarks
+
+- Primary small-cap benchmark: `Nifty Smallcap 250 TRI`
+- Broad-market comparison: `Nifty 500 TRI`
+- Optional mid-cap comparison: `Nifty Midcap 150 TRI`
+- The system may choose a security-specific primary benchmark based on the company’s point-in-time market-cap classification.
+- Benchmark methodology and any index-history stitching must be documented and versioned.
+- Price-only indices must not be substituted for TRI data without clearly flagging the limitation.
+
+### 15.5 Database and output model
+
+Store or export at least these datasets:
+
+```text
+episode_cash_flows
+episode_performance
+portfolio_period_performance
+benchmark_period_performance
+post_exit_performance
+sell_assessments
+```
+
+`episode_performance` and `post_exit_performance` should include the example fields defined in §11.8.
+
+### 15.6 Acceptance criteria
+
+- Every closed episode has complete dated cash flows.
+- Stock XIRR reproduces independently calculated fixture results.
+- Corporate actions without cash consideration do not affect XIRR.
+- Paid rights issues are included as cash outflows.
+- Portfolio and benchmark comparisons use exactly the same start and end dates.
+- The system handles non-trading dates using a documented rule.
+- Successor securities are used for mergers and conversions.
+- No episode is marked “premature exit” solely because the stock later increased.
+- Exit assessments must include both supporting and opposing evidence.
+- Missing prices, dividends, benchmark values, or successor mappings generate an `Insufficient Data` result rather than invented values.
+- The generated report can reproduce and replace the current Sell Since workbook.
+- All calculations have unit tests.
+
+---
+
+## 16. Third development milestone
+
+### Milestone 3: daily market data and benchmark ingestion
+
+Add the historical market data required for episode performance and sell analysis:
 
 - Daily prices
 - Adjusted prices
 - Volume
-- Benchmarks
+- Dividends, when available
 - Corporate-action factors
+- Benchmark TRI series
 
-Calculate:
+This milestone must complete historical adjusted price ingestion and benchmark TRI ingestion before Milestone 4 calculations are treated as production-ready.
+
+Calculate or enable the inputs required for:
 
 - Absolute return
 - CAGR
@@ -787,9 +981,33 @@ Calculate:
 - Post-exit returns
 - Opportunity cost
 
+Detailed ownership-period, post-exit, XIRR, and Sell Since–replacement requirements are specified in §15 and delivered in Milestone 4.
+
 ---
 
-## 16. Testing requirements
+## 17. Milestone 4: Episode Performance and Sell Analysis
+
+Deliver reproducible historical investment episode performance, sell analysis, and benchmark comparison that replaces the manual Sell Since workbook.
+
+Deliverables:
+
+- Stock XIRR and absolute profit/loss
+- Portfolio-period comparison
+- Small-cap TRI comparison
+- Post-exit performance
+- Exit-quality assessment
+- CSV and Excel report exports
+- API endpoints for episode performance and sell analysis
+
+Acceptance criteria are those listed in §15.6, plus:
+
+- Every closed episode can be exported with ownership-period and post-exit metrics
+- Calculation version and data-quality status are stored on every result row
+- Re-running the analysis on unchanged inputs produces identical outputs
+
+---
+
+## 18. Testing requirements
 
 Every financial function requires unit tests.
 
@@ -808,12 +1026,18 @@ Minimum test cases:
 - Liquid holding transaction
 - Historical name change
 - Merged/delisted security
+- Episode XIRR with multiple dated cash flows
+- Split/bonus excluded from XIRR cash flows
+- Paid rights included as cash outflow
+- Portfolio and benchmark period aligned to the same start and end dates
+- Post-exit assessment with insufficient data
+- Premature-exit assessment that requires more than later price appreciation alone
 
-Use small, explicit fixtures where expected quantities can be calculated manually.
+Use small, explicit fixtures where expected quantities and XIRR results can be calculated independently.
 
 ---
 
-## 17. Coding standards
+## 19. Coding standards
 
 - Python functions require type annotations
 - Public functions require docstrings
@@ -832,7 +1056,7 @@ Use small, explicit fixtures where expected quantities can be calculated manuall
 
 ---
 
-## 18. Agent instructions
+## 20. Agent instructions
 
 Before asking Claude Code or Codex to implement anything, create `AGENTS.md` with these rules:
 
@@ -857,7 +1081,7 @@ Before asking Claude Code or Codex to implement anything, create `AGENTS.md` wit
 
 ---
 
-## 19. Before using Claude Code or Codex
+## 21. Before using Claude Code or Codex
 
 Complete this checklist:
 
@@ -897,7 +1121,7 @@ Only after this checklist is complete should an agent begin implementation.
 
 ---
 
-## 20. First prompt for Claude Code or Codex
+## 22. First prompt for Claude Code or Codex
 
 Use this as the first implementation prompt:
 
@@ -934,7 +1158,7 @@ Before coding, inspect the actual workbook structures and report any discrepanci
 
 ---
 
-## 21. Recommended agent workflow
+## 23. Recommended agent workflow
 
 Use small prompts and review every milestone.
 
@@ -954,12 +1178,15 @@ Recommended sequence:
 12. Review outputs manually
 13. Commit Milestone 1
 14. Begin Milestone 2
+15. Complete Milestone 3 market-data and TRI ingestion
+16. Implement Milestone 4 episode performance and sell analysis
+17. Only then begin frontend application development
 
 Do not ask an agent to build the complete system in one prompt.
 
 ---
 
-## 22. Definition of ready for application development
+## 24. Definition of ready for application development
 
 The project is ready for frontend application development only when:
 
@@ -968,13 +1195,15 @@ The project is ready for frontend application development only when:
 - Episode outputs are reviewed
 - Milestone 2 portfolio reconstruction works
 - Price data is integrated
+- Benchmark TRI data is integrated
 - Core analytics are reproducible
+- Milestone 4 episode performance and sell analysis can replace the manual Sell Since workbook for closed episodes
 
 Until then, the “software” is the data and analytical engine, not the user interface.
 
 ---
 
-## 23. Long-term roadmap
+## 25. Long-term roadmap
 
 ### Phase A — Data foundation
 
@@ -990,6 +1219,9 @@ Until then, the “software” is the data and analytical engine, not the user i
 - Investment episodes
 - Decision events
 - Portfolio reconstruction
+- Historical adjusted prices
+- Benchmark TRI ingestion
+- Episode performance and sell analysis
 - Performance
 - Attribution
 - Drawdowns
@@ -1027,7 +1259,7 @@ Until then, the “software” is the data and analytical engine, not the user i
 
 ---
 
-## 24. Final rule
+## 26. Final rule
 
 Do not optimize the interface before validating the investment logic.
 
@@ -1040,7 +1272,9 @@ Raw data
 → reconciliation
 → investment episodes
 → portfolio reconstruction
-→ market data
+→ historical adjusted prices
+→ benchmark TRI ingestion
+→ episode performance and sell analysis
 → analytics
 → sell-rule research
 → decision-support API

@@ -37,7 +37,9 @@ class Transaction(Base):
     source_row: Mapped[int] = mapped_column(Integer, nullable=False)
     source_note: Mapped[str | None] = mapped_column(Text)
     source_key: Mapped[str] = mapped_column(String(768), nullable=False)
-    import_batch_id: Mapped[int] = mapped_column(ForeignKey("import_batches.import_batch_id"), nullable=False)
+    import_batch_id: Mapped[int] = mapped_column(
+        ForeignKey("import_batches.import_batch_id"), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     security = relationship("Security", back_populates="transactions")

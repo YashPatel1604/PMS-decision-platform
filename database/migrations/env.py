@@ -10,6 +10,7 @@ from pms_platform.models import (  # noqa: F401
     ImportBatch,
     InvestmentEpisode,
     LiquidTransaction,
+    PortfolioSnapshotRecord,
     Security,
     Transaction,
 )

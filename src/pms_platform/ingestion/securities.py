@@ -78,8 +78,10 @@ def import_security_master(session: Session, path: Path) -> SecurityImportResult
         if security_id is None or portfolio_name is None:
             continue
 
-        bse_text = str(int(bse_code)) if isinstance(bse_code, (int, float)) else (
-            str(bse_code).strip() if bse_code is not None else None
+        bse_text = (
+            str(int(bse_code))
+            if isinstance(bse_code, (int, float))
+            else (str(bse_code).strip() if bse_code is not None else None)
         )
 
         existing = session.get(Security, str(security_id).strip())
@@ -88,14 +90,18 @@ def import_security_master(session: Session, path: Path) -> SecurityImportResult
             "portfolio_name": str(portfolio_name).strip(),
             "canonical_name": str(canonical_name).strip() if canonical_name else None,
             "current_nse_symbol": str(current_nse_symbol).strip() if current_nse_symbol else None,
-            "historical_nse_symbol": str(historical_nse_symbol).strip() if historical_nse_symbol else None,
+            "historical_nse_symbol": str(historical_nse_symbol).strip()
+            if historical_nse_symbol
+            else None,
             "bse_code": bse_text,
             "isin": str(isin).strip() if isin else None,
             "status": str(status).strip() if status else None,
             "corporate_history": str(corporate_history).strip() if corporate_history else None,
             "sector": str(sector).strip() if sector else None,
             "industry": str(industry).strip() if industry else None,
-            "verification_status": str(verification_status).strip() if verification_status else None,
+            "verification_status": str(verification_status).strip()
+            if verification_status
+            else None,
             "import_batch_id": batch.import_batch_id,
         }
 

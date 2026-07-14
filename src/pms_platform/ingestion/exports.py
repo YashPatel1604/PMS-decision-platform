@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from pms_platform.ingestion.validators import ValidationIssue
 from pms_platform.models import DecisionEvent, InvestmentEpisode
+from pms_platform.portfolio.types import LiquidPosition, PortfolioPosition, ReconciliationMismatch
 
 
 def export_episodes_csv(session: Session, path: Path) -> None:
@@ -119,5 +120,88 @@ def export_validation_report_csv(issues: list[ValidationIssue], path: Path) -> N
                     "security_id": issue.security_id or "",
                     "source_key": issue.source_key or "",
                     "event_date": issue.event_date.isoformat() if issue.event_date else "",
+                }
+            )
+
+
+def export_portfolio_csv(
+    positions: list[PortfolioPosition],
+    liquid: LiquidPosition | None,
+    path: Path,
+) -> None:
+    """Export reconstructed portfolio holdings to CSV."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "holding_type",
+        "security_id",
+        "portfolio_name",
+        "quantity",
+        "cost_basis",
+        "market_price",
+        "market_value",
+        "portfolio_weight",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for position in positions:
+            writer.writerow(
+                {
+                    "holding_type": "equity",
+                    "security_id": position.security_id,
+                    "portfolio_name": position.portfolio_name,
+                    "quantity": position.quantity,
+                    "cost_basis": position.cost_basis,
+                    "market_price": position.market_price,
+                    "market_value": position.market_value,
+                    "portfolio_weight": position.portfolio_weight,
+                }
+            )
+        if liquid is not None:
+            writer.writerow(
+                {
+                    "holding_type": "liquid",
+                    "security_id": "",
+                    "portfolio_name": "LiquidCase",
+                    "quantity": liquid.quantity,
+                    "cost_basis": liquid.cost_basis,
+                    "market_price": liquid.market_price,
+                    "market_value": liquid.market_value,
+                    "portfolio_weight": "",
+                }
+            )
+
+
+def export_reconciliation_report_csv(mismatches: list[ReconciliationMismatch], path: Path) -> None:
+    """Export snapshot reconciliation mismatches to CSV."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "severity",
+        "snapshot_date",
+        "security_id",
+        "portfolio_name",
+        "reconstructed_quantity",
+        "snapshot_quantity",
+        "difference",
+        "source_file",
+        "source_sheet",
+        "message",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for mismatch in mismatches:
+            writer.writerow(
+                {
+                    "severity": mismatch.severity,
+                    "snapshot_date": mismatch.snapshot_date.isoformat(),
+                    "security_id": mismatch.security_id or "",
+                    "portfolio_name": mismatch.portfolio_name,
+                    "reconstructed_quantity": mismatch.reconstructed_quantity,
+                    "snapshot_quantity": mismatch.snapshot_quantity,
+                    "difference": mismatch.difference,
+                    "source_file": mismatch.source_file,
+                    "source_sheet": mismatch.source_sheet,
+                    "message": mismatch.message,
                 }
             )

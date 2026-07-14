@@ -44,7 +44,9 @@ def _opens_episode(event_type: EventType, position_before: int, position_after: 
     return event_type in EPISODE_ENTRY_CORPORATE_ACTIONS
 
 
-def _decision_type_for(event_type: EventType, position_before: int, position_after: int) -> DecisionType:
+def _decision_type_for(
+    event_type: EventType, position_before: int, position_after: int
+) -> DecisionType:
     """Map a transaction to a decision event type."""
     if event_type in EventType.corporate_actions():
         return DecisionType.CORPORATE_ACTION
@@ -139,7 +141,9 @@ def build_episodes(session: Session) -> tuple[list[InvestmentEpisode], list[Deci
 
         if accumulator is None and event_type in {EventType.SELL, EventType.BUY}:
             if not (event_type == EventType.SELL and position_before == 0):
-                msg = f"Transaction outside active episode for {txn.security_id} on {txn.event_date}"
+                msg = (
+                    f"Transaction outside active episode for {txn.security_id} on {txn.event_date}"
+                )
                 raise ValueError(msg)
 
         if accumulator is not None:

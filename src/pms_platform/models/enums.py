@@ -18,7 +18,9 @@ class EventType(StrEnum):
     @classmethod
     def corporate_actions(cls) -> frozenset["EventType"]:
         """Return event types treated as corporate actions."""
-        return frozenset({cls.SPLIT, cls.BONUS, cls.RIGHTS, cls.DEMERGER, cls.MERGER, cls.CONVERSION})
+        return frozenset(
+            {cls.SPLIT, cls.BONUS, cls.RIGHTS, cls.DEMERGER, cls.MERGER, cls.CONVERSION}
+        )
 
     @classmethod
     def from_workbook(cls, value: str) -> "EventType":

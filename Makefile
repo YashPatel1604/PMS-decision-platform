@@ -1,4 +1,4 @@
-.PHONY: install dev test lint typecheck format docker-up docker-down
+.PHONY: install dev test lint typecheck format docker-up docker-down import-all portfolio-on reconcile sync-raw reimport sync-import
 
 install:
 	uv sync
@@ -23,3 +23,23 @@ docker-up:
 
 docker-down:
 	docker compose down
+
+import-all:
+	uv run pms-platform import-all
+
+portfolio-on:
+	uv run pms-platform portfolio-on --date $(DATE)
+
+reconcile:
+	uv run pms-platform reconcile-snapshots
+
+# Copy OneDrive masters/snapshots → data/raw (read-only copies)
+sync-raw:
+	bash scripts/sync_raw_from_onedrive.sh
+
+# Clear DB imports and reload from data/raw (needed after sync; checksum gates skip unchanged files)
+reimport:
+	uv run python scripts/reimport_from_raw.py
+
+# One-shot: sync from OneDrive then rebuild DB + reconciliation report
+sync-import: sync-raw reimport
