@@ -1,0 +1,64 @@
+[project]
+name = "pms-decision-platform"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Yash Patel", email = "107436541+YashPatel1604@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.18.5",
+    "cvxpy>=1.7.5",
+    "fastapi>=0.139.0",
+    "numpy>=2.2.6",
+    "openpyxl>=3.1.5",
+    "polars>=1.42.1",
+    "psycopg[binary]>=3.3.4",
+    "pydantic-settings>=2.14.2",
+    "scipy>=1.15.3",
+    "sqlalchemy>=2.0.51",
+    "uvicorn>=0.51.0",
+]
+
+[project.scripts]
+pms-platform = "pms_platform.cli:main"
+
+[tool.uv.build-backend]
+module-name = "pms_platform"
+module-root = "src"
+
+[build-system]
+requires = ["uv_build>=0.11.28,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.0",
+    "pre-commit>=4.6.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.21",
+    "types-openpyxl>=3.1.5.20260518",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+packages = ["pms_platform"]
+mypy_path = "src"
