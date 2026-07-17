@@ -1,0 +1,5 @@
+benchmark_code,trade_date,tri_level,source,publication_date,methodology_version
+BSE_SMALLCAP,2019-01-02,10000.00,fixture,2019-01-02,bse_price_index
+BSE_SMALLCAP,2019-01-03,10050.00,fixture,2019-01-03,bse_price_index
+BSE_SMALLCAP,2019-01-05,10100.00,fixture,2019-01-05,bse_price_index
+BSE_SMALLCAP,2019-01-02,15000.00,fixture,2019-01-02,bse_price_index

@@ -1,4 +1,4 @@
-.PHONY: install dev test lint typecheck format docker-up docker-down import-all portfolio-on reconcile sync-raw reimport sync-import
+.PHONY: install dev test lint typecheck format docker-up docker-down import-all portfolio-on reconcile sync-raw reimport sync-import sync-external import-market-data market-data-coverage
 
 install:
 	uv sync
@@ -43,3 +43,13 @@ reimport:
 
 # One-shot: sync from OneDrive then rebuild DB + reconciliation report
 sync-import: sync-raw reimport
+
+# Copy OneDrive external market-data CSVs → data/external
+sync-external:
+	bash scripts/sync_external_from_onedrive.sh
+
+import-market-data:
+	uv run pms-platform import-market-data
+
+market-data-coverage:
+	uv run pms-platform market-data-coverage

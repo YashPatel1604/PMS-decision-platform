@@ -24,6 +24,16 @@ from pms_platform.ingestion.securities import import_security_master
 from pms_platform.ingestion.snapshots import import_portfolio_snapshots
 from pms_platform.ingestion.transactions import import_transaction_master
 from pms_platform.ingestion.validators import ValidationSeverity, validate_imported_data
+from pms_platform.market_data.coverage import (
+    build_benchmark_coverage_report,
+    build_price_coverage_report,
+    export_benchmark_coverage_report,
+    export_price_coverage_report,
+    summarize_benchmark_inventory,
+    summarize_price_inventory,
+)
+from pms_platform.market_data.importer import import_market_data
+from pms_platform.market_data.validation import compare_prices_to_snapshots
 from pms_platform.portfolio.cash_engine import liquid_on
 from pms_platform.portfolio.position_engine import portfolio_on
 from pms_platform.portfolio.reconciliation import reconcile_all_snapshots
@@ -174,6 +184,88 @@ def reconcile_snapshots(snapshot_dir: Path | None = None, export_dir: Path | Non
         session.close()
 
 
+def import_market_data_cmd(external_dir: Path | None = None) -> int:
+    """Import canonical market-data CSV files from the external data directory."""
+    data_dir = external_dir or settings.external_data_dir
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        result = import_market_data(session, data_dir)
+        session.commit()
+
+        print("Market-data import complete.")
+        if result.successors is not None:
+            print(
+                f"  Successors: inserted={result.successors.inserted}, "
+                f"skipped={result.successors.skipped}, invalid={result.successors.invalid}"
+            )
+        if result.prices is not None:
+            print(
+                f"  Prices: inserted={result.prices.inserted}, skipped={result.prices.skipped}, "
+                f"unresolved={result.prices.unresolved}, invalid={result.prices.invalid}"
+            )
+        if result.dividends is not None:
+            print(
+                f"  Dividends: inserted={result.dividends.inserted}, "
+                f"skipped={result.dividends.skipped}, unresolved={result.dividends.unresolved}, "
+                f"invalid={result.dividends.invalid}"
+            )
+        if result.benchmarks is not None:
+            print(
+                f"  Benchmarks: inserted={result.benchmarks.inserted}, "
+                f"skipped={result.benchmarks.skipped}, invalid={result.benchmarks.invalid}"
+            )
+        if result.missing_files:
+            print("  Missing files:")
+            for missing in result.missing_files:
+                print(f"    - {missing}")
+        return 0
+    except Exception as exc:
+        session.rollback()
+        print(f"Market-data import failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
+def market_data_coverage(export_dir: Path | None = None) -> int:
+    """Export price and benchmark coverage reports."""
+    output_dir = export_dir or settings.export_dir
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        price_rows = build_price_coverage_report(session)
+        benchmark_rows = build_benchmark_coverage_report(session)
+        export_price_coverage_report(price_rows, output_dir / "price_coverage_report.csv")
+        export_benchmark_coverage_report(
+            benchmark_rows, output_dir / "benchmark_coverage_report.csv"
+        )
+
+        price_insufficient = sum(1 for row in price_rows if row.quality_status == "INSUFFICIENT")
+        benchmark_insufficient = sum(
+            1 for row in benchmark_rows if row.quality_status == "INSUFFICIENT"
+        )
+        snapshot_discrepancies = compare_prices_to_snapshots(session)
+
+        print("Market-data coverage report complete.")
+        print(f"  Price requirements: {len(price_rows)} ({price_insufficient} insufficient)")
+        print(
+            f"  Benchmark requirements: {len(benchmark_rows)} "
+            f"({benchmark_insufficient} insufficient)"
+        )
+        print(f"  Price inventory securities: {len(summarize_price_inventory(session))}")
+        print(f"  Benchmark inventory series: {len(summarize_benchmark_inventory(session))}")
+        print(f"  Snapshot price discrepancies: {len(snapshot_discrepancies)}")
+        print(f"  Price report: {(output_dir / 'price_coverage_report.csv').resolve()}")
+        print(f"  Benchmark report: {(output_dir / 'benchmark_coverage_report.csv').resolve()}")
+        return 0
+    except Exception as exc:
+        print(f"Market-data coverage failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
 def main() -> None:
     """Parse CLI arguments and dispatch commands."""
     parser = argparse.ArgumentParser(description="PMS Decision Platform")
@@ -214,6 +306,23 @@ def main() -> None:
     reconcile_parser.add_argument("--snapshot-dir", type=Path, default=None)
     reconcile_parser.add_argument("--export-dir", type=Path, default=None)
 
+    market_import_parser = subparsers.add_parser(
+        "import-market-data",
+        help="Import canonical market-data CSV files from data/external",
+    )
+    market_import_parser.add_argument(
+        "--external-dir",
+        type=Path,
+        default=None,
+        help="Directory containing canonical market-data CSV files",
+    )
+
+    market_coverage_parser = subparsers.add_parser(
+        "market-data-coverage",
+        help="Export price and benchmark coverage reports",
+    )
+    market_coverage_parser.add_argument("--export-dir", type=Path, default=None)
+
     args = parser.parse_args()
     if args.command == "import-all":
         raise SystemExit(import_all(args.export_dir))
@@ -223,6 +332,10 @@ def main() -> None:
         raise SystemExit(portfolio_on_date(args.date, args.export_dir))
     if args.command == "reconcile-snapshots":
         raise SystemExit(reconcile_snapshots(args.snapshot_dir, args.export_dir))
+    if args.command == "import-market-data":
+        raise SystemExit(import_market_data_cmd(args.external_dir))
+    if args.command == "market-data-coverage":
+        raise SystemExit(market_data_coverage(args.export_dir))
 
 
 if __name__ == "__main__":

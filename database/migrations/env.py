@@ -6,12 +6,17 @@ from sqlalchemy import engine_from_config, pool
 from pms_platform.config import settings
 from pms_platform.db.base import Base
 from pms_platform.models import (  # noqa: F401
+    BenchmarkTri,
+    DailyPrice,
     DecisionEvent,
+    Dividend,
     ImportBatch,
     InvestmentEpisode,
     LiquidTransaction,
     PortfolioSnapshotRecord,
     Security,
+    SecuritySuccessor,
+    SecuritySymbolHistory,
     Transaction,
 )
 
