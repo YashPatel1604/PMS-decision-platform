@@ -1,10 +1,15 @@
-.PHONY: install dev test lint typecheck format docker-up docker-down import-all portfolio-on reconcile sync-raw reimport sync-import sync-external import-market-data market-data-coverage analyze-episodes
+.PHONY: install dev dev-api dev-ui test lint typecheck format docker-up docker-down import-all portfolio-on reconcile sync-raw reimport sync-import sync-external import-market-data market-data-coverage analyze-episodes
 
 install:
 	uv sync
 
-dev:
-	uv run uvicorn pms_platform.api.main:app --reload
+dev-api:
+	uv run uvicorn pms_platform.api.main:app --reload --host 127.0.0.1 --port 8000
+
+dev-ui:
+	cd app && pnpm dev
+
+dev: dev-api
 
 test:
 	uv run pytest
