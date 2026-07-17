@@ -21,6 +21,14 @@ from pms_platform.models import (
 router = APIRouter()
 
 
+def _exit_outcome(profit_loss: float) -> str:
+    if profit_loss > 0:
+        return "PROFIT_STOCK"
+    if profit_loss < 0:
+        return "LOSS_STOCK"
+    return "BREAKEVEN"
+
+
 def get_db() -> Generator[Session, None, None]:
     """Provide a database session for API handlers."""
     session = get_session_factory()()
@@ -39,6 +47,9 @@ class EpisodePerformanceResponse(BaseModel):
     holding_days: int
     total_invested: float
     total_profit_loss: float
+    exit_outcome: str
+    average_buy_price: float | None
+    average_sell_price: float | None
     total_return_pct: float | None
     stock_xirr: float | None
     portfolio_return_pct: float | None
@@ -46,8 +57,23 @@ class EpisodePerformanceResponse(BaseModel):
     excess_vs_smallcap: float | None
     excess_vs_portfolio: float | None
     max_drawdown: float | None
+    peak_price_during_hold: float | None
+    peak_price_date: str | None
+    exit_adjusted_close: float | None
+    missed_upside_vs_peak_pct: float | None
     days_below_cost: int | None
     days_underperforming_benchmark: int | None
+    first_below_cost_date: str | None
+    days_held_after_first_loss: int | None
+    calendar_days_held_after_first_loss: int | None
+    was_profitable_before_loss: bool | None
+    loss_hold_pattern: str | None
+    comparison_date: str | None
+    security_return_after_exit: float | None
+    portfolio_return_after_exit: float | None
+    smallcap_return_after_exit: float | None
+    excess_vs_smallcap_after_exit: float | None
+    excess_vs_portfolio_after_exit: float | None
     exit_assessment: str | None
     assessment_reason: str | None
     data_quality_status: str
@@ -78,7 +104,24 @@ def _performance_response(
     row: EpisodePerformance,
     portfolio_name: str,
     assessment: SellAssessment | None,
+    post_exit: PostExitPerformance | None = None,
 ) -> EpisodePerformanceResponse:
+    profit_loss = float(row.total_profit_loss)
+    stock_after = (
+        float(post_exit.security_return_after_exit)
+        if post_exit and post_exit.security_return_after_exit is not None
+        else None
+    )
+    portfolio_after = (
+        float(post_exit.portfolio_return_after_exit)
+        if post_exit and post_exit.portfolio_return_after_exit is not None
+        else None
+    )
+    smallcap_after = (
+        float(post_exit.smallcap_return_after_exit)
+        if post_exit and post_exit.smallcap_return_after_exit is not None
+        else None
+    )
     return EpisodePerformanceResponse(
         episode_id=row.episode_id,
         security_id=row.security_id,
@@ -87,7 +130,14 @@ def _performance_response(
         exit_date=row.exit_date.isoformat(),
         holding_days=row.holding_days,
         total_invested=float(row.total_invested),
-        total_profit_loss=float(row.total_profit_loss),
+        total_profit_loss=profit_loss,
+        exit_outcome=_exit_outcome(profit_loss),
+        average_buy_price=(
+            float(row.average_buy_price) if row.average_buy_price is not None else None
+        ),
+        average_sell_price=(
+            float(row.average_sell_price) if row.average_sell_price is not None else None
+        ),
         total_return_pct=float(row.total_return_pct) if row.total_return_pct else None,
         stock_xirr=float(row.stock_xirr) if row.stock_xirr else None,
         portfolio_return_pct=float(row.portfolio_return_pct) if row.portfolio_return_pct else None,
@@ -95,8 +145,45 @@ def _performance_response(
         excess_vs_smallcap=float(row.excess_vs_smallcap) if row.excess_vs_smallcap else None,
         excess_vs_portfolio=float(row.excess_vs_portfolio) if row.excess_vs_portfolio else None,
         max_drawdown=float(row.max_drawdown) if row.max_drawdown else None,
+        peak_price_during_hold=(
+            float(row.peak_price_during_hold) if row.peak_price_during_hold is not None else None
+        ),
+        peak_price_date=row.peak_price_date.isoformat() if row.peak_price_date else None,
+        exit_adjusted_close=(
+            float(row.exit_adjusted_close) if row.exit_adjusted_close is not None else None
+        ),
+        missed_upside_vs_peak_pct=(
+            float(row.missed_upside_vs_peak_pct)
+            if row.missed_upside_vs_peak_pct is not None
+            else None
+        ),
         days_below_cost=row.days_below_cost,
         days_underperforming_benchmark=row.days_underperforming_benchmark,
+        first_below_cost_date=(
+            row.first_below_cost_date.isoformat() if row.first_below_cost_date else None
+        ),
+        days_held_after_first_loss=row.days_held_after_first_loss,
+        calendar_days_held_after_first_loss=row.calendar_days_held_after_first_loss,
+        was_profitable_before_loss=row.was_profitable_before_loss,
+        loss_hold_pattern=row.loss_hold_pattern,
+        comparison_date=(
+            post_exit.comparison_date.isoformat()
+            if post_exit and post_exit.comparison_date
+            else None
+        ),
+        security_return_after_exit=stock_after,
+        portfolio_return_after_exit=portfolio_after,
+        smallcap_return_after_exit=smallcap_after,
+        excess_vs_smallcap_after_exit=(
+            float(post_exit.excess_vs_smallcap_after_exit)
+            if post_exit and post_exit.excess_vs_smallcap_after_exit is not None
+            else None
+        ),
+        excess_vs_portfolio_after_exit=(
+            stock_after - portfolio_after
+            if stock_after is not None and portfolio_after is not None
+            else None
+        ),
         exit_assessment=assessment.exit_assessment if assessment else None,
         assessment_reason=assessment.assessment_reason if assessment else None,
         data_quality_status=row.data_quality_status,
@@ -126,6 +213,9 @@ def list_episode_performance(
     assessments = {
         row.episode_id: row for row in session.scalars(select(SellAssessment)).all()
     }
+    post_exit_by_episode = {
+        row.episode_id: row for row in session.scalars(select(PostExitPerformance)).all()
+    }
     rows = session.scalars(
         select(EpisodePerformance).order_by(
             EpisodePerformance.exit_date.desc(),
@@ -139,6 +229,7 @@ def list_episode_performance(
             if row.security_id in securities
             else row.security_id,
             assessments.get(row.episode_id),
+            post_exit_by_episode.get(row.episode_id),
         )
         for row in rows
     ]
@@ -159,10 +250,14 @@ def get_episode_performance(
     assessment = session.scalar(
         select(SellAssessment).where(SellAssessment.episode_id == episode_id)
     )
+    post_exit = session.scalar(
+        select(PostExitPerformance).where(PostExitPerformance.episode_id == episode_id)
+    )
     return _performance_response(
         row,
         security.portfolio_name if security else row.security_id,
         assessment,
+        post_exit,
     )
 
 

@@ -10,20 +10,25 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from pms_platform.analytics.benchmark import compute_benchmark_period_return, primary_benchmark_code
+from pms_platform.analytics.exit_assessment import ExitAssessmentInput, assess_exit_quality
 from pms_platform.analytics.portfolio_value import (
     compute_portfolio_period_return,
     list_security_trading_dates,
 )
 from pms_platform.analytics.successor_chain import resolve_price_security_id
 from pms_platform.market_data.lookup import lookup_daily_price
-from pms_platform.models import DailyPrice, InvestmentEpisode, PostExitPerformance, SellAssessment
+from pms_platform.models import (
+    DailyPrice,
+    EpisodePerformance,
+    InvestmentEpisode,
+    PostExitPerformance,
+    SellAssessment,
+)
 from pms_platform.models.enums import EpisodeStatus
 
 _HUNDRED = Decimal("100")
 _ONE = Decimal("1")
 _ZERO = Decimal("0")
-_PREMATURE_EXCESS_THRESHOLD = Decimal("15")
-_LOSS_AVOIDED_THRESHOLD = Decimal("-10")
 
 
 @dataclass(frozen=True)
@@ -66,61 +71,6 @@ def _price_path_extremes(
     return max_gain, max_loss
 
 
-def assess_exit_quality(
-    *,
-    security_return_after_exit: Decimal | None,
-    benchmark_return_after_exit: Decimal | None,
-    maximum_gain_after_exit: Decimal | None,
-    maximum_loss_after_exit: Decimal | None,
-    data_quality_status: str,
-) -> tuple[str, str]:
-    """Return an explainable exit assessment label and reason."""
-    if data_quality_status != "OK" or security_return_after_exit is None:
-        return "INSUFFICIENT_DATA", "Missing post-exit price history"
-
-    reasons: list[str] = []
-
-    if (
-        maximum_loss_after_exit is not None
-        and maximum_loss_after_exit <= _LOSS_AVOIDED_THRESHOLD
-        and security_return_after_exit <= _ZERO
-    ):
-        return (
-            "LOSS_AVOIDED",
-            f"Security fell up to {maximum_loss_after_exit:.2f}% after exit",
-        )
-
-    if (
-        benchmark_return_after_exit is not None
-        and security_return_after_exit - benchmark_return_after_exit
-        > _PREMATURE_EXCESS_THRESHOLD
-        and security_return_after_exit > _ZERO
-    ):
-        return (
-            "PREMATURE_EXIT",
-            (
-                f"Security returned {security_return_after_exit:.2f}% after exit "
-                f"versus benchmark {benchmark_return_after_exit:.2f}%"
-            ),
-        )
-
-    if (
-        maximum_gain_after_exit is not None
-        and security_return_after_exit < _ZERO
-        and maximum_gain_after_exit > _ZERO
-    ):
-        reasons.append("Exit preceded a later rebound")
-
-    if security_return_after_exit < _ZERO and (
-        maximum_loss_after_exit is None or maximum_loss_after_exit < security_return_after_exit
-    ):
-        return "GOOD_EXIT", f"Security continued lower after exit ({security_return_after_exit:.2f}%)"
-
-    if reasons:
-        return "NEUTRAL_EXIT", "; ".join(reasons)
-    return "NEUTRAL_EXIT", "No strong evidence of a good or premature exit"
-
-
 def analyze_post_exit_performance(session: Session) -> PostExitSummary:
     """Compute post-exit metrics and sell assessments for closed episodes."""
     session.execute(delete(SellAssessment))
@@ -134,12 +84,17 @@ def analyze_post_exit_performance(session: Session) -> PostExitSummary:
             InvestmentEpisode.exit_date.is_not(None),
         )
     ).all()
+    performance_by_episode = {
+        row.episode_id: row
+        for row in session.scalars(select(EpisodePerformance)).all()
+    }
 
     analyzed = 0
     insufficient = 0
 
     for episode in episodes:
         assert episode.exit_date is not None
+        ownership = performance_by_episode.get(episode.episode_id)
         price_security_id = resolve_price_security_id(
             session,
             episode.security_id,
@@ -157,11 +112,7 @@ def analyze_post_exit_performance(session: Session) -> PostExitSummary:
         else:
             exit_price = lookup_daily_price(session, price_security_id, episode.exit_date)
             end_price = lookup_daily_price(session, price_security_id, comparison_date)
-            if (
-                exit_price is None
-                or end_price is None
-                or exit_price.adjusted_close <= 0
-            ):
+            if exit_price is None or end_price is None or exit_price.adjusted_close <= 0:
                 insufficient += 1
                 status = "INSUFFICIENT"
                 security_return = None
@@ -192,7 +143,7 @@ def analyze_post_exit_performance(session: Session) -> PostExitSummary:
                     episode.exit_date,
                     comparison_date,
                 )
-                status = "OK" if benchmark is not None else "INSUFFICIENT"
+                status = "OK" if benchmark is not None and ownership is not None else "INSUFFICIENT"
                 if status == "OK":
                     analyzed += 1
                 else:
@@ -221,25 +172,46 @@ def analyze_post_exit_performance(session: Session) -> PostExitSummary:
                 excess_vs_smallcap_after_exit=excess_vs_smallcap,
                 maximum_gain_after_exit=max_gain,
                 maximum_loss_after_exit=max_loss,
-                calculation_version="m4-v2",
+                calculation_version="m4-v6",
                 data_quality_status=status,
             )
         )
 
-        assessment, reason = assess_exit_quality(
+        ownership_ok = ownership is not None and ownership.data_quality_status == "OK"
+        assessment_input = ExitAssessmentInput(
+            data_quality_status="OK" if status == "OK" and ownership_ok else "INSUFFICIENT",
+            holding_days=ownership.holding_days if ownership else 0,
+            total_return_pct=ownership.total_return_pct if ownership else None,
+            stock_xirr=ownership.stock_xirr if ownership else None,
+            stock_annualized_return_pct=ownership.stock_annualized_return_pct if ownership else None,
+            smallcap_return_pct=ownership.smallcap_return_pct if ownership else None,
+            smallcap_annualized_return_pct=(
+                ownership.smallcap_annualized_return if ownership else None
+            ),
+            portfolio_return_pct=ownership.portfolio_return_pct if ownership else None,
+            excess_vs_smallcap=ownership.excess_vs_smallcap if ownership else None,
+            excess_vs_portfolio=ownership.excess_vs_portfolio if ownership else None,
+            days_underperforming_benchmark=(
+                ownership.days_underperforming_benchmark if ownership else None
+            ),
+            ownership_trading_days=ownership.ownership_trading_days if ownership else None,
+            max_drawdown_pct=ownership.max_drawdown if ownership else None,
+            missed_upside_vs_peak_pct=ownership.missed_upside_vs_peak_pct if ownership else None,
             security_return_after_exit=security_return,
+            portfolio_return_after_exit=portfolio_return,
             benchmark_return_after_exit=benchmark_return,
             maximum_gain_after_exit=max_gain,
             maximum_loss_after_exit=max_loss,
-            data_quality_status=status,
         )
+        result = assess_exit_quality(assessment_input)
         session.add(
             SellAssessment(
                 episode_id=episode.episode_id,
-                exit_assessment=assessment,
-                assessment_reason=reason,
-                calculation_version="m4-v2",
-                data_quality_status=status if status == "OK" else "INSUFFICIENT",
+                exit_assessment=result.primary,
+                assessment_flags=",".join(result.flags),
+                assessment_reason=result.reason,
+                calculation_version="m4-v6",
+                data_quality_status=assessment_input.data_quality_status,
             )
         )
 

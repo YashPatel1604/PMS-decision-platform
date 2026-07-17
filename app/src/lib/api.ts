@@ -33,6 +33,39 @@ export type DashboardSummary = {
   post_exit_ok: number;
   post_exit_insufficient: number;
   assessment_counts: Record<string, number>;
+  flag_counts: Record<string, number>;
+};
+
+export type ExitInsightRow = {
+  episode_id: number;
+  security_id: string;
+  portfolio_name: string;
+  exit_date: string;
+  comparison_date: string | null;
+  holding_years: number;
+  exit_price: number | null;
+  peak_price: number | null;
+  peak_price_date: string | null;
+  ideal_exit_note: string | null;
+  missed_upside_vs_peak_pct: number | null;
+  total_return_pct: number | null;
+  exit_outcome: string;
+  first_below_cost_date: string | null;
+  days_held_after_first_loss: number | null;
+  calendar_days_held_after_first_loss: number | null;
+  loss_hold_pattern: string | null;
+  security_return_after_exit: number | null;
+  portfolio_return_after_exit: number | null;
+  smallcap_return_after_exit: number | null;
+  excess_vs_portfolio_after_exit: number | null;
+  excess_vs_smallcap_after_exit: number | null;
+  current_price: number | null;
+  current_price_date: string | null;
+  current_vs_exit_pct: number | null;
+  exit_assessment: string;
+  assessment_flags: string[];
+  assessment_reason: string;
+  post_exit_summary: string | null;
 };
 
 export type EpisodePerformance = {
@@ -44,6 +77,9 @@ export type EpisodePerformance = {
   holding_days: number;
   total_invested: number;
   total_profit_loss: number;
+  exit_outcome: string;
+  average_buy_price: number | null;
+  average_sell_price: number | null;
   total_return_pct: number | null;
   stock_xirr: number | null;
   portfolio_return_pct: number | null;
@@ -51,8 +87,22 @@ export type EpisodePerformance = {
   excess_vs_smallcap: number | null;
   excess_vs_portfolio: number | null;
   max_drawdown: number | null;
+  peak_price_during_hold: number | null;
+  peak_price_date: string | null;
+  exit_adjusted_close: number | null;
+  missed_upside_vs_peak_pct: number | null;
   days_below_cost: number | null;
   days_underperforming_benchmark: number | null;
+  first_below_cost_date: string | null;
+  days_held_after_first_loss: number | null;
+  calendar_days_held_after_first_loss: number | null;
+  loss_hold_pattern: string | null;
+  comparison_date: string | null;
+  security_return_after_exit: number | null;
+  portfolio_return_after_exit: number | null;
+  smallcap_return_after_exit: number | null;
+  excess_vs_smallcap_after_exit: number | null;
+  excess_vs_portfolio_after_exit: number | null;
   exit_assessment: string | null;
   assessment_reason: string | null;
   data_quality_status: string;
@@ -81,6 +131,7 @@ export type AnalysisRunResult = {
 
 export const api = {
   getSummary: () => request<DashboardSummary>("/dashboard/summary"),
+  getExitInsights: () => request<ExitInsightRow[]>("/dashboard/exit-insights"),
   listEpisodes: () => request<EpisodePerformance[]>("/episodes/performance"),
   getEpisode: (id: number) => request<EpisodePerformance>(`/episodes/performance/${id}`),
   getPostExit: (id: number) => request<PostExitPerformance>(`/episodes/post-exit/${id}`),

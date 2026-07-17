@@ -10,6 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from pms_platform.analytics.benchmark import compute_benchmark_period_return, primary_benchmark_code
+from pms_platform.analytics.exit_assessment import annualized_return_pct
 from pms_platform.analytics.cash_flows import build_episode_cash_flows
 from pms_platform.analytics.ownership_metrics import compute_ownership_metrics
 from pms_platform.analytics.portfolio_value import compute_portfolio_period_return
@@ -22,7 +23,7 @@ from pms_platform.models import (
 )
 from pms_platform.models.enums import EpisodeStatus
 
-CALCULATION_VERSION = "m4-v2"
+CALCULATION_VERSION = "m4-v9"
 _HUNDRED = Decimal("100")
 _ZERO = Decimal("0")
 
@@ -38,6 +39,33 @@ class EpisodeAnalysisSummary:
 
 def _holding_days(entry_date: date, exit_date: date) -> int:
     return max((exit_date - entry_date).days, 0)
+
+
+def _average_trade_prices(
+    events: list[DecisionEvent],
+) -> tuple[Decimal | None, Decimal | None]:
+    """Return VWAP buy and sell prices from decision-event trade prices."""
+    buy_value = _ZERO
+    buy_qty = _ZERO
+    sell_value = _ZERO
+    sell_qty = _ZERO
+
+    for event in events:
+        if event.price is None or event.price <= 0:
+            continue
+        qty = abs(Decimal(event.quantity_change))
+        if qty <= 0:
+            continue
+        if event.decision_type in {"INITIATE", "ADD"}:
+            buy_value += event.price * qty
+            buy_qty += qty
+        elif event.decision_type in {"REDUCE", "EXIT"}:
+            sell_value += event.price * qty
+            sell_qty += qty
+
+    avg_buy = buy_value / buy_qty if buy_qty > 0 else None
+    avg_sell = sell_value / sell_qty if sell_qty > 0 else None
+    return avg_buy, avg_sell
 
 
 def _summarize_cash_flows(flows: list) -> tuple[Decimal, Decimal, Decimal, Decimal]:
@@ -106,6 +134,7 @@ def analyze_closed_episodes(session: Session) -> EpisodeAnalysisSummary:
         cash_flow_rows += len(flows)
 
         invested, proceeds, dividends, profit_loss = _summarize_cash_flows(flows)
+        average_buy_price, average_sell_price = _average_trade_prices(events)
         cash_flow_pairs = [(flow.flow_date, flow.amount) for flow in flows]
         stock_xirr = compute_xirr(cash_flow_pairs)
         total_return_pct = _total_return_pct(profit_loss, invested)
@@ -129,8 +158,15 @@ def analyze_closed_episodes(session: Session) -> EpisodeAnalysisSummary:
             exit_date=episode.exit_date,
             events=events,
             benchmark_code=benchmark_code,
+            sold_at_loss=profit_loss < _ZERO,
         )
         all_notes = [*notes, *ownership.notes]
+
+        stock_annualized = (
+            annualized_return_pct(total_return_pct, holding_days)
+            if total_return_pct is not None
+            else None
+        )
 
         status = "OK"
         if notes or stock_xirr is None or benchmark is None:
@@ -158,6 +194,8 @@ def analyze_closed_episodes(session: Session) -> EpisodeAnalysisSummary:
                 total_sale_proceeds=proceeds,
                 dividends_received=dividends,
                 total_profit_loss=profit_loss,
+                average_buy_price=average_buy_price,
+                average_sell_price=average_sell_price,
                 total_return_pct=total_return_pct,
                 stock_xirr=stock_xirr,
                 portfolio_return_pct=portfolio.total_return_pct if portfolio else None,
@@ -172,6 +210,17 @@ def analyze_closed_episodes(session: Session) -> EpisodeAnalysisSummary:
                 max_unrealized_gain=ownership.max_unrealized_gain_pct,
                 days_below_cost=ownership.days_below_cost,
                 days_underperforming_benchmark=ownership.days_underperforming_benchmark,
+                first_below_cost_date=ownership.first_below_cost_date,
+                days_held_after_first_loss=ownership.days_held_after_first_loss,
+                calendar_days_held_after_first_loss=ownership.calendar_days_held_after_first_loss,
+                was_profitable_before_loss=ownership.was_profitable_before_loss,
+                loss_hold_pattern=ownership.loss_hold_pattern,
+                peak_price_during_hold=ownership.peak_price,
+                peak_price_date=ownership.peak_price_date,
+                exit_adjusted_close=ownership.exit_adjusted_close,
+                missed_upside_vs_peak_pct=ownership.missed_upside_vs_peak_pct,
+                stock_annualized_return_pct=stock_annualized,
+                ownership_trading_days=ownership.ownership_trading_days,
                 benchmark_code=benchmark_code if benchmark else None,
                 benchmark_start_level=benchmark.start_level if benchmark else None,
                 benchmark_end_level=benchmark.end_level if benchmark else None,

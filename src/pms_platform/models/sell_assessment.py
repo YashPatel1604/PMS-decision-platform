@@ -16,7 +16,8 @@ class SellAssessment(Base):
     episode_id: Mapped[int] = mapped_column(
         ForeignKey("investment_episodes.episode_id"), nullable=False
     )
-    exit_assessment: Mapped[str] = mapped_column(String(32), nullable=False)
+    exit_assessment: Mapped[str] = mapped_column(String(64), nullable=False)
+    assessment_flags: Mapped[str | None] = mapped_column(String(256))
     assessment_reason: Mapped[str] = mapped_column(Text, nullable=False)
     calculation_version: Mapped[str] = mapped_column(String(32), nullable=False)
     data_quality_status: Mapped[str] = mapped_column(String(32), nullable=False)
