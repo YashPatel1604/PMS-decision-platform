@@ -10,6 +10,8 @@ from pms_platform.models import (  # noqa: F401
     DailyPrice,
     DecisionEvent,
     Dividend,
+    EpisodeCashFlowRecord,
+    EpisodePerformance,
     ImportBatch,
     InvestmentEpisode,
     LiquidTransaction,

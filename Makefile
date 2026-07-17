@@ -1,4 +1,4 @@
-.PHONY: install dev test lint typecheck format docker-up docker-down import-all portfolio-on reconcile sync-raw reimport sync-import sync-external import-market-data market-data-coverage
+.PHONY: install dev test lint typecheck format docker-up docker-down import-all portfolio-on reconcile sync-raw reimport sync-import sync-external import-market-data market-data-coverage analyze-episodes
 
 install:
 	uv sync
@@ -53,3 +53,6 @@ import-market-data:
 
 market-data-coverage:
 	uv run pms-platform market-data-coverage
+
+analyze-episodes:
+	uv run pms-platform analyze-episodes

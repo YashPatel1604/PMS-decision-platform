@@ -18,6 +18,7 @@ def add_transaction(
     quantity: int,
     source_row: int,
     price: Decimal | None = None,
+    amount: Decimal | None = None,
 ) -> Transaction:
     """Insert a test transaction row."""
     source_key = f"test.xlsx|Sheet1|{source_row}"
@@ -27,6 +28,7 @@ def add_transaction(
         event_type=event_type.value,
         quantity=quantity,
         price=price,
+        amount=amount,
         source_file="test.xlsx",
         source_sheet="Sheet1",
         source_row=source_row,

@@ -10,6 +10,11 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 
+from pms_platform.analytics.episode_performance import analyze_closed_episodes
+from pms_platform.analytics.exports import (
+    export_episode_cash_flows_csv,
+    export_episode_performance_csv,
+)
 from pms_platform.config import settings
 from pms_platform.db.base import get_session_factory
 from pms_platform.episodes.builder import build_episodes
@@ -266,6 +271,31 @@ def market_data_coverage(export_dir: Path | None = None) -> int:
         session.close()
 
 
+def analyze_episodes(export_dir: Path | None = None) -> int:
+    """Compute closed-episode performance metrics and export CSV outputs."""
+    output_dir = export_dir or settings.export_dir
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        summary = analyze_closed_episodes(session)
+        export_episode_performance_csv(session, output_dir / "episode_performance.csv")
+        export_episode_cash_flows_csv(session, output_dir / "episode_cash_flows.csv")
+        session.commit()
+        print("Episode analysis complete.")
+        print(f"  Closed episodes OK: {summary.analyzed}")
+        print(f"  Closed episodes insufficient: {summary.insufficient}")
+        print(f"  Cash-flow rows: {summary.cash_flow_rows}")
+        print(f"  Performance report: {(output_dir / 'episode_performance.csv').resolve()}")
+        print(f"  Cash-flow report: {(output_dir / 'episode_cash_flows.csv').resolve()}")
+        return 0
+    except Exception as exc:
+        session.rollback()
+        print(f"Episode analysis failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
 def main() -> None:
     """Parse CLI arguments and dispatch commands."""
     parser = argparse.ArgumentParser(description="PMS Decision Platform")
@@ -323,6 +353,12 @@ def main() -> None:
     )
     market_coverage_parser.add_argument("--export-dir", type=Path, default=None)
 
+    analyze_parser = subparsers.add_parser(
+        "analyze-episodes",
+        help="Compute closed-episode performance and export CSV outputs",
+    )
+    analyze_parser.add_argument("--export-dir", type=Path, default=None)
+
     args = parser.parse_args()
     if args.command == "import-all":
         raise SystemExit(import_all(args.export_dir))
@@ -336,6 +372,8 @@ def main() -> None:
         raise SystemExit(import_market_data_cmd(args.external_dir))
     if args.command == "market-data-coverage":
         raise SystemExit(market_data_coverage(args.export_dir))
+    if args.command == "analyze-episodes":
+        raise SystemExit(analyze_episodes(args.export_dir))
 
 
 if __name__ == "__main__":
