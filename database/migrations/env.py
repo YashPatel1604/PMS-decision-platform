@@ -16,9 +16,11 @@ from pms_platform.models import (  # noqa: F401
     InvestmentEpisode,
     LiquidTransaction,
     PortfolioSnapshotRecord,
+    PostExitPerformance,
     Security,
     SecuritySuccessor,
     SecuritySymbolHistory,
+    SellAssessment,
     Transaction,
 )
 

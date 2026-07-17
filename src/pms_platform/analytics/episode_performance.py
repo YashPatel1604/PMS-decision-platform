@@ -11,22 +11,20 @@ from sqlalchemy.orm import Session
 
 from pms_platform.analytics.benchmark import compute_benchmark_period_return, primary_benchmark_code
 from pms_platform.analytics.cash_flows import build_episode_cash_flows
+from pms_platform.analytics.ownership_metrics import compute_ownership_metrics
+from pms_platform.analytics.portfolio_value import compute_portfolio_period_return
 from pms_platform.analytics.xirr import compute_xirr
-from pms_platform.models import DecisionEvent, EpisodeCashFlowRecord, EpisodePerformance, InvestmentEpisode
+from pms_platform.models import (
+    DecisionEvent,
+    EpisodeCashFlowRecord,
+    EpisodePerformance,
+    InvestmentEpisode,
+)
 from pms_platform.models.enums import EpisodeStatus
 
-CALCULATION_VERSION = "m4-v1"
+CALCULATION_VERSION = "m4-v2"
 _HUNDRED = Decimal("100")
 _ZERO = Decimal("0")
-
-
-@dataclass(frozen=True)
-class EpisodeAnalysisResult:
-    """Outcome of analyzing one closed episode."""
-
-    episode_id: int
-    cash_flow_count: int
-    data_quality_status: str
 
 
 @dataclass(frozen=True)
@@ -119,6 +117,20 @@ def analyze_closed_episodes(session: Session) -> EpisodeAnalysisSummary:
             start_date=episode.entry_date,
             end_date=episode.exit_date,
         )
+        portfolio = compute_portfolio_period_return(
+            session,
+            start_date=episode.entry_date,
+            end_date=episode.exit_date,
+        )
+        ownership = compute_ownership_metrics(
+            session,
+            security_id=episode.security_id,
+            entry_date=episode.entry_date,
+            exit_date=episode.exit_date,
+            events=events,
+            benchmark_code=benchmark_code,
+        )
+        all_notes = [*notes, *ownership.notes]
 
         status = "OK"
         if notes or stock_xirr is None or benchmark is None:
@@ -130,6 +142,10 @@ def analyze_closed_episodes(session: Session) -> EpisodeAnalysisSummary:
         excess_vs_smallcap = None
         if total_return_pct is not None and benchmark is not None:
             excess_vs_smallcap = total_return_pct - benchmark.total_return_pct
+
+        excess_vs_portfolio = None
+        if total_return_pct is not None and portfolio is not None:
+            excess_vs_portfolio = total_return_pct - portfolio.total_return_pct
 
         session.add(
             EpisodePerformance(
@@ -144,15 +160,24 @@ def analyze_closed_episodes(session: Session) -> EpisodeAnalysisSummary:
                 total_profit_loss=profit_loss,
                 total_return_pct=total_return_pct,
                 stock_xirr=stock_xirr,
+                portfolio_return_pct=portfolio.total_return_pct if portfolio else None,
+                portfolio_annualized_return=(
+                    portfolio.annualized_return_pct if portfolio else None
+                ),
+                excess_vs_portfolio=excess_vs_portfolio,
                 smallcap_return_pct=benchmark.total_return_pct if benchmark else None,
                 smallcap_annualized_return=benchmark.annualized_return_pct if benchmark else None,
                 excess_vs_smallcap=excess_vs_smallcap,
+                max_drawdown=ownership.max_drawdown_pct,
+                max_unrealized_gain=ownership.max_unrealized_gain_pct,
+                days_below_cost=ownership.days_below_cost,
+                days_underperforming_benchmark=ownership.days_underperforming_benchmark,
                 benchmark_code=benchmark_code if benchmark else None,
                 benchmark_start_level=benchmark.start_level if benchmark else None,
                 benchmark_end_level=benchmark.end_level if benchmark else None,
                 calculation_version=CALCULATION_VERSION,
                 data_quality_status=status,
-                data_quality_notes="; ".join(notes) if notes else None,
+                data_quality_notes="; ".join(all_notes) if all_notes else None,
             )
         )
 

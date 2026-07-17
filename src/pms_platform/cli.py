@@ -10,11 +10,14 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 
-from pms_platform.analytics.episode_performance import analyze_closed_episodes
 from pms_platform.analytics.exports import (
     export_episode_cash_flows_csv,
     export_episode_performance_csv,
+    export_post_exit_performance_csv,
+    export_sell_assessments_csv,
+    export_sell_since_workbook,
 )
+from pms_platform.analytics.service import run_full_episode_analysis
 from pms_platform.config import settings
 from pms_platform.db.base import get_session_factory
 from pms_platform.episodes.builder import build_episodes
@@ -277,16 +280,23 @@ def analyze_episodes(export_dir: Path | None = None) -> int:
     _ensure_schema()
     session = get_session_factory()()
     try:
-        summary = analyze_closed_episodes(session)
+        summary = run_full_episode_analysis(session)
         export_episode_performance_csv(session, output_dir / "episode_performance.csv")
         export_episode_cash_flows_csv(session, output_dir / "episode_cash_flows.csv")
+        export_post_exit_performance_csv(session, output_dir / "post_exit_performance.csv")
+        export_sell_assessments_csv(session, output_dir / "sell_assessments.csv")
+        export_sell_since_workbook(session, output_dir / "sell_since_analysis.xlsx")
         session.commit()
         print("Episode analysis complete.")
-        print(f"  Closed episodes OK: {summary.analyzed}")
-        print(f"  Closed episodes insufficient: {summary.insufficient}")
+        print(f"  Ownership OK: {summary.ownership_ok}")
+        print(f"  Ownership insufficient: {summary.ownership_insufficient}")
+        print(f"  Post-exit OK: {summary.post_exit_ok}")
+        print(f"  Post-exit insufficient: {summary.post_exit_insufficient}")
         print(f"  Cash-flow rows: {summary.cash_flow_rows}")
         print(f"  Performance report: {(output_dir / 'episode_performance.csv').resolve()}")
-        print(f"  Cash-flow report: {(output_dir / 'episode_cash_flows.csv').resolve()}")
+        print(f"  Post-exit report: {(output_dir / 'post_exit_performance.csv').resolve()}")
+        print(f"  Sell assessments: {(output_dir / 'sell_assessments.csv').resolve()}")
+        print(f"  Excel workbook: {(output_dir / 'sell_since_analysis.xlsx').resolve()}")
         return 0
     except Exception as exc:
         session.rollback()

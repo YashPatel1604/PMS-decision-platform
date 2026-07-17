@@ -9,6 +9,8 @@ from pms_platform.models.episode_cash_flow import EpisodeCashFlowRecord
 from pms_platform.models.episode_performance import EpisodePerformance
 from pms_platform.models.import_batch import ImportBatch
 from pms_platform.models.liquid_transaction import LiquidTransaction
+from pms_platform.models.post_exit_performance import PostExitPerformance
+from pms_platform.models.sell_assessment import SellAssessment
 from pms_platform.models.security import Security
 from pms_platform.models.security_successor import SecuritySuccessor
 from pms_platform.models.security_symbol_history import SecuritySymbolHistory
@@ -26,8 +28,10 @@ __all__ = [
     "InvestmentEpisode",
     "LiquidTransaction",
     "PortfolioSnapshotRecord",
+    "PostExitPerformance",
     "Security",
     "SecuritySuccessor",
     "SecuritySymbolHistory",
+    "SellAssessment",
     "Transaction",
 ]
