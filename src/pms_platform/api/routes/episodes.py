@@ -3,20 +3,31 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from datetime import date, timedelta
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from pms_platform.analytics.benchmark import (
+    compute_benchmark_period_return,
+    primary_benchmark_code,
+)
+from pms_platform.analytics.portfolio_value import compute_portfolio_period_return
 from pms_platform.analytics.service import run_full_episode_analysis
+from pms_platform.analytics.successor_chain import resolve_price_security_id
 from pms_platform.db.base import get_session_factory
+from pms_platform.market_data.lookup import lookup_daily_price
 from pms_platform.models import (
+    DailyPrice,
     EpisodePerformance,
     PostExitPerformance,
     Security,
     SellAssessment,
 )
+from pms_platform.portfolio.position_engine import compute_quantities_as_of
 
 router = APIRouter()
 
@@ -36,6 +47,38 @@ def get_db() -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
+
+
+class EqualWeightReinvestmentResponse(BaseModel):
+    start_date: str
+    end_date: str
+    stock_return_pct: float | None
+    equal_weight_other_holdings_return_pct: float | None
+    reinvestment_advantage_pct: float | None
+    value_if_stock_100: float | None
+    value_if_reinvested_100: float | None
+    included_holdings: int
+    excluded_missing_prices: int
+    methodology: str
+
+
+class MajorLossWindowResponse(BaseModel):
+    start_date: str
+    end_date: str
+    calendar_days: int
+    trading_days: int | None
+    pattern: str
+    start_price: float | None
+    end_price: float | None
+    stock_return_pct: float | None
+    portfolio_return_pct: float | None
+    smallcap_return_pct: float | None
+    stock_vs_portfolio_pct: float | None
+    stock_vs_smallcap_pct: float | None
+    portfolio_vs_smallcap_pct: float | None
+    portfolio_methodology: str | None
+    reinvestment_after_loss: EqualWeightReinvestmentResponse | None
+    reinvestment_at_one_year_loss: EqualWeightReinvestmentResponse | None
 
 
 class EpisodePerformanceResponse(BaseModel):
@@ -74,6 +117,7 @@ class EpisodePerformanceResponse(BaseModel):
     smallcap_return_after_exit: float | None
     excess_vs_smallcap_after_exit: float | None
     excess_vs_portfolio_after_exit: float | None
+    major_loss_window: MajorLossWindowResponse | None = None
     exit_assessment: str | None
     assessment_reason: str | None
     data_quality_status: str
@@ -105,6 +149,7 @@ def _performance_response(
     portfolio_name: str,
     assessment: SellAssessment | None,
     post_exit: PostExitPerformance | None = None,
+    major_loss_window: MajorLossWindowResponse | None = None,
 ) -> EpisodePerformanceResponse:
     profit_loss = float(row.total_profit_loss)
     stock_after = (
@@ -184,9 +229,175 @@ def _performance_response(
             if stock_after is not None and portfolio_after is not None
             else None
         ),
+        major_loss_window=major_loss_window,
         exit_assessment=assessment.exit_assessment if assessment else None,
         assessment_reason=assessment.assessment_reason if assessment else None,
         data_quality_status=row.data_quality_status,
+    )
+
+
+def _equal_weight_reinvestment(
+    session: Session,
+    row: EpisodePerformance,
+    start: date,
+    methodology: str,
+) -> EqualWeightReinvestmentResponse | None:
+    """Compare holding the stock with an equal-weight switch into other holdings."""
+    end = row.exit_date
+    if start >= end:
+        return None
+
+    stock_start_security_id = resolve_price_security_id(session, row.security_id, start)
+    stock_end_security_id = resolve_price_security_id(session, row.security_id, end)
+    stock_start = lookup_daily_price(session, stock_start_security_id, start)
+    stock_end = lookup_daily_price(session, stock_end_security_id, end)
+    stock_return: Decimal | None = None
+    if stock_start is not None and stock_end is not None and stock_start.adjusted_close > 0:
+        stock_return = (
+            (stock_end.adjusted_close / stock_start.adjusted_close) - Decimal("1")
+        ) * Decimal("100")
+
+    quantities = compute_quantities_as_of(session, start)
+    constituent_returns: list[Decimal] = []
+    excluded_missing_prices = 0
+    for security_id, quantity in quantities.items():
+        if security_id == row.security_id or quantity <= 0:
+            continue
+        start_security_id = resolve_price_security_id(session, security_id, start)
+        end_security_id = resolve_price_security_id(session, security_id, end)
+        start_price = lookup_daily_price(session, start_security_id, start)
+        end_price = lookup_daily_price(session, end_security_id, end)
+        if start_price is None or end_price is None or start_price.adjusted_close <= 0:
+            excluded_missing_prices += 1
+            continue
+        constituent_returns.append(
+            ((end_price.adjusted_close / start_price.adjusted_close) - Decimal("1"))
+            * Decimal("100")
+        )
+
+    equal_weight_return = (
+        sum(constituent_returns, start=Decimal("0")) / Decimal(len(constituent_returns))
+        if constituent_returns
+        else None
+    )
+    advantage = (
+        equal_weight_return - stock_return
+        if equal_weight_return is not None and stock_return is not None
+        else None
+    )
+
+    return EqualWeightReinvestmentResponse(
+        start_date=start.isoformat(),
+        end_date=end.isoformat(),
+        stock_return_pct=float(stock_return) if stock_return is not None else None,
+        equal_weight_other_holdings_return_pct=(
+            float(equal_weight_return) if equal_weight_return is not None else None
+        ),
+        reinvestment_advantage_pct=float(advantage) if advantage is not None else None,
+        value_if_stock_100=(
+            float(Decimal("100") * (Decimal("1") + stock_return / Decimal("100")))
+            if stock_return is not None
+            else None
+        ),
+        value_if_reinvested_100=(
+            float(Decimal("100") * (Decimal("1") + equal_weight_return / Decimal("100")))
+            if equal_weight_return is not None
+            else None
+        ),
+        included_holdings=len(constituent_returns),
+        excluded_missing_prices=excluded_missing_prices,
+        methodology=methodology,
+    )
+
+
+def _one_year_loss_trigger_date(
+    session: Session,
+    row: EpisodePerformance,
+    loss_start: date,
+) -> date | None:
+    """Return the first trading date on/after 365 continuous calendar loss days."""
+    anniversary = loss_start + timedelta(days=365)
+    price_security_id = resolve_price_security_id(session, row.security_id, anniversary)
+    return session.scalar(
+        select(DailyPrice.trade_date)
+        .where(
+            DailyPrice.security_id == price_security_id,
+            DailyPrice.trade_date >= anniversary,
+            DailyPrice.trade_date <= row.exit_date,
+        )
+        .order_by(DailyPrice.trade_date)
+        .limit(1)
+    )
+
+
+def _major_loss_window(
+    session: Session,
+    row: EpisodePerformance,
+) -> MajorLossWindowResponse | None:
+    """Compare stock, portfolio, and BSE SmallCap over a 1y+ loss window."""
+    start = row.first_below_cost_date
+    calendar_days = row.calendar_days_held_after_first_loss
+    if start is None or calendar_days is None or calendar_days < 365:
+        return None
+
+    end = start + timedelta(days=calendar_days)
+    start_price = lookup_daily_price(session, row.security_id, start)
+    end_price = lookup_daily_price(session, row.security_id, end)
+    stock_return: Decimal | None = None
+    if start_price is not None and end_price is not None and start_price.adjusted_close > 0:
+        stock_return = (
+            (end_price.adjusted_close / start_price.adjusted_close) - Decimal("1")
+        ) * Decimal("100")
+
+    portfolio = compute_portfolio_period_return(
+        session,
+        start_date=start,
+        end_date=end,
+    )
+    benchmark = compute_benchmark_period_return(
+        session,
+        benchmark_code=primary_benchmark_code(),
+        start_date=start,
+        end_date=end,
+    )
+    portfolio_return = portfolio.total_return_pct if portfolio else None
+    smallcap_return = benchmark.total_return_pct if benchmark else None
+
+    def difference(left: Decimal | None, right: Decimal | None) -> float | None:
+        return float(left - right) if left is not None and right is not None else None
+
+    one_year_trigger = _one_year_loss_trigger_date(session, row, start)
+    return MajorLossWindowResponse(
+        start_date=start.isoformat(),
+        end_date=end.isoformat(),
+        calendar_days=calendar_days,
+        trading_days=row.days_held_after_first_loss,
+        pattern=row.loss_hold_pattern or "LONG_CONTINUOUS_LOSS",
+        start_price=float(start_price.adjusted_close) if start_price else None,
+        end_price=float(end_price.adjusted_close) if end_price else None,
+        stock_return_pct=float(stock_return) if stock_return is not None else None,
+        portfolio_return_pct=float(portfolio_return) if portfolio_return is not None else None,
+        smallcap_return_pct=float(smallcap_return) if smallcap_return is not None else None,
+        stock_vs_portfolio_pct=difference(stock_return, portfolio_return),
+        stock_vs_smallcap_pct=difference(stock_return, smallcap_return),
+        portfolio_vs_smallcap_pct=difference(portfolio_return, smallcap_return),
+        portfolio_methodology=portfolio.methodology if portfolio else None,
+        reinvestment_after_loss=_equal_weight_reinvestment(
+            session,
+            row,
+            end,
+            "EQUAL_WEIGHT_OTHER_EQUITIES_AT_LOSS_WINDOW_END",
+        ),
+        reinvestment_at_one_year_loss=(
+            _equal_weight_reinvestment(
+                session,
+                row,
+                one_year_trigger,
+                "EQUAL_WEIGHT_OTHER_EQUITIES_AT_ONE_YEAR_CONTINUOUS_LOSS",
+            )
+            if one_year_trigger is not None
+            else None
+        ),
     )
 
 
@@ -258,6 +469,7 @@ def get_episode_performance(
         security.portfolio_name if security else row.security_id,
         assessment,
         post_exit,
+        _major_loss_window(session, row),
     )
 
 

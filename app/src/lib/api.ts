@@ -103,9 +103,42 @@ export type EpisodePerformance = {
   smallcap_return_after_exit: number | null;
   excess_vs_smallcap_after_exit: number | null;
   excess_vs_portfolio_after_exit: number | null;
+  major_loss_window: MajorLossWindow | null;
   exit_assessment: string | null;
   assessment_reason: string | null;
   data_quality_status: string;
+};
+
+export type MajorLossWindow = {
+  start_date: string;
+  end_date: string;
+  calendar_days: number;
+  trading_days: number | null;
+  pattern: string;
+  start_price: number | null;
+  end_price: number | null;
+  stock_return_pct: number | null;
+  portfolio_return_pct: number | null;
+  smallcap_return_pct: number | null;
+  stock_vs_portfolio_pct: number | null;
+  stock_vs_smallcap_pct: number | null;
+  portfolio_vs_smallcap_pct: number | null;
+  portfolio_methodology: string | null;
+  reinvestment_after_loss: EqualWeightReinvestment | null;
+  reinvestment_at_one_year_loss: EqualWeightReinvestment | null;
+};
+
+export type EqualWeightReinvestment = {
+  start_date: string;
+  end_date: string;
+  stock_return_pct: number | null;
+  equal_weight_other_holdings_return_pct: number | null;
+  reinvestment_advantage_pct: number | null;
+  value_if_stock_100: number | null;
+  value_if_reinvested_100: number | null;
+  included_holdings: number;
+  excluded_missing_prices: number;
+  methodology: string;
 };
 
 export type PostExitPerformance = {

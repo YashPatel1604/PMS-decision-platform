@@ -39,6 +39,12 @@ export function formatPct(
   return `${prefix}${value.toFixed(digits)}%`;
 }
 
+export function formatPp(value: number | null | undefined, digits = 1): string {
+  if (value === null || value === undefined) return "—";
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${value.toFixed(digits)} pp`;
+}
+
 /** Percentage below a reference (always shown as a shortfall, never with +). */
 export function formatPctBelow(value: number | null | undefined, digits = 1): string {
   if (value === null || value === undefined) return "—";
