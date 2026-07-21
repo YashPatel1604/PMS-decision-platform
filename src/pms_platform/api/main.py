@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from pms_platform.api.routes import dashboard, episodes, health
+from pms_platform.api.routes import backtests, dashboard, episodes, health
 
 app = FastAPI(title="PMS Decision Platform", version="0.1.0")
 
@@ -21,3 +21,4 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 app.include_router(episodes.router, prefix="/episodes", tags=["episodes"])
+app.include_router(backtests.router, prefix="/backtests", tags=["backtests"])

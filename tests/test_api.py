@@ -19,3 +19,16 @@ def test_dashboard_summary_endpoint() -> None:
     payload = response.json()
     assert "total_episodes" in payload
     assert "assessment_counts" in payload
+
+
+def test_continuous_loss_backtest_endpoint() -> None:
+    client = TestClient(app)
+    response = client.get("/backtests/one-year-continuous-loss")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "equal_capital_start_value" in payload
+    assert "hold_equal_capital_end_value" in payload
+    assert "diversified_equal_capital_end_value" in payload
+    assert "mean_return_advantage_pp" in payload
+    assert "median_return_advantage_pp" in payload
+    assert "episodes" in payload

@@ -9,13 +9,53 @@ from openpyxl import Workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from pms_platform.analytics.first_buy_audit import build_first_buy_price_audit
 from pms_platform.models import (
     EpisodeCashFlowRecord,
     EpisodePerformance,
-    PostExitPerformance,
+    PostExitHorizonPerformance,
     Security,
     SellAssessment,
 )
+
+
+def export_first_buy_price_audit_csv(session: Session, path: Path) -> None:
+    """Export consolidated first-buy normalization checks for closed episodes."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "episode_id",
+        "security_id",
+        "portfolio_name",
+        "entry_date",
+        "initial_purchase_price",
+        "entry_market_price",
+        "inferred_unit_factor",
+        "normalized_first_buy_price",
+        "entry_deviation_pct",
+        "status",
+        "note",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in build_first_buy_price_audit(session):
+            writer.writerow(
+                {
+                    "episode_id": row.episode_id,
+                    "security_id": row.security_id,
+                    "portfolio_name": row.portfolio_name,
+                    "entry_date": row.entry_date.isoformat(),
+                    "initial_purchase_price": row.initial_purchase_price,
+                    "entry_market_price": row.entry_market_price,
+                    "inferred_unit_factor": row.inferred_unit_factor,
+                    "normalized_first_buy_price": (
+                        row.normalized_first_buy_price
+                    ),
+                    "entry_deviation_pct": row.entry_deviation_pct,
+                    "status": row.status,
+                    "note": row.note,
+                }
+            )
 
 
 def _write_sheet(workbook: Workbook, title: str, fieldnames: list[str], rows: list[dict]) -> None:
@@ -43,6 +83,8 @@ def export_episode_performance_csv(session: Session, path: Path) -> None:
         "entry_date",
         "exit_date",
         "holding_days",
+        "average_buy_price",
+        "average_sell_price",
         "total_invested",
         "total_sale_proceeds",
         "dividends_received",
@@ -57,7 +99,15 @@ def export_episode_performance_csv(session: Session, path: Path) -> None:
         "excess_vs_smallcap",
         "max_drawdown",
         "max_unrealized_gain",
+        "peak_price_during_hold",
+        "peak_price_date",
+        "exit_adjusted_close",
+        "missed_upside_vs_peak_pct",
         "days_below_cost",
+        "first_below_cost_date",
+        "days_held_after_first_loss",
+        "calendar_days_held_after_first_loss",
+        "loss_hold_pattern",
         "days_underperforming_benchmark",
         "benchmark_code",
         "benchmark_start_level",
@@ -79,6 +129,8 @@ def export_episode_performance_csv(session: Session, path: Path) -> None:
                     "entry_date": row.entry_date.isoformat(),
                     "exit_date": row.exit_date.isoformat(),
                     "holding_days": row.holding_days,
+                    "average_buy_price": row.average_buy_price,
+                    "average_sell_price": row.average_sell_price,
                     "total_invested": row.total_invested,
                     "total_sale_proceeds": row.total_sale_proceeds,
                     "dividends_received": row.dividends_received,
@@ -93,7 +145,23 @@ def export_episode_performance_csv(session: Session, path: Path) -> None:
                     "excess_vs_smallcap": row.excess_vs_smallcap,
                     "max_drawdown": row.max_drawdown,
                     "max_unrealized_gain": row.max_unrealized_gain,
+                    "peak_price_during_hold": row.peak_price_during_hold,
+                    "peak_price_date": (
+                        row.peak_price_date.isoformat() if row.peak_price_date else ""
+                    ),
+                    "exit_adjusted_close": row.exit_adjusted_close,
+                    "missed_upside_vs_peak_pct": row.missed_upside_vs_peak_pct,
                     "days_below_cost": row.days_below_cost,
+                    "first_below_cost_date": (
+                        row.first_below_cost_date.isoformat()
+                        if row.first_below_cost_date
+                        else ""
+                    ),
+                    "days_held_after_first_loss": row.days_held_after_first_loss,
+                    "calendar_days_held_after_first_loss": (
+                        row.calendar_days_held_after_first_loss
+                    ),
+                    "loss_hold_pattern": row.loss_hold_pattern or "",
                     "days_underperforming_benchmark": row.days_underperforming_benchmark,
                     "benchmark_code": row.benchmark_code,
                     "benchmark_start_level": row.benchmark_start_level,
@@ -106,24 +174,27 @@ def export_episode_performance_csv(session: Session, path: Path) -> None:
 
 
 def export_post_exit_performance_csv(session: Session, path: Path) -> None:
-    """Export post-exit performance metrics."""
+    """Export every standardized post-exit horizon."""
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = session.scalars(
-        select(PostExitPerformance).order_by(
-            PostExitPerformance.episode_id,
+        select(PostExitHorizonPerformance).order_by(
+            PostExitHorizonPerformance.episode_id,
+            PostExitHorizonPerformance.post_exit_horizon_performance_id,
         )
     ).all()
     fieldnames = [
         "episode_id",
+        "horizon",
         "exit_date",
+        "target_date",
         "comparison_date",
+        "days_after_exit",
         "security_return_after_exit",
-        "portfolio_return_after_exit",
         "smallcap_return_after_exit",
-        "excess_vs_portfolio_after_exit",
         "excess_vs_smallcap_after_exit",
-        "maximum_gain_after_exit",
-        "maximum_loss_after_exit",
+        "provisional_portfolio_return_after_exit",
+        "provisional_excess_vs_portfolio_after_exit",
+        "portfolio_comparator_status",
         "calculation_version",
         "data_quality_status",
     ]
@@ -134,17 +205,23 @@ def export_post_exit_performance_csv(session: Session, path: Path) -> None:
             writer.writerow(
                 {
                     "episode_id": row.episode_id,
+                    "horizon": row.horizon,
                     "exit_date": row.exit_date.isoformat(),
+                    "target_date": row.target_date.isoformat() if row.target_date else "",
                     "comparison_date": (
                         row.comparison_date.isoformat() if row.comparison_date else ""
                     ),
                     "security_return_after_exit": row.security_return_after_exit,
-                    "portfolio_return_after_exit": row.portfolio_return_after_exit,
+                    "days_after_exit": row.days_after_exit,
                     "smallcap_return_after_exit": row.smallcap_return_after_exit,
-                    "excess_vs_portfolio_after_exit": row.excess_vs_portfolio_after_exit,
                     "excess_vs_smallcap_after_exit": row.excess_vs_smallcap_after_exit,
-                    "maximum_gain_after_exit": row.maximum_gain_after_exit,
-                    "maximum_loss_after_exit": row.maximum_loss_after_exit,
+                    "provisional_portfolio_return_after_exit": (
+                        row.provisional_portfolio_return_after_exit
+                    ),
+                    "provisional_excess_vs_portfolio_after_exit": (
+                        row.provisional_excess_vs_portfolio_after_exit
+                    ),
+                    "portfolio_comparator_status": "PROVISIONAL",
                     "calculation_version": row.calculation_version,
                     "data_quality_status": row.data_quality_status,
                 }
@@ -158,7 +235,12 @@ def export_sell_assessments_csv(session: Session, path: Path) -> None:
     fieldnames = [
         "episode_id",
         "exit_assessment",
+        "assessment_flags",
+        "ownership_flags",
+        "post_exit_flags",
+        "assessment_confidence",
         "assessment_reason",
+        "assessment_evidence",
         "calculation_version",
         "data_quality_status",
     ]
@@ -170,7 +252,12 @@ def export_sell_assessments_csv(session: Session, path: Path) -> None:
                 {
                     "episode_id": row.episode_id,
                     "exit_assessment": row.exit_assessment,
+                    "assessment_flags": row.assessment_flags or "",
+                    "ownership_flags": row.ownership_flags or "",
+                    "post_exit_flags": row.post_exit_flags or "",
+                    "assessment_confidence": row.assessment_confidence or "",
                     "assessment_reason": row.assessment_reason,
+                    "assessment_evidence": row.assessment_evidence or "",
                     "calculation_version": row.calculation_version,
                     "data_quality_status": row.data_quality_status,
                 }
@@ -226,7 +313,10 @@ def export_sell_since_workbook(session: Session, path: Path) -> None:
         )
     ).all()
     post_exit_rows = session.scalars(
-        select(PostExitPerformance).order_by(PostExitPerformance.episode_id)
+        select(PostExitHorizonPerformance).order_by(
+            PostExitHorizonPerformance.episode_id,
+            PostExitHorizonPerformance.post_exit_horizon_performance_id,
+        )
     ).all()
     assessment_rows = session.scalars(select(SellAssessment).order_by(SellAssessment.episode_id)).all()
     cash_flow_rows = session.scalars(
@@ -245,12 +335,22 @@ def export_sell_since_workbook(session: Session, path: Path) -> None:
         {
             "episode_id": row.episode_id,
             "security_id": row.security_id,
-            "portfolio_name": securities.get(row.security_id).portfolio_name
-            if securities.get(row.security_id)
+            "portfolio_name": securities[row.security_id].portfolio_name
+            if row.security_id in securities
             else "",
             "entry_date": row.entry_date.isoformat(),
             "exit_date": row.exit_date.isoformat(),
             "holding_days": row.holding_days,
+            "average_buy_price": (
+                float(row.average_buy_price)
+                if row.average_buy_price is not None
+                else ""
+            ),
+            "average_sell_price": (
+                float(row.average_sell_price)
+                if row.average_sell_price is not None
+                else ""
+            ),
             "total_invested": float(row.total_invested),
             "total_sale_proceeds": float(row.total_sale_proceeds),
             "dividends_received": float(row.dividends_received),
@@ -270,8 +370,37 @@ def export_sell_since_workbook(session: Session, path: Path) -> None:
             if row.excess_vs_smallcap
             else "",
             "max_drawdown": float(row.max_drawdown) if row.max_drawdown else "",
+            "max_unrealized_gain": (
+                float(row.max_unrealized_gain)
+                if row.max_unrealized_gain is not None
+                else ""
+            ),
+            "peak_price_during_hold": (
+                float(row.peak_price_during_hold)
+                if row.peak_price_during_hold is not None
+                else ""
+            ),
+            "peak_price_date": (
+                row.peak_price_date.isoformat() if row.peak_price_date else ""
+            ),
+            "missed_upside_vs_peak_pct": (
+                float(row.missed_upside_vs_peak_pct)
+                if row.missed_upside_vs_peak_pct is not None
+                else ""
+            ),
             "days_below_cost": row.days_below_cost,
+            "first_below_cost_date": (
+                row.first_below_cost_date.isoformat()
+                if row.first_below_cost_date
+                else ""
+            ),
+            "days_held_after_first_loss": row.days_held_after_first_loss,
+            "calendar_days_held_after_first_loss": (
+                row.calendar_days_held_after_first_loss
+            ),
+            "loss_hold_pattern": row.loss_hold_pattern or "",
             "days_underperforming_benchmark": row.days_underperforming_benchmark,
+            "calculation_version": row.calculation_version,
             "data_quality_status": row.data_quality_status,
         }
         for row in performance_rows
@@ -286,23 +415,32 @@ def export_sell_since_workbook(session: Session, path: Path) -> None:
     post_exit_payload = [
         {
             "episode_id": row.episode_id,
+            "horizon": row.horizon,
             "exit_date": row.exit_date.isoformat(),
+            "target_date": row.target_date.isoformat() if row.target_date else "",
             "comparison_date": row.comparison_date.isoformat() if row.comparison_date else "",
+            "days_after_exit": row.days_after_exit,
             "security_return_after_exit": float(row.security_return_after_exit)
             if row.security_return_after_exit is not None
-            else "",
-            "portfolio_return_after_exit": float(row.portfolio_return_after_exit)
-            if row.portfolio_return_after_exit is not None
             else "",
             "smallcap_return_after_exit": float(row.smallcap_return_after_exit)
             if row.smallcap_return_after_exit is not None
             else "",
-            "maximum_gain_after_exit": float(row.maximum_gain_after_exit)
-            if row.maximum_gain_after_exit is not None
+            "excess_vs_smallcap_after_exit": float(row.excess_vs_smallcap_after_exit)
+            if row.excess_vs_smallcap_after_exit is not None
             else "",
-            "maximum_loss_after_exit": float(row.maximum_loss_after_exit)
-            if row.maximum_loss_after_exit is not None
+            "provisional_portfolio_return_after_exit": float(
+                row.provisional_portfolio_return_after_exit
+            )
+            if row.provisional_portfolio_return_after_exit is not None
             else "",
+            "provisional_excess_vs_portfolio_after_exit": float(
+                row.provisional_excess_vs_portfolio_after_exit
+            )
+            if row.provisional_excess_vs_portfolio_after_exit is not None
+            else "",
+            "portfolio_comparator_status": "PROVISIONAL",
+            "calculation_version": row.calculation_version,
             "data_quality_status": row.data_quality_status,
         }
         for row in post_exit_rows
@@ -318,7 +456,13 @@ def export_sell_since_workbook(session: Session, path: Path) -> None:
         {
             "episode_id": row.episode_id,
             "exit_assessment": row.exit_assessment,
+            "assessment_flags": row.assessment_flags or "",
+            "ownership_flags": row.ownership_flags or "",
+            "post_exit_flags": row.post_exit_flags or "",
+            "assessment_confidence": row.assessment_confidence or "",
             "assessment_reason": row.assessment_reason,
+            "assessment_evidence": row.assessment_evidence or "",
+            "calculation_version": row.calculation_version,
             "data_quality_status": row.data_quality_status,
         }
         for row in assessment_rows

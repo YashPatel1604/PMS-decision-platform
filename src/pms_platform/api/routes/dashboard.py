@@ -14,7 +14,13 @@ from sqlalchemy.orm import Session
 from pms_platform.analytics.successor_chain import resolve_price_security_id
 from pms_platform.api.routes.episodes import _exit_outcome, get_db
 from pms_platform.market_data.lookup import lookup_daily_price
-from pms_platform.models import EpisodePerformance, PostExitPerformance, Security, SellAssessment
+from pms_platform.models import (
+    EpisodePerformance,
+    PostExitHorizonPerformance,
+    PostExitPerformance,
+    Security,
+    SellAssessment,
+)
 
 router = APIRouter()
 
@@ -66,6 +72,11 @@ class ExitInsightRow(BaseModel):
     current_vs_exit_pct: float | None
     exit_assessment: str
     assessment_flags: list[str]
+    ownership_signals: list[str]
+    post_exit_signals: list[str]
+    assessment_confidence: str | None
+    post_exit_horizons: list[dict[str, str | int | float | None]]
+    portfolio_comparator_status: str = "PROVISIONAL"
     assessment_reason: str
     post_exit_summary: str | None = None
 
@@ -140,6 +151,14 @@ def list_exit_insights(session: Session = Depends(get_db)) -> list[ExitInsightRo
     post_exit_by_episode = {
         row.episode_id: row for row in session.scalars(select(PostExitPerformance)).all()
     }
+    horizons_by_episode: dict[int, list[PostExitHorizonPerformance]] = {}
+    for horizon in session.scalars(
+        select(PostExitHorizonPerformance).order_by(
+            PostExitHorizonPerformance.episode_id,
+            PostExitHorizonPerformance.post_exit_horizon_performance_id,
+        )
+    ).all():
+        horizons_by_episode.setdefault(horizon.episode_id, []).append(horizon)
     performances = session.scalars(
         select(EpisodePerformance).order_by(EpisodePerformance.exit_date.desc())
     ).all()
@@ -225,6 +244,56 @@ def list_exit_insights(session: Session = Depends(get_db)) -> list[ExitInsightRo
                 current_vs_exit_pct=current_vs_exit,
                 exit_assessment=assessment.exit_assessment if assessment else "UNKNOWN",
                 assessment_flags=flags,
+                ownership_signals=(
+                    [
+                        flag
+                        for flag in (assessment.ownership_flags or "").split(",")
+                        if flag
+                    ]
+                    if assessment
+                    else []
+                ),
+                post_exit_signals=(
+                    [
+                        flag
+                        for flag in (assessment.post_exit_flags or "").split(",")
+                        if flag
+                    ]
+                    if assessment
+                    else []
+                ),
+                assessment_confidence=(
+                    assessment.assessment_confidence if assessment else None
+                ),
+                post_exit_horizons=[
+                    {
+                        "horizon": horizon.horizon,
+                        "target_date": (
+                            horizon.target_date.isoformat()
+                            if horizon.target_date
+                            else None
+                        ),
+                        "comparison_date": (
+                            horizon.comparison_date.isoformat()
+                            if horizon.comparison_date
+                            else None
+                        ),
+                        "security_return_pct": _float(
+                            horizon.security_return_after_exit
+                        ),
+                        "smallcap_return_pct": _float(
+                            horizon.smallcap_return_after_exit
+                        ),
+                        "excess_vs_smallcap_pct": _float(
+                            horizon.excess_vs_smallcap_after_exit
+                        ),
+                        "provisional_portfolio_return_pct": _float(
+                            horizon.provisional_portfolio_return_after_exit
+                        ),
+                        "data_quality_status": horizon.data_quality_status,
+                    }
+                    for horizon in horizons_by_episode.get(perf.episode_id, [])
+                ],
                 assessment_reason=assessment.assessment_reason if assessment else "",
                 post_exit_summary=_post_exit_summary(
                     post_exit.security_return_after_exit if post_exit else None,

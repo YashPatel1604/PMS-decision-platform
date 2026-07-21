@@ -20,7 +20,7 @@ export function OutcomeBadge({
   const label =
     normalized === "PROFIT_STOCK"
       ? lossHoldPattern === "RECOVERED_AFTER_LONG_LOSS"
-        ? "Profit · was below buy cost 1+ yr"
+        ? "Profit · was below first buy 1+ yr"
         : "Profit stock"
       : normalized === "LOSS_STOCK"
         ? "Loss stock"

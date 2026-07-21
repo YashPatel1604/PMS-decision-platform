@@ -9,12 +9,14 @@ import { api } from "@/lib/api";
 import { assessmentLabel } from "@/lib/format";
 
 const KEY_FLAGS = [
-  "LATE_EXIT",
+  "SUSTAINED_BENCHMARK_LAG",
+  "PEAK_GIVEBACK",
+  "LONG_UNDERWATER",
+  "ROTATION_REVIEW",
   "CAPITAL_ROTATION_MISSED",
-  "GAVE_BACK_GAINS",
-  "PREMATURE_EXIT",
-  "GOOD_EXIT",
-  "LOSS_AVOIDED",
+  "DOWNSIDE_AVOIDED",
+  "MISSED_COMPOUNDING",
+  "BENCHMARK_ROTATION_JUSTIFIED",
 ] as const;
 
 export function DashboardView() {
@@ -56,8 +58,8 @@ export function DashboardView() {
         <div>
           <h2 className="text-2xl font-semibold tracking-tight">Exit quality dashboard</h2>
           <p className="mt-2 max-w-2xl text-stone-600">
-            Review late exits and post-exit comparisons — stock vs portfolio vs BSE SmallCap
-            from sell date only (not from purchase).
+            One final verdict per sale, supported by ownership-discipline and fixed one-year
+            post-exit evidence against BSE SmallCap.
           </p>
         </div>
         <RunAnalysisButton />
@@ -66,24 +68,19 @@ export function DashboardView() {
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Closed episodes" value={summary.total_episodes} />
         <StatCard
-          label="Late / rotation issues"
-          value={
-            (summary.flag_counts.LATE_EXIT ?? 0) +
-            (summary.flag_counts.CAPITAL_ROTATION_MISSED ?? 0)
-          }
-          hint={`${summary.flag_counts.GAVE_BACK_GAINS ?? 0} gave back peak gains`}
+          label="Exits too late"
+          value={summary.assessment_counts.EXIT_TOO_LATE ?? 0}
+          hint={`${summary.flag_counts.CAPITAL_ROTATION_MISSED ?? 0} capital rotation missed`}
           tone="warn"
         />
         <StatCard
-          label="Premature exits"
-          value={summary.flag_counts.PREMATURE_EXIT ?? 0}
+          label="Exits too early"
+          value={summary.assessment_counts.EXIT_TOO_EARLY ?? 0}
           tone="warn"
         />
         <StatCard
-          label="Good / loss avoided"
-          value={
-            (summary.flag_counts.GOOD_EXIT ?? 0) + (summary.flag_counts.LOSS_AVOIDED ?? 0)
-          }
+          label="Well-timed exits"
+          value={summary.assessment_counts.WELL_TIMED_EXIT ?? 0}
           tone="good"
         />
       </section>
@@ -91,7 +88,7 @@ export function DashboardView() {
       <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
         <h3 className="text-lg font-semibold">Exit signal counts</h3>
         <p className="mt-1 text-sm text-stone-600">
-          A single sale can trigger multiple flags (e.g. held too long and sold below peak).
+          Signals are grouped evidence dimensions. Each sale still receives exactly one verdict.
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {problemFlags.map((flag) => (
@@ -106,10 +103,6 @@ export function DashboardView() {
             </div>
           ))}
           {Object.entries(summary.assessment_counts)
-            .filter(
-              ([assessment]) =>
-                assessment === "NEUTRAL_EXIT" || assessment === "INSUFFICIENT_DATA",
-            )
             .map(([assessment, count]) => (
               <div
                 key={assessment}
@@ -129,7 +122,8 @@ export function DashboardView() {
           <div>
             <h3 className="text-lg font-semibold">Sold positions — live exit review</h3>
             <p className="mt-1 text-sm text-stone-600">
-              Exit / peak / today in ₹ · since-sell returns in % · green = gain, red = loss
+              One-year verdict evidence plus latest price context. Portfolio comparisons are
+              provisional and excluded from verdicts.
             </p>
           </div>
           {insightsQuery.isLoading ? (

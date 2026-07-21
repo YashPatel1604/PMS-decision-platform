@@ -3,6 +3,7 @@ import Link from "next/link";
 const links = [
   { href: "/", label: "Dashboard" },
   { href: "/episodes", label: "Episodes" },
+  { href: "/strategy/continuous-loss", label: "1-Year Loss Strategy" },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

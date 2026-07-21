@@ -6,11 +6,10 @@ import { useMemo, useState } from "react";
 import { FormattedPct, FormattedValue } from "@/components/formatted-value";
 import { OutcomeBadge } from "@/components/outcome-badge";
 import { StatusBadge } from "@/components/status-badge";
-import type { ExitInsightRow } from "@/lib/api";
+import type { ExitInsightRow, PostExitHorizon } from "@/lib/api";
 import {
   assessmentLabel,
   formatDate,
-  formatExcessLabel,
   formatHoldAfterFirstLoss,
   formatPrice,
   formatYears,
@@ -18,56 +17,37 @@ import {
 
 const FLAG_FILTERS = [
   "ALL",
-  "LATE_EXIT",
+  "SUSTAINED_BENCHMARK_LAG",
+  "PEAK_GIVEBACK",
+  "LONG_UNDERWATER",
+  "ROTATION_REVIEW",
   "CAPITAL_ROTATION_MISSED",
-  "GAVE_BACK_GAINS",
-  "PREMATURE_EXIT",
-  "LEFT_STOCK_UPSIDE",
-  "INDEX_OUTPERFORMED_HOLD",
-  "PORTFOLIO_OUTPERFORMED_HOLD",
-  "REDEPLOYMENT_LAG",
-  "GOOD_EXIT",
-  "LOSS_AVOIDED",
+  "DOWNSIDE_AVOIDED",
+  "MISSED_COMPOUNDING",
+  "BENCHMARK_ROTATION_JUSTIFIED",
 ] as const;
 
-function PostExitComparison({
-  stock,
-  portfolio,
-  smallcap,
-  excessVsSmallcap,
-  excessVsPortfolio,
-}: {
-  stock: number | null;
-  portfolio: number | null;
-  smallcap: number | null;
-  excessVsSmallcap: number | null;
-  excessVsPortfolio: number | null;
-}) {
+function PostExitComparison({ horizons }: { horizons: PostExitHorizon[] }) {
+  const oneYear = horizons.find((row) => row.horizon === "1Y");
+  if (!oneYear || oneYear.data_quality_status !== "OK") {
+    return <span className="text-xs text-stone-500">1-year evidence not available</span>;
+  }
   return (
     <div>
       <p className="text-xs font-medium uppercase tracking-wide text-stone-500">
-        Since sell date (%)
+        One year after sell (%)
       </p>
       <p className="mt-1 text-xs">
         <span className="text-stone-500">Stock </span>
-        <FormattedValue value={stock} kind="pct" className="text-sm" />
-      </p>
-      <p className="text-xs">
-        <span className="text-stone-500">Portfolio </span>
-        <FormattedValue value={portfolio} kind="pct" className="text-sm" />
+        <FormattedValue value={oneYear.security_return_pct} kind="pct" className="text-sm" />
       </p>
       <p className="text-xs">
         <span className="text-stone-500">BSE SC </span>
-        <FormattedValue value={smallcap} kind="pct" className="text-sm" />
+        <FormattedValue value={oneYear.smallcap_return_pct} kind="pct" className="text-sm" />
       </p>
-      {excessVsSmallcap !== null ? (
+      {oneYear.excess_vs_smallcap_pct !== null ? (
         <p className="mt-2 text-xs">
-          <FormattedPct value={excessVsSmallcap} suffix="stock vs BSE SC" />
-        </p>
-      ) : null}
-      {excessVsPortfolio !== null ? (
-        <p className="text-xs">
-          <FormattedPct value={excessVsPortfolio} suffix="stock vs portfolio" />
+          <FormattedPct value={oneYear.excess_vs_smallcap_pct} suffix="stock vs BSE SC" />
         </p>
       ) : null}
     </div>
@@ -121,8 +101,8 @@ export function ExitInsightsTable({ rows }: { rows: ExitInsightRow[] }) {
             <tr>
               <th className="px-4 py-3 font-medium">Company</th>
               <th className="px-4 py-3 font-medium">Outcome</th>
-              <th className="px-4 py-3 font-medium">Since sell (%)</th>
-              <th className="px-4 py-3 font-medium">Below buy cost</th>
+              <th className="px-4 py-3 font-medium">1-year evidence</th>
+              <th className="px-4 py-3 font-medium">Below first buy</th>
               <th className="px-4 py-3 font-medium">Prices (₹)</th>
               <th className="px-4 py-3 font-medium">Signals</th>
               <th className="px-4 py-3 font-medium">Analysis</th>
@@ -158,13 +138,7 @@ export function ExitInsightsTable({ rows }: { rows: ExitInsightRow[] }) {
                   </p>
                 </td>
                 <td className="px-4 py-3">
-                  <PostExitComparison
-                    stock={row.security_return_after_exit}
-                    portfolio={row.portfolio_return_after_exit}
-                    smallcap={row.smallcap_return_after_exit}
-                    excessVsSmallcap={row.excess_vs_smallcap_after_exit}
-                    excessVsPortfolio={row.excess_vs_portfolio_after_exit}
-                  />
+                  <PostExitComparison horizons={row.post_exit_horizons} />
                 </td>
                 <td className="max-w-xs px-4 py-3 text-xs text-stone-600">
                   {formatHoldAfterFirstLoss(
@@ -186,13 +160,20 @@ export function ExitInsightsTable({ rows }: { rows: ExitInsightRow[] }) {
                   </p>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-1">
+                  <div>
                     <StatusBadge status={row.exit_assessment} />
-                    {row.assessment_flags
-                      .filter((flag) => flag !== row.exit_assessment)
-                      .map((flag) => (
-                        <StatusBadge key={flag} status={flag} />
-                      ))}
+                    <p className="mt-2 text-xs font-medium text-stone-500">Ownership</p>
+                    <p className="text-xs text-stone-700">
+                      {row.ownership_signals.length
+                        ? row.ownership_signals.map(assessmentLabel).join(", ")
+                        : "No strong signal"}
+                    </p>
+                    <p className="mt-1 text-xs font-medium text-stone-500">Post-exit</p>
+                    <p className="text-xs text-stone-700">
+                      {row.post_exit_signals.length
+                        ? row.post_exit_signals.map(assessmentLabel).join(", ")
+                        : "Pending"}
+                    </p>
                   </div>
                 </td>
                 <td className="max-w-sm px-4 py-3 text-xs text-stone-600">

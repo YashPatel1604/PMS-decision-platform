@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from pms_platform.analytics.exit_assessment import missed_upside_vs_peak_pct
 from pms_platform.analytics.portfolio_value import list_security_trading_dates
+from pms_platform.analytics.price_units import transaction_price_in_series_units
 from pms_platform.market_data.lookup import lookup_benchmark_tri, lookup_daily_price
 from pms_platform.models import DecisionEvent
 
@@ -25,10 +26,10 @@ LONG_UNDERWATER_MIN_CALENDAR_DAYS = 365
 
 @dataclass(frozen=True)
 class EpisodeCostState:
-    """Holding quantity and average buy cost (purchase VWAP) in price-series units."""
+    """Holding quantity and fixed first-buy threshold in price-series units."""
 
     quantity: int
-    average_buy_cost: Decimal
+    first_buy_price: Decimal
 
 
 @dataclass(frozen=True)
@@ -52,42 +53,40 @@ class OwnershipMetrics:
     notes: tuple[str, ...]
 
 
-def _episode_buy_cost_states(
+def _episode_first_buy_states(
     session: Session,
     security_id: str,
     events: list[DecisionEvent],
 ) -> dict[date, EpisodeCostState]:
-    """Track average cost of buying only (INITIATE/ADD).
+    """Track one immutable INITIATE price through the episode.
 
-    Sells do not change the buy average — they only reduce quantity held.
-    Transaction buy prices are scaled into daily-price series units using the
-    first buy's market/tx ratio so underwater checks compare like with like
-    after splits or series basis differences.
+    ADD transactions never change the threshold. The first transaction price
+    is converted into daily-price-series units using the inferred corporate
+    action factor at entry.
     """
-    buy_qty = _ZERO
-    buy_cost_series = _ZERO
-    unit_factor: Decimal | None = None
+    first_buy_price: Decimal | None = None
     states: dict[date, EpisodeCostState] = {}
 
     for event in events:
-        if event.decision_type in {"INITIATE", "ADD"}:
-            if event.price is not None and event.quantity_change > 0:
-                qty = Decimal(event.quantity_change)
-                tx_price = event.price
-                if unit_factor is None:
-                    market = lookup_daily_price(session, security_id, event.event_date)
-                    if market is not None and tx_price > 0:
-                        unit_factor = market.adjusted_close / tx_price
-                    else:
-                        unit_factor = _ONE
-                buy_qty += qty
-                buy_cost_series += tx_price * qty * unit_factor
+        if (
+            first_buy_price is None
+            and event.decision_type == "INITIATE"
+            and event.price is not None
+            and event.price > 0
+            and event.quantity_change > 0
+        ):
+            market = lookup_daily_price(session, security_id, event.event_date)
+            if market is not None:
+                first_buy_price = transaction_price_in_series_units(
+                    event.price,
+                    market.adjusted_close,
+                )
 
         quantity = event.position_after
-        if quantity > 0 and buy_qty > 0:
+        if quantity > 0 and first_buy_price is not None:
             states[event.event_date] = EpisodeCostState(
                 quantity=quantity,
-                average_buy_cost=buy_cost_series / buy_qty,
+                first_buy_price=first_buy_price,
             )
 
     return states
@@ -117,11 +116,11 @@ def compute_ownership_metrics(
 ) -> OwnershipMetrics:
     """Compute drawdown and underwater-day metrics for a closed episode.
 
-    A day is underwater only when market price is below the average cost of buying
-    (INITIATE/ADD VWAP), never versus some other in-hold average.
+    A day is underwater only when market price is below the split-adjusted
+    first INITIATE price. Later buys never change the threshold.
     """
     notes: list[str] = []
-    cost_states = _episode_buy_cost_states(session, security_id, events)
+    cost_states = _episode_first_buy_states(session, security_id, events)
     trading_dates = list_security_trading_dates(session, security_id, entry_date, exit_date)
 
     entry_price_obs = lookup_daily_price(session, security_id, entry_date)
@@ -131,7 +130,7 @@ def compute_ownership_metrics(
     if entry_benchmark_obs is None:
         notes.append("Missing entry benchmark for ownership metrics")
     if not cost_states:
-        notes.append("Missing buy-cost basis for underwater metrics")
+        notes.append("Missing first-buy basis for underwater metrics")
 
     peak_price: Decimal | None = None
     peak_price_date: date | None = None
@@ -183,7 +182,7 @@ def compute_ownership_metrics(
             continue
 
         price = price_obs.adjusted_close
-        buy_cost = cost_state.average_buy_cost
+        buy_cost = cost_state.first_buy_price
         evaluated_days += 1
         peak_price = price if peak_price is None else max(peak_price, price)
         if peak_price == price:
@@ -206,7 +205,7 @@ def compute_ownership_metrics(
                 current_stretch_trading_days += 1
                 days_below_cost += 1
             else:
-                # At or above average buy cost — not a loss day.
+                # At or above the first buy price — not a loss day.
                 ever_above_cost = True
                 final_stretch_start = None
                 _clear_current_stretch()

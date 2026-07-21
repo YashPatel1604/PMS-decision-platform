@@ -13,6 +13,7 @@ from alembic.config import Config
 from pms_platform.analytics.exports import (
     export_episode_cash_flows_csv,
     export_episode_performance_csv,
+    export_first_buy_price_audit_csv,
     export_post_exit_performance_csv,
     export_sell_assessments_csv,
     export_sell_since_workbook,
@@ -285,6 +286,10 @@ def analyze_episodes(export_dir: Path | None = None) -> int:
         export_episode_cash_flows_csv(session, output_dir / "episode_cash_flows.csv")
         export_post_exit_performance_csv(session, output_dir / "post_exit_performance.csv")
         export_sell_assessments_csv(session, output_dir / "sell_assessments.csv")
+        export_first_buy_price_audit_csv(
+            session,
+            output_dir / "first_buy_price_audit.csv",
+        )
         export_sell_since_workbook(session, output_dir / "sell_since_analysis.xlsx")
         session.commit()
         print("Episode analysis complete.")
@@ -296,6 +301,10 @@ def analyze_episodes(export_dir: Path | None = None) -> int:
         print(f"  Performance report: {(output_dir / 'episode_performance.csv').resolve()}")
         print(f"  Post-exit report: {(output_dir / 'post_exit_performance.csv').resolve()}")
         print(f"  Sell assessments: {(output_dir / 'sell_assessments.csv').resolve()}")
+        print(
+            "  First-buy audit: "
+            f"{(output_dir / 'first_buy_price_audit.csv').resolve()}"
+        )
         print(f"  Excel workbook: {(output_dir / 'sell_since_analysis.xlsx').resolve()}")
         return 0
     except Exception as exc:

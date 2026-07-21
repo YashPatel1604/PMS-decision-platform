@@ -9,9 +9,12 @@ from decimal import Decimal
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from pms_platform.analytics.benchmark import compute_benchmark_period_return, primary_benchmark_code
-from pms_platform.analytics.exit_assessment import annualized_return_pct
+from pms_platform.analytics.benchmark import (
+    compute_benchmark_period_return,
+    primary_benchmark_code,
+)
 from pms_platform.analytics.cash_flows import build_episode_cash_flows
+from pms_platform.analytics.exit_assessment import annualized_return_pct
 from pms_platform.analytics.ownership_metrics import compute_ownership_metrics
 from pms_platform.analytics.portfolio_value import compute_portfolio_period_return
 from pms_platform.analytics.xirr import compute_xirr
@@ -23,7 +26,7 @@ from pms_platform.models import (
 )
 from pms_platform.models.enums import EpisodeStatus
 
-CALCULATION_VERSION = "m4-v9"
+CALCULATION_VERSION = "m4-v10"
 _HUNDRED = Decimal("100")
 _ZERO = Decimal("0")
 

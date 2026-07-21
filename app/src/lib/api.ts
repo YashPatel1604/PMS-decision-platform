@@ -64,6 +64,11 @@ export type ExitInsightRow = {
   current_vs_exit_pct: number | null;
   exit_assessment: string;
   assessment_flags: string[];
+  ownership_signals: string[];
+  post_exit_signals: string[];
+  assessment_confidence: string | null;
+  post_exit_horizons: PostExitHorizon[];
+  portfolio_comparator_status: "PROVISIONAL";
   assessment_reason: string;
   post_exit_summary: string | null;
 };
@@ -105,7 +110,26 @@ export type EpisodePerformance = {
   excess_vs_portfolio_after_exit: number | null;
   major_loss_window: MajorLossWindow | null;
   exit_assessment: string | null;
+  ownership_signals: string[];
+  post_exit_signals: string[];
+  assessment_confidence: string | null;
+  assessment_evidence: Record<string, string | number | null>;
+  post_exit_horizons: PostExitHorizon[];
+  portfolio_comparator_status: "PROVISIONAL";
   assessment_reason: string | null;
+  data_quality_status: string;
+};
+
+export type PostExitHorizon = {
+  horizon: string;
+  target_date: string | null;
+  comparison_date: string | null;
+  days_after_exit?: number | null;
+  security_return_pct: number | null;
+  smallcap_return_pct: number | null;
+  excess_vs_smallcap_pct: number | null;
+  provisional_portfolio_return_pct: number | null;
+  provisional_excess_vs_portfolio_pct?: number | null;
   data_quality_status: string;
 };
 
@@ -162,12 +186,106 @@ export type AnalysisRunResult = {
   cash_flow_rows: number;
 };
 
+export type ContinuousLossStrategyEpisode = {
+  episode_id: number;
+  security_id: string;
+  portfolio_name: string;
+  entry_date: string;
+  exit_date: string;
+  status: string;
+  initial_purchase_price: number | null;
+  adjusted_initial_price_threshold: number | null;
+  underwater_start_date: string | null;
+  trigger_date: string | null;
+  measurement_days: number | null;
+  trigger_quantity: number | null;
+  trigger_price: number | null;
+  trigger_proceeds: number | null;
+  common_end_date: string | null;
+  stock_return_pct: number | null;
+  diversified_return_pct: number | null;
+  return_uplift_pct: number | null;
+  stock_cagr_pct: number | null;
+  diversified_cagr_pct: number | null;
+  annualized_advantage_pp: number | null;
+  stock_end_value: number | null;
+  diversified_end_value: number | null;
+  impact_rupees: number | null;
+  impact_pct_of_trigger: number | null;
+  trigger_portfolio_value: number | null;
+  trigger_equity_value: number | null;
+  trigger_liquid_value: number | null;
+  portfolio_denominator_status: string | null;
+  position_weight_pct: number | null;
+  hold_portfolio_contribution_pct: number | null;
+  diversified_portfolio_contribution_pct: number | null;
+  portfolio_impact_pp: number | null;
+  other_holdings_count: number;
+  priced_holdings_count: number;
+  missing_price_holdings_count: number;
+  absolute_contribution_share_pct: number | null;
+  leave_one_out_impact_rupees: number | null;
+  leave_one_out_impact_pct: number | null;
+  leave_one_out_stock_xirr: number | null;
+  leave_one_out_diversified_xirr: number | null;
+  leave_one_out_annualized_advantage_pp: number | null;
+  leave_one_out_mean_portfolio_impact_pp: number | null;
+  leave_one_out_median_portfolio_impact_pp: number | null;
+  leave_one_out_mean_return_advantage_pp: number | null;
+  leave_one_out_median_return_advantage_pp: number | null;
+  removal_flips_result: boolean;
+  note: string | null;
+};
+
+export type ContinuousLossStrategy = {
+  methodology: string;
+  closed_episodes: number;
+  triggered_episodes: number;
+  no_trigger_episodes: number;
+  excluded_episodes: number;
+  trigger_rate_pct: number;
+  total_trigger_proceeds: number;
+  common_end_date: string | null;
+  stock_end_value: number;
+  diversified_end_value: number;
+  net_impact_rupees: number;
+  stock_xirr: number | null;
+  diversified_xirr: number | null;
+  annualized_advantage_pp: number | null;
+  terminal_value_uplift_pct: number | null;
+  mean_portfolio_impact_pp: number | null;
+  median_portfolio_impact_pp: number | null;
+  largest_portfolio_impact_pp: number | null;
+  equal_capital_start_value: number;
+  hold_equal_capital_end_value: number;
+  diversified_equal_capital_end_value: number;
+  equal_capital_net_difference: number;
+  mean_return_advantage_pp: number | null;
+  median_return_advantage_pp: number | null;
+  positive_effect_sum_pp: number;
+  negative_effect_sum_pp: number;
+  stock_return_pct: number | null;
+  diversified_return_pct: number | null;
+  return_uplift_pct: number | null;
+  positive_episodes: number;
+  negative_episodes: number;
+  positive_episode_rate_pct: number | null;
+  top_episode_contribution_pct: number | null;
+  top_three_contribution_pct: number | null;
+  contribution_hhi: number | null;
+  conclusion: string;
+  conclusion_text: string;
+  episodes: ContinuousLossStrategyEpisode[];
+};
+
 export const api = {
   getSummary: () => request<DashboardSummary>("/dashboard/summary"),
   getExitInsights: () => request<ExitInsightRow[]>("/dashboard/exit-insights"),
   listEpisodes: () => request<EpisodePerformance[]>("/episodes/performance"),
   getEpisode: (id: number) => request<EpisodePerformance>(`/episodes/performance/${id}`),
   getPostExit: (id: number) => request<PostExitPerformance>(`/episodes/post-exit/${id}`),
+  getContinuousLossStrategy: () =>
+    request<ContinuousLossStrategy>("/backtests/one-year-continuous-loss"),
   runAnalysis: () =>
     request<AnalysisRunResult>("/episodes/analyze", { method: "POST" }),
 };

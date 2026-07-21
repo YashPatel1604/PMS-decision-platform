@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { FormattedPct, FormattedValue } from "@/components/formatted-value";
 import { OutcomeBadge } from "@/components/outcome-badge";
 import { StatusBadge } from "@/components/status-badge";
-import type { EpisodePerformance } from "@/lib/api";
+import type { EpisodePerformance, PostExitHorizon } from "@/lib/api";
 import {
   assessmentLabel,
   formatDate,
@@ -16,6 +16,30 @@ import {
 } from "@/lib/format";
 
 const OUTCOME_FILTERS = ["ALL", "PROFIT_STOCK", "LOSS_STOCK", "BREAKEVEN"] as const;
+
+function OneYearPerformance({ horizons }: { horizons: PostExitHorizon[] }) {
+  const row = horizons.find((horizon) => horizon.horizon === "1Y");
+  if (!row || row.data_quality_status !== "OK") {
+    return <span className="text-xs text-stone-500">Not yet available</span>;
+  }
+  return (
+    <>
+      <p className="text-xs">
+        <span className="text-stone-500">Stock </span>
+        <FormattedValue value={row.security_return_pct} kind="pct" />
+      </p>
+      <p className="text-xs">
+        <span className="text-stone-500">BSE SC </span>
+        <FormattedValue value={row.smallcap_return_pct} kind="pct" />
+      </p>
+      {row.excess_vs_smallcap_pct !== null ? (
+        <p className="mt-1 text-xs">
+          <FormattedPct value={row.excess_vs_smallcap_pct} suffix="stock vs BSE SC" />
+        </p>
+      ) : null}
+    </>
+  );
+}
 
 export function EpisodesTable({ episodes }: { episodes: EpisodePerformance[] }) {
   const [query, setQuery] = useState("");
@@ -113,10 +137,10 @@ export function EpisodesTable({ episodes }: { episodes: EpisodePerformance[] }) 
               <th className="px-4 py-3 font-medium">Outcome</th>
               <th className="px-4 py-3 font-medium">Exit date</th>
               <th className="px-4 py-3 font-medium">P&amp;L (₹)</th>
-              <th className="px-4 py-3 font-medium">Since sell (%)</th>
-              <th className="px-4 py-3 font-medium">Below buy cost</th>
+              <th className="px-4 py-3 font-medium">1 year after sell (%)</th>
+              <th className="px-4 py-3 font-medium">Below first buy</th>
               <th className="px-4 py-3 font-medium">XIRR (% p.a.)</th>
-              <th className="px-4 py-3 font-medium">Assessment</th>
+              <th className="px-4 py-3 font-medium">Final verdict</th>
             </tr>
           </thead>
           <tbody>
@@ -142,26 +166,7 @@ export function EpisodesTable({ episodes }: { episodes: EpisodePerformance[] }) 
                   <FormattedValue value={episode.total_profit_loss} kind="pnl" />
                 </td>
                 <td className="px-4 py-3">
-                  <p className="text-xs">
-                    <span className="text-stone-500">Stock </span>
-                    <FormattedValue value={episode.security_return_after_exit} kind="pct" />
-                  </p>
-                  <p className="text-xs">
-                    <span className="text-stone-500">Portfolio </span>
-                    <FormattedValue value={episode.portfolio_return_after_exit} kind="pct" />
-                  </p>
-                  <p className="text-xs">
-                    <span className="text-stone-500">BSE SC </span>
-                    <FormattedValue value={episode.smallcap_return_after_exit} kind="pct" />
-                  </p>
-                  {episode.excess_vs_smallcap_after_exit !== null ? (
-                    <p className="mt-1 text-xs">
-                      <FormattedPct
-                        value={episode.excess_vs_smallcap_after_exit}
-                        suffix="stock vs BSE SC"
-                      />
-                    </p>
-                  ) : null}
+                  <OneYearPerformance horizons={episode.post_exit_horizons} />
                 </td>
                 <td className="max-w-xs px-4 py-3 text-xs text-stone-600">
                   {formatHoldAfterFirstLoss(
@@ -186,8 +191,9 @@ export function EpisodesTable({ episodes }: { episodes: EpisodePerformance[] }) 
         </table>
       </div>
       <p className="text-sm text-stone-500">
-        Showing {filtered.length} of {episodes.length} closed episodes. Portfolio and BSE
-        comparisons are from sell date forward, not from purchase date.
+        Showing {filtered.length} of {episodes.length} closed episodes. Verdicts use fixed
+        one-year stock and BSE SmallCap evidence; portfolio comparisons are provisional and
+        excluded from verdicts.
       </p>
     </div>
   );

@@ -1,6 +1,6 @@
 """Sell-quality assessment ORM model."""
 
-from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from pms_platform.db.base import Base
@@ -17,7 +17,11 @@ class SellAssessment(Base):
         ForeignKey("investment_episodes.episode_id"), nullable=False
     )
     exit_assessment: Mapped[str] = mapped_column(String(64), nullable=False)
-    assessment_flags: Mapped[str | None] = mapped_column(String(256))
+    assessment_flags: Mapped[str | None] = mapped_column(String(512))
+    ownership_flags: Mapped[str | None] = mapped_column(String(512))
+    post_exit_flags: Mapped[str | None] = mapped_column(String(512))
+    assessment_confidence: Mapped[str | None] = mapped_column(String(16))
+    assessment_evidence: Mapped[str | None] = mapped_column(Text)
     assessment_reason: Mapped[str] = mapped_column(Text, nullable=False)
     calculation_version: Mapped[str] = mapped_column(String(32), nullable=False)
     data_quality_status: Mapped[str] = mapped_column(String(32), nullable=False)

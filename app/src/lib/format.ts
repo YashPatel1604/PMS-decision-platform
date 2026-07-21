@@ -118,9 +118,9 @@ export function formatHoldAfterFirstLoss(
         tradingDays !== null && tradingDays !== undefined
           ? `${numberFormatter.format(tradingDays)} trading days`
           : null;
-      return `Below buy cost 1+ yr then profit · since ${since} · ${calendarYears} (${formatDays(calendarDays)}${trading ? ` · ${trading}` : ""})`;
+      return `Below first buy 1+ yr then profit · since ${since} · ${calendarYears} (${formatDays(calendarDays)}${trading ? ` · ${trading}` : ""})`;
     }
-    return "Sold at profit — never below buy cost for 1+ year";
+    return "Sold at profit — never below first buy for 1+ year";
   }
   if (exitOutcome !== "LOSS_STOCK") {
     return "—";
@@ -148,7 +148,7 @@ export function lossHoldPatternLabel(pattern: string | null | undefined): string
   if (!pattern) return "—";
   if (pattern === "RODE_WINNER_DOWN") return "Rode winner down";
   if (pattern === "STAYED_UNDERWATER") return "Stayed underwater";
-  if (pattern === "RECOVERED_AFTER_LONG_LOSS") return "Below buy cost 1+ yr then profit";
+  if (pattern === "RECOVERED_AFTER_LONG_LOSS") return "Below first buy 1+ yr then profit";
   return pattern.replaceAll("_", " ");
 }
 

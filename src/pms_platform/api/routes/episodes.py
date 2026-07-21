@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Generator
 from datetime import date, timedelta
 from decimal import Decimal
@@ -16,13 +17,13 @@ from pms_platform.analytics.benchmark import (
     primary_benchmark_code,
 )
 from pms_platform.analytics.portfolio_value import compute_portfolio_period_return
-from pms_platform.analytics.service import run_full_episode_analysis
 from pms_platform.analytics.successor_chain import resolve_price_security_id
 from pms_platform.db.base import get_session_factory
 from pms_platform.market_data.lookup import lookup_daily_price
 from pms_platform.models import (
     DailyPrice,
     EpisodePerformance,
+    PostExitHorizonPerformance,
     PostExitPerformance,
     Security,
     SellAssessment,
@@ -81,6 +82,19 @@ class MajorLossWindowResponse(BaseModel):
     reinvestment_at_one_year_loss: EqualWeightReinvestmentResponse | None
 
 
+class PostExitHorizonResponse(BaseModel):
+    horizon: str
+    target_date: str | None
+    comparison_date: str | None
+    days_after_exit: int | None
+    security_return_pct: float | None
+    smallcap_return_pct: float | None
+    excess_vs_smallcap_pct: float | None
+    provisional_portfolio_return_pct: float | None
+    provisional_excess_vs_portfolio_pct: float | None
+    data_quality_status: str
+
+
 class EpisodePerformanceResponse(BaseModel):
     episode_id: int
     security_id: str
@@ -119,6 +133,12 @@ class EpisodePerformanceResponse(BaseModel):
     excess_vs_portfolio_after_exit: float | None
     major_loss_window: MajorLossWindowResponse | None = None
     exit_assessment: str | None
+    ownership_signals: list[str]
+    post_exit_signals: list[str]
+    assessment_confidence: str | None
+    assessment_evidence: dict[str, str | int | float | None]
+    post_exit_horizons: list[PostExitHorizonResponse]
+    portfolio_comparator_status: str = "PROVISIONAL"
     assessment_reason: str | None
     data_quality_status: str
 
@@ -149,6 +169,7 @@ def _performance_response(
     portfolio_name: str,
     assessment: SellAssessment | None,
     post_exit: PostExitPerformance | None = None,
+    horizons: list[PostExitHorizonPerformance] | None = None,
     major_loss_window: MajorLossWindowResponse | None = None,
 ) -> EpisodePerformanceResponse:
     profit_loss = float(row.total_profit_loss)
@@ -231,6 +252,66 @@ def _performance_response(
         ),
         major_loss_window=major_loss_window,
         exit_assessment=assessment.exit_assessment if assessment else None,
+        ownership_signals=(
+            [flag for flag in (assessment.ownership_flags or "").split(",") if flag]
+            if assessment
+            else []
+        ),
+        post_exit_signals=(
+            [flag for flag in (assessment.post_exit_flags or "").split(",") if flag]
+            if assessment
+            else []
+        ),
+        assessment_confidence=(
+            assessment.assessment_confidence if assessment else None
+        ),
+        assessment_evidence=(
+            json.loads(assessment.assessment_evidence)
+            if assessment and assessment.assessment_evidence
+            else {}
+        ),
+        post_exit_horizons=[
+            PostExitHorizonResponse(
+                horizon=horizon.horizon,
+                target_date=(
+                    horizon.target_date.isoformat() if horizon.target_date else None
+                ),
+                comparison_date=(
+                    horizon.comparison_date.isoformat()
+                    if horizon.comparison_date
+                    else None
+                ),
+                days_after_exit=horizon.days_after_exit,
+                security_return_pct=(
+                    float(horizon.security_return_after_exit)
+                    if horizon.security_return_after_exit is not None
+                    else None
+                ),
+                smallcap_return_pct=(
+                    float(horizon.smallcap_return_after_exit)
+                    if horizon.smallcap_return_after_exit is not None
+                    else None
+                ),
+                excess_vs_smallcap_pct=(
+                    float(horizon.excess_vs_smallcap_after_exit)
+                    if horizon.excess_vs_smallcap_after_exit is not None
+                    else None
+                ),
+                provisional_portfolio_return_pct=(
+                    float(horizon.provisional_portfolio_return_after_exit)
+                    if horizon.provisional_portfolio_return_after_exit is not None
+                    else None
+                ),
+                provisional_excess_vs_portfolio_pct=(
+                    float(horizon.provisional_excess_vs_portfolio_after_exit)
+                    if horizon.provisional_excess_vs_portfolio_after_exit
+                    is not None
+                    else None
+                ),
+                data_quality_status=horizon.data_quality_status,
+            )
+            for horizon in (horizons or [])
+        ],
         assessment_reason=assessment.assessment_reason if assessment else None,
         data_quality_status=row.data_quality_status,
     )
@@ -404,6 +485,8 @@ def _major_loss_window(
 @router.post("/analyze", response_model=AnalysisRunResponse)
 def analyze_episodes(session: Session = Depends(get_db)) -> AnalysisRunResponse:
     """Recompute episode analytics and persist results."""
+    from pms_platform.analytics.service import run_full_episode_analysis
+
     summary = run_full_episode_analysis(session)
     session.commit()
     return AnalysisRunResponse(
@@ -427,6 +510,14 @@ def list_episode_performance(
     post_exit_by_episode = {
         row.episode_id: row for row in session.scalars(select(PostExitPerformance)).all()
     }
+    horizons_by_episode: dict[int, list[PostExitHorizonPerformance]] = {}
+    for horizon in session.scalars(
+        select(PostExitHorizonPerformance).order_by(
+            PostExitHorizonPerformance.episode_id,
+            PostExitHorizonPerformance.post_exit_horizon_performance_id,
+        )
+    ).all():
+        horizons_by_episode.setdefault(horizon.episode_id, []).append(horizon)
     rows = session.scalars(
         select(EpisodePerformance).order_by(
             EpisodePerformance.exit_date.desc(),
@@ -441,6 +532,7 @@ def list_episode_performance(
             else row.security_id,
             assessments.get(row.episode_id),
             post_exit_by_episode.get(row.episode_id),
+            horizons_by_episode.get(row.episode_id),
         )
         for row in rows
     ]
@@ -464,11 +556,17 @@ def get_episode_performance(
     post_exit = session.scalar(
         select(PostExitPerformance).where(PostExitPerformance.episode_id == episode_id)
     )
+    horizons = session.scalars(
+        select(PostExitHorizonPerformance).where(
+            PostExitHorizonPerformance.episode_id == episode_id
+        )
+    ).all()
     return _performance_response(
         row,
         security.portfolio_name if security else row.security_id,
         assessment,
         post_exit,
+        list(horizons),
         _major_loss_window(session, row),
     )
 

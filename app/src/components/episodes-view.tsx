@@ -8,6 +8,7 @@ import { OutcomeBadge } from "@/components/outcome-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { api, type EqualWeightReinvestment } from "@/lib/api";
 import {
+  assessmentLabel,
   formatDays,
   formatDate,
   formatExcessLabel,
@@ -99,9 +100,9 @@ export function EpisodeDetailView({ episodeId }: { episodeId: number }) {
     { label: "P&L (₹)", value: formatPnL(episode.total_profit_loss) },
     { label: "Outcome", value: outcomeLabel(episode.exit_outcome) },
     {
-      label: "Avg buy price (₹)",
+      label: "Avg buy price (₹) · reference only",
       value: formatPrice(episode.average_buy_price),
-      sublabel: "Volume-weighted average of buys",
+      sublabel: "Not used for loss triggers; those use the first buy price",
     },
     {
       label: "Avg sell price (₹)",
@@ -151,7 +152,7 @@ export function EpisodeDetailView({ episodeId }: { episodeId: number }) {
       ),
       sublabel:
         episode.loss_hold_pattern === "RECOVERED_AFTER_LONG_LOSS"
-          ? "Market price was below average buy cost for 1+ year, then sold at profit"
+          ? "Market price was below the first buy price for 1+ year, then sold at profit"
           : episode.exit_outcome === "LOSS_STOCK" && episode.loss_hold_pattern
             ? "Pattern for future early-exit research"
             : undefined,
@@ -196,7 +197,7 @@ export function EpisodeDetailView({ episodeId }: { episodeId: number }) {
         <section className="rounded-xl border border-amber-200 bg-amber-50/50 p-6 shadow-sm">
           <h3 className="text-lg font-semibold">Portfolio during the major-loss window</h3>
           <p className="mt-2 text-sm text-stone-600">
-            The stock stayed continuously below its average buy price from{" "}
+            The stock stayed continuously below its first buy price from{" "}
             <span className="font-medium text-stone-800">
               {formatDate(episode.major_loss_window.start_date)}
             </span>{" "}
@@ -250,7 +251,7 @@ export function EpisodeDetailView({ episodeId }: { episodeId: number }) {
           {episode.major_loss_window.reinvestment_at_one_year_loss ? (
             <ReinvestmentScenario
               title="What if we sold when continuous loss reached one year?"
-              description="This is the early-exit trigger: sell on the first trading day after 365 continuous calendar days below average buy cost, then divide the proceeds equally among every other equity held that day."
+              description="This is the early-exit trigger: sell on the first trading day after 365 continuous calendar days below the first buy price, then divide the proceeds equally among every other equity held that day."
               scenario={episode.major_loss_window.reinvestment_at_one_year_loss}
             />
           ) : null}
@@ -258,7 +259,7 @@ export function EpisodeDetailView({ episodeId }: { episodeId: number }) {
           {episode.major_loss_window.reinvestment_after_loss ? (
             <ReinvestmentScenario
               title="What if we reinvested when the loss phase ended?"
-              description="Sell when the continuous below-buy-cost phase ends, then divide the proceeds equally among every other equity held that day."
+              description="Sell when the continuous below-first-buy-price phase ends, then divide the proceeds equally among every other equity held that day."
               scenario={episode.major_loss_window.reinvestment_after_loss}
             />
           ) : (
@@ -269,8 +270,9 @@ export function EpisodeDetailView({ episodeId }: { episodeId: number }) {
           )}
 
           <p className="mt-5 text-xs text-stone-500">
-            Portfolio comparison uses total equity market value at the start and end of the same
-            window and includes this stock. It is not yet a cash-flow-adjusted TWR.
+            Provisional portfolio comparator: this uses total equity market value at the start and
+            end of the same window and includes this stock. It is not a cash-flow-adjusted TWR and
+            does not influence the exit verdict.
           </p>
         </section>
       ) : null}
@@ -283,13 +285,75 @@ export function EpisodeDetailView({ episodeId }: { episodeId: number }) {
               <StatusBadge status={episode.exit_assessment} />
             ) : null}
           </div>
+          <p className="mt-2 text-xs font-medium uppercase tracking-wide text-stone-500">
+            {episode.assessment_confidence ?? "Unknown"} confidence
+          </p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="rounded-lg bg-stone-50 p-4">
+              <p className="text-sm font-semibold">Ownership discipline</p>
+              <p className="mt-2 text-sm text-stone-600">
+                {episode.ownership_signals.length
+                  ? episode.ownership_signals.map(assessmentLabel).join(", ")
+                  : "No strong ownership-discipline signal"}
+              </p>
+            </div>
+            <div className="rounded-lg bg-stone-50 p-4">
+              <p className="text-sm font-semibold">One-year post-exit evidence</p>
+              <p className="mt-2 text-sm text-stone-600">
+                {episode.post_exit_signals.length
+                  ? episode.post_exit_signals.map(assessmentLabel).join(", ")
+                  : "Not yet available"}
+              </p>
+            </div>
+          </div>
           <p className="mt-3 text-stone-600">{episode.assessment_reason}</p>
         </section>
       ) : null}
 
+      <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
+        <h3 className="text-lg font-semibold">Standardized post-exit horizons</h3>
+        <p className="mt-2 text-sm text-stone-600">
+          The final verdict uses 1-year stock and BSE SmallCap results. Three-year, five-year, and
+          latest results are context only.
+        </p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {episode.post_exit_horizons.map((horizon) => (
+            <div key={horizon.horizon} className="rounded-lg border border-stone-200 p-4">
+              <p className="font-semibold">{horizon.horizon}</p>
+              {horizon.data_quality_status === "OK" ? (
+                <>
+                  <p className="mt-2 text-sm">
+                    Stock <span className="font-medium">{formatPct(horizon.security_return_pct)}</span>
+                  </p>
+                  <p className="text-sm">
+                    BSE SC <span className="font-medium">{formatPct(horizon.smallcap_return_pct)}</span>
+                  </p>
+                  <p className="text-sm">
+                    Excess <span className="font-medium">{formatPp(horizon.excess_vs_smallcap_pct)}</span>
+                  </p>
+                  <p className="mt-2 text-xs text-stone-500">
+                    Through {horizon.comparison_date ? formatDate(horizon.comparison_date) : "—"}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-2 text-sm text-stone-500">
+                  {horizon.data_quality_status === "NOT_YET_AVAILABLE"
+                    ? "Not yet available"
+                    : "Insufficient data"}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+        <p className="mt-4 text-xs text-stone-500">
+          Portfolio figures in the API/export are provisional raw market-value context and are
+          excluded from every signal and verdict.
+        </p>
+      </section>
+
       {postExit ? (
         <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
-          <h3 className="text-lg font-semibold">Post-exit performance</h3>
+          <h3 className="text-lg font-semibold">Latest-date context</h3>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <Metric
               label="Comparison date"
@@ -300,7 +364,7 @@ export function EpisodeDetailView({ episodeId }: { episodeId: number }) {
               value={formatPct(postExit.security_return_after_exit)}
             />
             <Metric
-              label="Portfolio after exit (%)"
+              label="Portfolio after exit (%) · provisional"
               value={formatPct(postExit.portfolio_return_after_exit, 1, { signed: false })}
             />
             <Metric
@@ -322,6 +386,10 @@ export function EpisodeDetailView({ episodeId }: { episodeId: number }) {
               )}
             />
           </div>
+          <p className="mt-4 text-xs text-stone-500">
+            Latest-date results do not determine the verdict. Portfolio results are provisional
+            because they are not cash-flow-adjusted TWR.
+          </p>
         </section>
       ) : null}
     </div>
@@ -355,6 +423,9 @@ function ReinvestmentScenario({
       <p className="mt-2 text-sm text-stone-600">
         {description} Comparison runs from {formatDate(scenario.start_date)} until the stock&apos;s
         actual exit on {formatDate(scenario.end_date)}.
+      </p>
+      <p className="mt-2 text-xs font-medium text-amber-800">
+        Provisional equal-weight what-if; this does not influence the exit verdict.
       </p>
 
       <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
