@@ -34,12 +34,15 @@ git push origin main
 
 Message Dad (WhatsApp): “Update ready — run update script” **or** connect via Tailscale and run it yourself.
 
-### On his Windows PC
+### On his Windows PC (after code pull, if analysis columns are blank)
 
 ```powershell
 cd $HOME\Apps\PMS-decision-platform
 .\scripts\windows\update.ps1
+.\scripts\windows\load-market-analysis.ps1
 ```
+
+`load-market-analysis.ps1` imports price/benchmark CSVs and rebuilds exit assessments. **Refresh data alone does not do this.**
 
 Equivalent:
 

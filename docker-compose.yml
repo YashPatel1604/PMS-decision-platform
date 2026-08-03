@@ -54,9 +54,14 @@ services:
         source: ./docker/portfolio_snapshot_seed
         target: /data/snapshot_seed
         read_only: true
+      # Prices / dividends / benchmarks for Holdings % and exit analysis.
+      # Default: shipped seed. Override with OneDrive 05_External_Data path in .env.
+      - type: bind
+        source: ${EXTERNAL_DATA_DIR:-./docker/market_data_seed}
+        target: /data/external
+        read_only: true
       - api_raw:/data/raw
       - api_processed:/data/processed
-      - api_external:/data/external
       - api_exports:/data/exports
       - api_uploads:/data/uploads
     depends_on:
@@ -81,6 +86,5 @@ volumes:
   postgres_data:
   api_raw:
   api_processed:
-  api_external:
   api_exports:
   api_uploads:

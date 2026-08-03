@@ -108,6 +108,23 @@ When `postgres`, `api`, and `ui` show as running / healthy:
 
 ---
 
+## Step 6 — Load market analysis (required for Open positions % / exit signals)
+
+**Refresh alone is not enough.** Open positions STOCK%/BSE% and exit “1-year evidence” need price CSVs in the database.
+
+In PowerShell (Docker still running):
+
+```powershell
+cd $HOME\Apps\PMS-decision-platform
+.\scripts\windows\load-market-analysis.ps1
+```
+
+This imports `daily_prices.csv` + benchmarks from `docker/market_data_seed` (or `EXTERNAL_DATA_DIR`), then runs episode analysis. First run can take several minutes.
+
+Then Ctrl+F5 in the browser. Open positions and exit signals should show numbers instead of `—` / Insufficient Data.
+
+---
+
 ## Every day
 
 1. Start **Docker Desktop** (if it is not already running). Containers are set to restart with Docker.
@@ -129,6 +146,12 @@ cd $HOME\Apps\PMS-decision-platform
 
 Then refresh the browser (Ctrl+F5).
 
+If Open positions % or exit analysis look empty after an update/reimport, also run:
+
+```powershell
+.\scripts\windows\load-market-analysis.ps1
+```
+
 ---
 
 ## After portfolio Excel files change in OneDrive
@@ -136,19 +159,7 @@ Then refresh the browser (Ctrl+F5).
 1. Wait until OneDrive finishes syncing (no pending arrows on the files).
 2. In the app, click **Refresh data**.
 3. No `git pull` needed for data-only changes.
-
----
-
-## Optional: market prices
-
-After a successful Refresh, in PowerShell:
-
-```powershell
-cd $HOME\Apps\PMS-decision-platform
-docker compose exec api uv run pms-platform import-market-data
-```
-
-This needs internet and can take a while.
+4. If you also refreshed/wiped prices somehow, re-run `.\scripts\windows\load-market-analysis.ps1`.
 
 ---
 
@@ -158,6 +169,7 @@ This needs internet and can take a while.
 |---------|-------------|
 | `RESEARCH_DIR` error on start | Path in `.env` wrong; must contain `Portfolio` folder |
 | Refresh: no portfolio snapshots | See **Fix: empty snapshots** below |
+| Open positions all `—` / exit Insufficient Data | Run `.\scripts\windows\load-market-analysis.ps1` (market prices not in DB yet) |
 | Refresh fails / empty data | Mark Research **Always keep on this device**; re-run Refresh |
 | Page won’t load | Docker Desktop running? `docker compose ps` |
 | `git clone` / `git pull` denied | Ask Yash for GitHub access |
