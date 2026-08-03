@@ -167,6 +167,7 @@ If Open positions % or exit analysis still look empty after an update/reimport, 
 
 | Problem | What to try |
 |---------|-------------|
+| Portfolio value shows `src MODEL_PORTFOLIO` instead of `HISTORY` | See **Fix: History not used** below |
 | `RESEARCH_DIR` error on start | Path in `.env` wrong; must contain `Portfolio` folder |
 | Refresh: no portfolio snapshots | See **Fix: empty snapshots** below |
 | Open positions all `—` / exit Insufficient Data | Refresh once more, then run `.\scripts\windows\load-market-analysis.ps1` as fallback |
@@ -201,6 +202,31 @@ docker compose exec api ls -la /data/research/Portfolio
 docker compose exec api ls -la "/data/research/Portfolio/Portfolio Yearly"
 docker compose exec api ls -la /data/snapshot_seed
 ```
+
+### Fix: History not used (`src MODEL_PORTFOLIO`)
+
+Portfolio totals should come from `Research\Portfolio\History\PMS_ClientPortfolio_*.xlsx`.
+If Holdings shows `src MODEL_PORTFOLIO`, Docker is using yearly `Portfolio_*.xlsx` books
+(often the snapshot seed) because **History is missing or unreadable** in the container.
+
+1. Open `Research\Portfolio\History` in Explorer.
+2. Right-click → **Always keep on this device**. Wait for green checks.
+3. Confirm files like `PMS_ClientPortfolio_311225.xlsx` exist.
+4. Verify Docker sees them:
+
+```powershell
+docker compose exec api ls /data/research/Portfolio/History
+```
+
+If empty/missing, fix `RESEARCH_DIR` and remount:
+
+```powershell
+cd $HOME\Apps\PMS-decision-platform
+git pull
+docker compose up -d --build --force-recreate api
+```
+
+5. Hard-refresh the browser (Ctrl+F5). For 31 Dec 2025 you should see `src HISTORY`.
 
 ---
 

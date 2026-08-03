@@ -1,10 +1,15 @@
 """Authoritative portfolio market values from Research/Portfolio workbooks.
 
-Lookup order for a target date:
-1. ``History/PMS_ClientPortfolio_DDMMYY`` Model ``Total_Value`` (exact date)
-2. ``Portfolio_YYYY.xlsx`` / Portfolio Yearly Model Portfolio sheet total
-3. ``Values.xlsx`` Date → Portfolio Value (exact, else latest on/before)
-4. Closest History / Model Portfolio observation on/before the target date
+Lookup order for a target date (History always beats Model Portfolio when available):
+1. ``History/PMS_ClientPortfolio_DDMMYY`` Model sheet ``Total_Value`` (exact date)
+2. Closest History observation on/before the target date
+3. Exact ``Portfolio_YYYY.xlsx`` / Portfolio Yearly sheet total (``MODEL_PORTFOLIO``)
+4. Exact ``Values.xlsx`` Date → Portfolio Value
+5. Closest Model Portfolio observation on/before
+6. Closest Values observation on/before
+
+``MODEL_PORTFOLIO`` usually means Docker/app could not read ``Research/Portfolio/History``
+(or no History file exists for that window) and fell back to yearly snapshot books.
 
 Reconstructed ledger valuation remains a separate cross-check in open holdings.
 """
@@ -275,6 +280,21 @@ def lookup_research_portfolio_value(as_of_date: date) -> ResearchPortfolioValue 
                 observation_date=as_of_date,
             )
 
+    # Prefer any History observation on/before target before yearly Model books.
+    history_index = _history_date_index()
+    history_day = _on_or_before(list(history_index), as_of_date)
+    if history_day is not None:
+        path = history_index[history_day]
+        total = _history_model_total(path)
+        if total is not None:
+            return ResearchPortfolioValue(
+                as_of_date=as_of_date,
+                value=total,
+                source="HISTORY",
+                source_file=str(path),
+                observation_date=history_day,
+            )
+
     models = _model_portfolio_index()
     if as_of_date in models:
         value, path, sheet = models[as_of_date]
@@ -295,20 +315,6 @@ def lookup_research_portfolio_value(as_of_date: date) -> ResearchPortfolioValue 
             source_file=str(research_values_workbook()),
             observation_date=as_of_date,
         )
-
-    history_index = _history_date_index()
-    history_day = _on_or_before(list(history_index), as_of_date)
-    if history_day is not None:
-        path = history_index[history_day]
-        total = _history_model_total(path)
-        if total is not None:
-            return ResearchPortfolioValue(
-                as_of_date=as_of_date,
-                value=total,
-                source="HISTORY",
-                source_file=str(path),
-                observation_date=history_day,
-            )
 
     model_day = _on_or_before(list(models), as_of_date)
     if model_day is not None:

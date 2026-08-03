@@ -24,6 +24,17 @@ def test_lookup_dec_31_2025_from_history() -> None:
     assert result.value == Decimal("53586888.67")
 
 
+def test_lookup_prefers_history_on_or_before_over_model() -> None:
+    """History observations beat Model Portfolio even when a model sheet date matches."""
+    clear_research_portfolio_value_cache()
+    # Mid-year date that likely has model sheets nearby; History should still win if present.
+    result = lookup_research_portfolio_value(date(2025, 6, 30))
+    assert result is not None
+    if research_portfolio_history_dir() is not None:
+        assert result.source == "HISTORY"
+        assert result.observation_date <= date(2025, 6, 30)
+
+
 def test_lookup_falls_back_to_values_month_start() -> None:
     clear_research_portfolio_value_cache()
     # No History file for this synthetic mid-month in early series; Values has 2012-01-01.
