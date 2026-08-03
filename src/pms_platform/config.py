@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     final_master_dir: Path | None = None
     # Sibling OneDrive knowledge base: …/OneDrive-Personal/Research (read-only).
     research_dir: Path | None = None
+    # Optional fallback dir of Portfolio_*.xlsx (Docker ships docker/portfolio_snapshot_seed).
+    snapshot_seed_dir: Path | None = None
     yahoo_finance_base_url: str = "https://query1.finance.yahoo.com"
     log_level: str = "INFO"
 

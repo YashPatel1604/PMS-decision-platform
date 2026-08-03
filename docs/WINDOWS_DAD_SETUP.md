@@ -157,11 +157,38 @@ This needs internet and can take a while.
 | Problem | What to try |
 |---------|-------------|
 | `RESEARCH_DIR` error on start | Path in `.env` wrong; must contain `Portfolio` folder |
+| Refresh: no portfolio snapshots | See **Fix: empty snapshots** below |
 | Refresh fails / empty data | Mark Research **Always keep on this device**; re-run Refresh |
 | Page won’t load | Docker Desktop running? `docker compose ps` |
 | `git clone` / `git pull` denied | Ask Yash for GitHub access |
 | Disk full | Docker Desktop → Settings → Resources; free disk space |
 | Old containers | `docker compose down` then `.\scripts\windows\start.ps1` |
+
+### Fix: empty snapshots (`No portfolio snapshot workbooks…`)
+
+Docker on Windows often cannot see OneDrive cloud-only files. Do all of these:
+
+1. In File Explorer open your `Research\Portfolio` folder (and **`Portfolio Yearly`** if it exists).
+2. Right-click → **Always keep on this device**. Wait until green checkmarks (not cloud icons).
+3. Confirm `.env` `RESEARCH_DIR` ends at **`Research`** (the folder that contains `Portfolio`), e.g.  
+   `RESEARCH_DIR=C:/Users/Dad/OneDrive/.../Research`
+4. Pull the latest app (includes a snapshot seed fallback) and rebuild:
+
+```powershell
+cd $HOME\Apps\PMS-decision-platform
+git pull
+docker compose up -d --build
+```
+
+5. Click **Refresh data** again.
+
+Check what the container sees (optional):
+
+```powershell
+docker compose exec api ls -la /data/research/Portfolio
+docker compose exec api ls -la "/data/research/Portfolio/Portfolio Yearly"
+docker compose exec api ls -la /data/snapshot_seed
+```
 
 ---
 

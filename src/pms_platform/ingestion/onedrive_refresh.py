@@ -107,7 +107,8 @@ def sync_raw_from_onedrive(*, raw_dir: Path | None = None) -> SyncRawResult:
         old.unlink()
 
     seen: set[str] = set()
-    for directory in portfolio_snapshot_source_dirs():
+    source_dirs = portfolio_snapshot_source_dirs()
+    for directory in source_dirs:
         for src in sorted(directory.glob("Portfolio_*.xlsx")):
             if src.name.startswith("~$"):
                 continue
@@ -120,9 +121,20 @@ def sync_raw_from_onedrive(*, raw_dir: Path | None = None) -> SyncRawResult:
             result.snapshot_count += 1
 
     if result.snapshot_count == 0:
-        result.notes.append("No Portfolio_*.xlsx snapshot workbooks found in Research/legacy paths")
-    else:
-        result.notes.append(f"Synced {result.snapshot_count} portfolio snapshot workbook(s)")
+        checked = ", ".join(str(d) for d in source_dirs) or "(no source dirs found)"
+        research = research_dir()
+        portfolio = research_portfolio_dir()
+        detail = (
+            f"No Portfolio_*.xlsx snapshot workbooks found. "
+            f"Checked: {checked}. "
+            f"research_dir={research!s}; portfolio_dir={portfolio!s}. "
+            "On Windows: set RESEARCH_DIR to the Research folder that contains "
+            "Portfolio/, mark Portfolio (and Portfolio Yearly) Always keep on this "
+            "device, then restart containers. Or rely on docker/portfolio_snapshot_seed."
+        )
+        result.notes.append(detail)
+        raise FileNotFoundError(detail)
+    result.notes.append(f"Synced {result.snapshot_count} portfolio snapshot workbook(s)")
 
     portfolio = research_portfolio_dir()
     if portfolio is not None:

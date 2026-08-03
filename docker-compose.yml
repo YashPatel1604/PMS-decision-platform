@@ -34,6 +34,7 @@ services:
       DATABASE_URL: postgresql+psycopg://pms:${POSTGRES_PASSWORD:-pms}@postgres:5432/pms
       RESEARCH_DIR: /data/research
       FINAL_MASTER_DIR: /data/final_master
+      SNAPSHOT_SEED_DIR: /data/snapshot_seed
       RAW_DATA_DIR: /data/raw
       PROCESSED_DATA_DIR: /data/processed
       EXTERNAL_DATA_DIR: /data/external
@@ -48,6 +49,10 @@ services:
       - type: bind
         source: ${FINAL_MASTER_DIR:-./docker/final_master_seed}
         target: /data/final_master
+        read_only: true
+      - type: bind
+        source: ./docker/portfolio_snapshot_seed
+        target: /data/snapshot_seed
         read_only: true
       - api_raw:/data/raw
       - api_processed:/data/processed

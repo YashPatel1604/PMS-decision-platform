@@ -81,8 +81,8 @@ def prefer_newest_existing(*candidates: Path) -> Path | None:
 def portfolio_snapshot_source_dirs() -> list[Path]:
     """Directories to read Portfolio_*.xlsx from, Research first.
 
-    Order: Research/Portfolio Yearly, Research/Portfolio root, then legacy
-    OneDrive originals under the project tree.
+    Order: Research/Portfolio Yearly, Research/Portfolio root, snapshot seed
+    (Docker fallback), then legacy OneDrive originals under the project tree.
     """
     dirs: list[Path] = []
     yearly = research_portfolio_yearly_dir()
@@ -91,6 +91,20 @@ def portfolio_snapshot_source_dirs() -> list[Path]:
     portfolio = research_portfolio_dir()
     if portfolio is not None:
         dirs.append(portfolio)
+
+    seed = settings.snapshot_seed_dir
+    if seed is not None:
+        seed_path = Path(seed).expanduser().resolve()
+        if seed_path.is_dir():
+            dirs.append(seed_path)
+    else:
+        for candidate in (
+            Path("/data/snapshot_seed"),
+            Path("docker/portfolio_snapshot_seed"),
+        ):
+            if candidate.is_dir():
+                dirs.append(candidate.resolve())
+                break
 
     cwd = Path.cwd().resolve()
     project_root = cwd.parent if cwd.name == "pms-decision-platform" else cwd
