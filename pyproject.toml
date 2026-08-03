@@ -16,9 +16,12 @@ dependencies = [
     "polars>=1.42.1",
     "psycopg[binary]>=3.3.4",
     "pydantic-settings>=2.14.2",
+    "python-multipart>=0.0.20",
+    "httpx>=0.28.1",
     "scipy>=1.15.3",
     "sqlalchemy>=2.0.51",
     "uvicorn>=0.51.0",
+    "xlrd>=2.0.2",
 ]
 
 [project.scripts]

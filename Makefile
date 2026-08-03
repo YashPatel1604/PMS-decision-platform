@@ -1,4 +1,4 @@
-.PHONY: install dev dev-api dev-ui test lint typecheck format docker-up docker-down import-all portfolio-on reconcile sync-raw reimport sync-import sync-external import-market-data market-data-coverage analyze-episodes
+.PHONY: install dev dev-api dev-ui test lint typecheck format docker-up docker-up-all docker-down import-all portfolio-on reconcile sync-raw reimport sync-import sync-external import-market-data market-data-coverage analyze-episodes refresh-live-quotes
 
 install:
 	uv sync
@@ -25,6 +25,9 @@ format:
 
 docker-up:
 	docker compose up -d postgres
+
+docker-up-all:
+	docker compose up -d --build
 
 docker-down:
 	docker compose down
@@ -61,3 +64,6 @@ market-data-coverage:
 
 analyze-episodes:
 	uv run pms-platform analyze-episodes
+
+refresh-live-quotes:
+	uv run pms-platform refresh-live-quotes

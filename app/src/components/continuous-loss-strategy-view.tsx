@@ -78,7 +78,7 @@ function Metric({
 
 function EqualCapitalSummary({ data }: { data: ContinuousLossStrategy }) {
   return (
-    <div className="grid gap-6 sm:grid-cols-3">
+    <div className="grid gap-6 sm:grid-cols-3 xl:grid-cols-4">
       <Metric
         label="Average ₹100 effect"
         value={formatPp(data.mean_return_advantage_pp)}
@@ -96,6 +96,11 @@ function EqualCapitalSummary({ data }: { data: ContinuousLossStrategy }) {
         value={formatPnL(data.equal_capital_net_difference)}
         detail={`${formatInr(data.equal_capital_start_value)} tested equally`}
         tone={valueTone(data.equal_capital_net_difference)}
+      />
+      <Metric
+        label="Profit factor"
+        value={data.profit_factor === null ? "—" : data.profit_factor.toFixed(2)}
+        detail="Equal-capital gains divided by equal-capital losses"
       />
     </div>
   );
@@ -159,7 +164,7 @@ function OutlierAnalysis({ data }: { data: ContinuousLossStrategy }) {
                 <th className="px-3 py-3 font-semibold">Stock</th>
                 <th className="px-3 py-3 text-right font-semibold">₹100 advantage</th>
                 <th className="px-3 py-3 text-right font-semibold">Share of movement</th>
-                <th className="px-3 py-3 text-right font-semibold">Annualized result without it</th>
+                <th className="px-3 py-3 text-right font-semibold">Mean Δ without it</th>
               </tr>
             </thead>
             <tbody>
@@ -419,9 +424,17 @@ export function ContinuousLossStrategyView() {
           </div>
           <div className="sm:px-6">
             <Metric
-              label="Episodes improved"
+              label="Win / tie / loss"
               value={`${data.positive_episodes} of ${data.triggered_episodes}`}
-              detail={`${formatPct(data.positive_episode_rate_pct, 1, { signed: false })} success rate`}
+              detail={`${formatPct(data.positive_episode_rate_pct, 1, { signed: false })} wins · ${
+                data.tie_episode_rate_pct === null
+                  ? "— ties"
+                  : `${formatPct(data.tie_episode_rate_pct, 1, { signed: false })} ties`
+              } · ${formatPct(
+                (data.negative_episodes / data.triggered_episodes) * 100,
+                1,
+                { signed: false },
+              )} losses`}
             />
           </div>
           <div className="sm:pl-6">
@@ -435,6 +448,54 @@ export function ContinuousLossStrategyView() {
 
         <div className="mt-8">
           <EqualCapitalSummary data={data} />
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <Metric
+              label="Leave-one-out mean range"
+              value={
+                data.loo_min_mean_return_advantage_pp === null ||
+                data.loo_max_mean_return_advantage_pp === null
+                  ? "—"
+                  : `${formatPp(data.loo_min_mean_return_advantage_pp)} to ${formatPp(
+                      data.loo_max_mean_return_advantage_pp,
+                    )}`
+              }
+              detail="Min/max mean advantage after excluding each triggered stock"
+            />
+            <Metric
+              label="LOO positive fraction"
+              value={
+                data.loo_positive_fraction_pct === null
+                  ? "—"
+                  : formatPct(data.loo_positive_fraction_pct, 1, { signed: false })
+              }
+              detail="Share of episodes where mean remains positive after removal"
+            />
+          </div>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric
+              label="Average winner"
+              value={formatPp(data.average_winner_pp)}
+              detail="Mean uplift among winning episodes"
+              tone="positive"
+            />
+            <Metric
+              label="Average loser"
+              value={formatPp(data.average_loser_pp)}
+              detail="Mean uplift among losing episodes"
+              tone="negative"
+            />
+            <Metric
+              label="Payoff ratio"
+              value={data.payoff_ratio === null ? "—" : data.payoff_ratio.toFixed(2)}
+              detail="Average winner divided by average loser magnitude"
+            />
+            <Metric
+              label="Historical weighted uplift"
+              value={formatPct(data.historical_capital_weighted_uplift_pct)}
+              detail="Secondary view using actual trigger capital sizes"
+              tone={valueTone(data.historical_capital_weighted_uplift_pct)}
+            />
+          </div>
           <div className="mt-6 grid gap-4 border-t border-stone-200 pt-6 sm:grid-cols-2">
             <Metric
               label="Continue holding"
@@ -464,7 +525,10 @@ export function ContinuousLossStrategyView() {
             do not affect the conclusion.
           </li>
           <li>Each comparison ends on that stock&apos;s actual exit date.</li>
-          <li>Mean, median, and success rate summarize all positive and negative ₹100 outcomes.</li>
+          <li>
+            Equal-episode mean uplift is the primary metric; median, payoff asymmetry, and
+            leave-one-out sensitivity are secondary checks.
+          </li>
           <li>
             Holdings without measurable start/end prices are excluded from that episode&apos;s
             equal-weight basket and reported.

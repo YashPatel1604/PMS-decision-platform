@@ -373,6 +373,7 @@ pms-decision-platform/
 - Local-first deployment
 - GitHub private repository
 - OneDrive for raw files, reports, and backups
+- Sibling OneDrive `Research/` folder is the authoritative read-only knowledge base (portfolio snapshots, research workbooks); open `PMS-Decision-Platform.code-workspace` to index it in Cursor
 - PostgreSQL database stored outside OneDrive
 - Optional Tailscale for private remote access
 
@@ -383,6 +384,24 @@ pms-decision-platform/
 - pgvector only where semantic retrieval materially improves search
 - Local embeddings or approved private API
 - Page-level citations for every research answer
+
+---
+
+## 7a. Research knowledge base (OneDrive)
+
+Portfolio truth lives in the sibling folder:
+
+`/Users/yash/Library/CloudStorage/OneDrive-Personal/Research`
+
+Especially `Research/Portfolio/` (yearly `Portfolio_*.xlsx`, transactions, sell-since, benchmarks).
+
+Rules:
+
+1. Treat Research as **read-only**. Never edit it from the app or agents unless explicitly asked.
+2. Prefer Research over `02_Final_Master/` and `data/raw/` when the same workbook exists (newest mtime wins for versioned masters).
+3. Open [`PMS-Decision-Platform.code-workspace`](../PMS-Decision-Platform.code-workspace) so Cursor indexes both the app and Research.
+4. Keep needed Research trees **Always keep on this device** in OneDrive so imports and agents do not hit cloud-only placeholders.
+5. Set `RESEARCH_DIR` in `.env` only if the auto-detected path is wrong. `scripts/sync_raw_from_onedrive.sh` copies from Research into `data/raw` (still never writes back).
 
 ---
 
@@ -1089,7 +1108,8 @@ Complete this checklist:
 
 - [ ] Final transaction file copied to `data/raw/transactions/MASTER_TRANSACTIONS_V1.xlsx`
 - [ ] Final security master copied to `data/raw/security_master/SECURITY_MASTER_V1.xlsx`
-- [ ] Historical portfolio files copied to `data/raw/portfolio_snapshots/`
+- [ ] Historical portfolio files available under Research/Portfolio (or synced to `data/raw/portfolio_snapshots/`)
+- [ ] `PMS-Decision-Platform.code-workspace` opened so Research is indexed
 - [ ] Raw files confirmed read-only or backed up
 - [ ] LiquidCase confirmed excluded from Security Master
 - [ ] Final E2E split adjustment confirmed

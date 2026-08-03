@@ -10,7 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pms_platform.market_data.lookup import lookup_daily_price
-from pms_platform.portfolio.position_engine import compute_quantities_as_of
+from pms_platform.portfolio.position_engine import (
+    compute_quantities_as_of,
+    cumulative_split_bonus_factors_after,
+)
 
 _ZERO = Decimal("0")
 _HUNDRED = Decimal("100")
@@ -32,18 +35,26 @@ class PortfolioPeriodReturn:
 
 
 def equity_portfolio_market_value(session: Session, as_of_date: date) -> Decimal | None:
-    """Value all equity holdings using adjusted closes on or before a date."""
+    """Value all equity holdings using adjusted closes on or before a date.
+
+    Quantities are scaled by later SPLIT/BONUS factors so they stay consistent
+    with vendor split-adjusted closes.
+    """
     quantities = compute_quantities_as_of(session, as_of_date)
     if not quantities:
         return _ZERO
 
+    factors = cumulative_split_bonus_factors_after(
+        session, as_of_date, security_ids=set(quantities)
+    )
     total = _ZERO
     priced_holdings = 0
     for security_id, quantity in quantities.items():
         observation = lookup_daily_price(session, security_id, as_of_date)
         if observation is None:
             continue
-        total += observation.adjusted_close * Decimal(quantity)
+        factor = factors.get(security_id, _ONE)
+        total += observation.adjusted_close * Decimal(quantity) * factor
         priced_holdings += 1
 
     if priced_holdings == 0:

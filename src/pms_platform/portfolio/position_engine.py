@@ -13,6 +13,9 @@ from pms_platform.models.enums import EventType
 from pms_platform.portfolio.types import PortfolioPosition
 from pms_platform.portfolio.valuation import apply_snapshot_prices
 
+_ONE = Decimal("1")
+_SPLIT_BONUS = frozenset({EventType.SPLIT, EventType.BONUS})
+
 
 def _transaction_amount(transaction: Transaction) -> Decimal:
     """Return the monetary value associated with a transaction."""
@@ -39,6 +42,63 @@ def compute_quantities_as_of(session: Session, as_of_date: date) -> dict[str, in
             quantities.get(transaction.security_id, 0) + transaction.quantity
         )
     return {security_id: qty for security_id, qty in quantities.items() if qty != 0}
+
+
+def cumulative_split_bonus_factor_after(
+    session: Session,
+    security_id: str,
+    as_of_date: date,
+) -> Decimal:
+    """Scale factor so ledger qty pairs with split-/bonus-adjusted closes.
+
+    Vendor adjusted prices already reflect splits/bonuses that occur after
+    ``as_of_date``. Our quantity ledger only applies those CAs on their event
+    date, so pre-CA quantities must be multiplied by later SPLIT/BONUS ratios
+    when valuing with adjusted closes (e.g. E2E 10:1 on 2026-06-05).
+    """
+    transactions = list(
+        session.scalars(
+            select(Transaction)
+            .where(Transaction.security_id == security_id)
+            .order_by(Transaction.event_date, Transaction.source_row, Transaction.transaction_id)
+        )
+    )
+    quantity = 0
+    factor = _ONE
+    for transaction in transactions:
+        event_type = EventType.from_workbook(transaction.event_type)
+        if transaction.event_date <= as_of_date:
+            quantity += transaction.quantity
+            continue
+        if event_type in _SPLIT_BONUS and quantity > 0 and transaction.quantity:
+            post = quantity + transaction.quantity
+            factor *= Decimal(post) / Decimal(quantity)
+        quantity += transaction.quantity
+    return factor
+
+
+def cumulative_split_bonus_factors_after(
+    session: Session,
+    as_of_date: date,
+    security_ids: set[str] | None = None,
+) -> dict[str, Decimal]:
+    """Batch version of :func:`cumulative_split_bonus_factor_after`."""
+    ca_security_ids = set(
+        session.scalars(
+            select(Transaction.security_id)
+            .where(
+                Transaction.event_date > as_of_date,
+                Transaction.event_type.in_([EventType.SPLIT.value, EventType.BONUS.value]),
+            )
+            .distinct()
+        ).all()
+    )
+    if security_ids is not None:
+        ca_security_ids &= security_ids
+    return {
+        security_id: cumulative_split_bonus_factor_after(session, security_id, as_of_date)
+        for security_id in ca_security_ids
+    }
 
 
 def compute_cost_basis_as_of(session: Session, as_of_date: date) -> dict[str, Decimal]:

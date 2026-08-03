@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
 from pms_platform.models import BenchmarkTri, DailyPrice
+
+_LIVE_SOURCES = frozenset({"YAHOO_FINANCE", "INDIAN_STOCK_API"})
 
 
 @dataclass(frozen=True)
@@ -47,7 +49,10 @@ def lookup_daily_price(
             DailyPrice.security_id == security_id,
             DailyPrice.trade_date == as_of_date,
         )
-        .order_by(DailyPrice.source)
+        .order_by(
+            case((DailyPrice.source.in_(_LIVE_SOURCES), 0), else_=1),
+            DailyPrice.source,
+        )
     )
     if exact is not None:
         return PriceObservation(

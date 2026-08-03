@@ -35,6 +35,7 @@ out/
 data/processed/
 data/external/
 data/exports/
+data/uploads/
 
 # Docker
 postgres_data/

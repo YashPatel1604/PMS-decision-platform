@@ -262,20 +262,263 @@ export type ContinuousLossStrategy = {
   equal_capital_net_difference: number;
   mean_return_advantage_pp: number | null;
   median_return_advantage_pp: number | null;
+  average_winner_pp: number | null;
+  average_loser_pp: number | null;
+  payoff_ratio: number | null;
+  profit_factor: number | null;
   positive_effect_sum_pp: number;
   negative_effect_sum_pp: number;
+  historical_capital_weighted_uplift_pct: number | null;
   stock_return_pct: number | null;
   diversified_return_pct: number | null;
   return_uplift_pct: number | null;
   positive_episodes: number;
   negative_episodes: number;
+  tie_episodes: number;
   positive_episode_rate_pct: number | null;
+  tie_episode_rate_pct: number | null;
   top_episode_contribution_pct: number | null;
   top_three_contribution_pct: number | null;
   contribution_hhi: number | null;
   conclusion: string;
   conclusion_text: string;
+  loo_min_mean_return_advantage_pp: number | null;
+  loo_max_mean_return_advantage_pp: number | null;
+  loo_positive_fraction_pct: number | null;
   episodes: ContinuousLossStrategyEpisode[];
+};
+
+export type HoldingBenchmark = {
+  code: string;
+  total_return_pct: number | null;
+  excess_vs_stock_pp: number | null;
+  start_level: number | null;
+  end_level: number | null;
+  data_status: string;
+};
+
+export type OpenHolding = {
+  episode_id: number;
+  security_id: string;
+  portfolio_name: string;
+  entry_date: string;
+  as_of_date: string;
+  period_start_date: string;
+  quantity: number;
+  average_buy_price: number | null;
+  first_buy_price: number | null;
+  from_price: number | null;
+  from_price_date: string | null;
+  as_of_price: number | null;
+  as_of_price_date: string | null;
+  market_value: number | null;
+  cost_basis_value: number | null;
+  unrealized_pnl: number | null;
+  unrealized_pnl_pct: number | null;
+  stock_return_pct: number | null;
+  portfolio_return_pct: number | null;
+  excess_vs_portfolio_pp: number | null;
+  bse_return_pct: number | null;
+  excess_vs_bse_pp: number | null;
+  holding_days: number;
+  period_days: number;
+  position_weight_pct: number | null;
+  underwater: boolean;
+  days_below_first_buy: number | null;
+  sector: string | null;
+  industry: string | null;
+  benchmarks: HoldingBenchmark[];
+  data_quality_status: string;
+  notes: string[];
+};
+
+export type LiveQuoteRefresh = {
+  requested: number;
+  fetched: number;
+  upserted: number;
+  missing_symbol: number;
+  failed: number;
+  as_of_date: string;
+  notes: string[];
+  source: string;
+  prefer_bse: boolean;
+  tickers?: string[];
+};
+
+export type OpenHoldings = {
+  as_of_date: string;
+  from_date: string | null;
+  open_count: number;
+  equity_market_value: number | null;
+  equity_market_value_from: number | null;
+  reconstructed_equity_market_value?: number | null;
+  reconstructed_equity_market_value_from?: number | null;
+  portfolio_value_source?: string | null;
+  portfolio_value_from_source?: string | null;
+  portfolio_value_observation_date?: string | null;
+  portfolio_value_from_observation_date?: string | null;
+  portfolio_value_check_delta?: number | null;
+  portfolio_value_from_check_delta?: number | null;
+  portfolio_return_pct: number | null;
+  mean_excess_vs_primary_pp: number | null;
+  mean_excess_vs_portfolio_pp: number | null;
+  primary_benchmark_code: string;
+  benchmark_codes: string[];
+  holdings: OpenHolding[];
+  live_refresh: LiveQuoteRefresh | null;
+};
+
+export type IndustryCompare = {
+  security_id: string;
+  industry: string | null;
+  peer_count: number;
+  used_count: number;
+  total_return_pct: number | null;
+  peers: {
+    security_id: string;
+    portfolio_name: string;
+    total_return_pct: number | null;
+    data_status: string;
+  }[];
+  notes: string[];
+};
+
+export type YahooSearchHit = {
+  symbol: string;
+  name: string;
+  exchange: string;
+  yahoo_ticker: string;
+};
+
+export type PeerCompare = {
+  ticker: string;
+  start_date: string;
+  end_date: string;
+  start_price: number;
+  end_price: number;
+  total_return_pct: number;
+};
+
+export type CompareSeries = {
+  episode_id: number;
+  security_id: string;
+  start_date: string;
+  end_date: string;
+  points: {
+    trade_date: string;
+    stock: number | null;
+    bse_smallcap: number | null;
+    portfolio: number | null;
+    industry_ew: number | null;
+    peer: number | null;
+    peers?: Record<string, number | null>;
+  }[];
+  industry_return_pct: number | null;
+  peer_return_pct: number | null;
+  peer_ticker: string | null;
+  peer_series?: { ticker: string; total_return_pct: number | null }[];
+  notes: string[];
+};
+
+export type UploadIssue = {
+  severity: string;
+  code: string;
+  message: string;
+  security_id: string | null;
+  source_key: string | null;
+  event_date: string | null;
+};
+
+export type UploadBatch = {
+  batch_id: number;
+  kind: string;
+  status: string;
+  source_file: string;
+  source_checksum: string;
+  issues: UploadIssue[];
+  error_count: number;
+  warning_count: number;
+  review_count: number;
+  row_counts: Record<string, number>;
+  episode_summary: Record<string, number> | null;
+  can_commit: boolean;
+  notes: string | null;
+};
+
+export type UploadKind = "transactions" | "security_master" | "portfolio_snapshots";
+
+export type MasterKind = "security" | "transactions" | "sell_since";
+
+export type MasterWorkbook = {
+  kind: MasterKind;
+  label: string;
+  path: string;
+  exists: boolean;
+  default_sheet: string;
+  mtime: string | null;
+  size_bytes: number | null;
+  raw_sync_path: string | null;
+};
+
+export type MasterPreview = {
+  kind: MasterKind;
+  path: string;
+  sheet: string;
+  sheets: string[];
+  columns: string[];
+  rows: Record<string, string | number | null>[];
+  offset: number;
+  limit: number;
+  total_rows: number;
+  matched_rows: number;
+};
+
+export type ProposedMasterEdit = {
+  action: string;
+  kind: MasterKind;
+  line_number: number;
+  raw_line: string;
+  fields: Record<string, unknown>;
+  summary: string;
+  warnings: string[];
+};
+
+export type MasterParseResult = {
+  edits: ProposedMasterEdit[];
+  errors: string[];
+  can_apply: boolean;
+};
+
+export type MasterApplyResult = {
+  applied: number;
+  backups: string[];
+  written_paths: string[];
+  synced_raw: string[];
+  import_notes: string[];
+  errors: string[];
+  episode_count: number | null;
+};
+
+export type OnedriveRefreshResult = {
+  ok: boolean;
+  error: string | null;
+  sync: {
+    copied: string[];
+    snapshot_count: number;
+    research_dir: string | null;
+    notes: string[];
+  };
+  reimport: {
+    securities_inserted: number;
+    equity_txns_inserted: number;
+    liquid_txns_inserted: number;
+    episodes: number;
+    decision_events: number;
+    snapshots_inserted: number;
+    snapshots_unresolved: number;
+    validation_errors: number;
+    notes: string[];
+  } | null;
 };
 
 export const api = {
@@ -286,6 +529,114 @@ export const api = {
   getPostExit: (id: number) => request<PostExitPerformance>(`/episodes/post-exit/${id}`),
   getContinuousLossStrategy: () =>
     request<ContinuousLossStrategy>("/backtests/one-year-continuous-loss"),
+  getOpenHoldings: (
+    asOf?: string,
+    benchmarks?: string,
+    refreshLive = true,
+    fromDate?: string | null,
+  ) => {
+    const params = new URLSearchParams();
+    if (asOf) params.set("as_of", asOf);
+    if (fromDate) params.set("from_date", fromDate);
+    if (benchmarks) params.set("benchmarks", benchmarks);
+    params.set("refresh_live", refreshLive ? "true" : "false");
+    const query = params.toString();
+    return request<OpenHoldings>(`/holdings/open?${query}`);
+  },
+  refreshLiveQuotes: (preferBse = true) =>
+    request<LiveQuoteRefresh>(
+      `/market-data/live-quotes/refresh?prefer_bse=${preferBse ? "true" : "false"}`,
+      { method: "POST" },
+    ),
+  getOpenHolding: (id: number, asOf?: string, fromDate?: string | null) => {
+    const params = new URLSearchParams();
+    if (asOf) params.set("as_of", asOf);
+    if (fromDate) params.set("from_date", fromDate);
+    const query = params.toString();
+    return request<OpenHolding>(`/holdings/open/${id}${query ? `?${query}` : ""}`);
+  },
+  getIndustryCompare: (id: number, asOf?: string, fromDate?: string | null) => {
+    const params = new URLSearchParams();
+    if (asOf) params.set("as_of", asOf);
+    if (fromDate) params.set("from_date", fromDate);
+    const query = params.toString();
+    return request<IndustryCompare>(
+      `/holdings/open/${id}/industry-compare${query ? `?${query}` : ""}`,
+    );
+  },
+  getCompareSeries: (
+    id: number,
+    asOf?: string,
+    fromDate?: string | null,
+    peerTickers?: string[] | null,
+  ) => {
+    const params = new URLSearchParams();
+    if (asOf) params.set("as_of", asOf);
+    if (fromDate) params.set("from_date", fromDate);
+    for (const ticker of peerTickers ?? []) {
+      if (ticker.trim()) params.append("peer_tickers", ticker.trim());
+    }
+    const query = params.toString();
+    return request<CompareSeries>(
+      `/holdings/open/${id}/compare-series${query ? `?${query}` : ""}`,
+    );
+  },
+  searchYahoo: (q: string) =>
+    request<YahooSearchHit[]>(`/market-data/yahoo/search?q=${encodeURIComponent(q)}`),
+  comparePeer: (ticker: string, asOf?: string, fromDate?: string | null) => {
+    const params = new URLSearchParams();
+    params.set("ticker", ticker);
+    if (asOf) params.set("as_of", asOf);
+    if (fromDate) params.set("from_date", fromDate);
+    return request<PeerCompare>(`/holdings/compare/peer?${params.toString()}`);
+  },
+  uploadExcel: async (kind: UploadKind, file: File) => {
+    const body = new FormData();
+    body.append("kind", kind);
+    body.append("file", file);
+    const response = await fetch(`${API_BASE}/imports/upload`, {
+      method: "POST",
+      body,
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new ApiError(text || response.statusText, response.status);
+    }
+    return response.json() as Promise<UploadBatch>;
+  },
+  validateUpload: (batchId: number) =>
+    request<UploadBatch>(`/imports/${batchId}/validate`, { method: "POST" }),
+  commitUpload: (batchId: number) =>
+    request<UploadBatch>(`/imports/${batchId}/commit`, { method: "POST" }),
+  refreshFromOnedrive: () =>
+    request<OnedriveRefreshResult>("/imports/refresh-from-onedrive", { method: "POST" }),
+  getUploadBatch: (batchId: number) => request<UploadBatch>(`/imports/${batchId}`),
+  listMasters: () => request<MasterWorkbook[]>("/masters"),
+  getMasterPreview: (
+    kind: MasterKind,
+    opts?: { sheet?: string; offset?: number; limit?: number; q?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (opts?.sheet) params.set("sheet", opts.sheet);
+    if (opts?.offset != null) params.set("offset", String(opts.offset));
+    if (opts?.limit != null) params.set("limit", String(opts.limit));
+    if (opts?.q) params.set("q", opts.q);
+    const query = params.toString();
+    return request<MasterPreview>(`/masters/${kind}/preview${query ? `?${query}` : ""}`);
+  },
+  masterDownloadUrl: (kind: MasterKind) =>
+    `${API_BASE}/masters/${kind}/download`,
+  parseMasterPrompt: (prompt: string, kind?: MasterKind | null) =>
+    request<MasterParseResult>("/masters/parse", {
+      method: "POST",
+      body: JSON.stringify({ prompt, kind: kind ?? null }),
+    }),
+  applyMasterEdits: (edits: ProposedMasterEdit[], reimport = true) =>
+    request<MasterApplyResult>("/masters/apply", {
+      method: "POST",
+      body: JSON.stringify({ edits, reimport }),
+    }),
   runAnalysis: () =>
     request<AnalysisRunResult>("/episodes/analyze", { method: "POST" }),
 };

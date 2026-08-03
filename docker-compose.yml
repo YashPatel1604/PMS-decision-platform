@@ -1,14 +1,81 @@
+# Full stack for Dad laptop / local Docker: postgres + api + ui
+# Requires RESEARCH_DIR in .env pointing at the host Research folder
+# (the directory that contains Portfolio/).
+
 services:
   postgres:
     image: postgres:17
+    restart: unless-stopped
     environment:
       POSTGRES_DB: pms
       POSTGRES_USER: pms
-      POSTGRES_PASSWORD: pms
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pms}
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pms -d pms"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pms}
+      DATABASE_URL: postgresql+psycopg://pms:${POSTGRES_PASSWORD:-pms}@postgres:5432/pms
+      RESEARCH_DIR: /data/research
+      FINAL_MASTER_DIR: /data/final_master
+      RAW_DATA_DIR: /data/raw
+      PROCESSED_DATA_DIR: /data/processed
+      EXTERNAL_DATA_DIR: /data/external
+      EXPORT_DIR: /data/exports
+      UPLOAD_DIR: /data/uploads
+      YAHOO_FINANCE_BASE_URL: ${YAHOO_FINANCE_BASE_URL:-https://query1.finance.yahoo.com}
+    volumes:
+      - type: bind
+        source: ${RESEARCH_DIR:?Set RESEARCH_DIR in .env to your Research folder}
+        target: /data/research
+        read_only: true
+      - type: bind
+        source: ${FINAL_MASTER_DIR:-./docker/final_master_seed}
+        target: /data/final_master
+        read_only: true
+      - api_raw:/data/raw
+      - api_processed:/data/processed
+      - api_external:/data/external
+      - api_exports:/data/exports
+      - api_uploads:/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ui:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://127.0.0.1:8000}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - api
 
 volumes:
   postgres_data:
+  api_raw:
+  api_processed:
+  api_external:
+  api_exports:
+  api_uploads:

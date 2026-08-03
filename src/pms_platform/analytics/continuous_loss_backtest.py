@@ -20,6 +20,7 @@ _ONE = Decimal("1")
 _HUNDRED = Decimal("100")
 _ZERO = Decimal("0")
 _TRIGGER_DAYS = 365
+_TIE_EPSILON_PP = Decimal("0.5")
 
 
 @dataclass(frozen=True)
@@ -104,19 +105,29 @@ class ContinuousLossBacktestResult:
     equal_capital_net_difference: Decimal
     mean_return_advantage_pp: Decimal | None
     median_return_advantage_pp: Decimal | None
+    average_winner_pp: Decimal | None
+    average_loser_pp: Decimal | None
+    payoff_ratio: Decimal | None
+    profit_factor: Decimal | None
     positive_effect_sum_pp: Decimal
     negative_effect_sum_pp: Decimal
+    historical_capital_weighted_uplift_pct: Decimal | None
     stock_return_pct: Decimal | None
     diversified_return_pct: Decimal | None
     return_uplift_pct: Decimal | None
     positive_episodes: int
     negative_episodes: int
+    tie_episodes: int
     positive_episode_rate_pct: Decimal | None
+    tie_episode_rate_pct: Decimal | None
     top_episode_contribution_pct: Decimal | None
     top_three_contribution_pct: Decimal | None
     contribution_hhi: Decimal | None
     conclusion: str
     conclusion_text: str
+    loo_min_mean_return_advantage_pp: Decimal | None
+    loo_max_mean_return_advantage_pp: Decimal | None
+    loo_positive_fraction_pct: Decimal | None
     episodes: tuple[ContinuousLossEpisodeResult, ...]
 
 
@@ -233,6 +244,16 @@ def _equal_capital_values(
         start=_ZERO,
     )
     return start_value, hold_end, diversified_end
+
+
+def _mean_winners(values: list[Decimal]) -> Decimal | None:
+    winners = [value for value in values if value > _TIE_EPSILON_PP]
+    return _mean(winners)
+
+
+def _mean_losers(values: list[Decimal]) -> Decimal | None:
+    losers = [value for value in values if value < -_TIE_EPSILON_PP]
+    return _mean(losers)
 
 
 def _return_between(
@@ -553,6 +574,15 @@ def run_continuous_loss_backtest(session: Session) -> ContinuousLossBacktestResu
     ]
     mean_return_advantage = _mean(return_advantages)
     median_return_advantage = _median(return_advantages)
+    average_winner = _mean_winners(return_advantages)
+    average_loser = _mean_losers(return_advantages)
+    payoff_ratio = (
+        average_winner / abs(average_loser)
+        if average_winner is not None
+        and average_loser is not None
+        and average_loser != 0
+        else None
+    )
     equal_capital_start, hold_equal_capital_end, diversified_equal_capital_end = (
         _equal_capital_values(
             [
@@ -568,6 +598,14 @@ def run_continuous_loss_backtest(session: Session) -> ContinuousLossBacktestResu
     negative_effect_sum = sum(
         (value for value in return_advantages if value < 0),
         start=_ZERO,
+    )
+    profit_factor = (
+        positive_effect_sum / abs(negative_effect_sum)
+        if negative_effect_sum < 0
+        else None
+    )
+    historical_capital_weighted_uplift = (
+        net_impact / total_proceeds * _HUNDRED if total_proceeds > 0 else None
     )
     absolute_impact = sum(
         (abs(row.return_uplift_pct or _ZERO) for row in triggered),
@@ -631,10 +669,24 @@ def run_continuous_loss_backtest(session: Session) -> ContinuousLossBacktestResu
     any_flip = any(row.removal_flips_result for row in enriched)
     conclusion_basis = mean_return_advantage or _ZERO
     conclusion, conclusion_text = _conclusion(conclusion_basis, top_share, any_flip)
-    positive = sum(1 for value in return_advantages if value > 0)
-    negative = sum(1 for value in return_advantages if value < 0)
+    positive = sum(1 for value in return_advantages if value > _TIE_EPSILON_PP)
+    negative = sum(1 for value in return_advantages if value < -_TIE_EPSILON_PP)
+    tie = len(return_advantages) - positive - negative
     no_trigger = sum(1 for row in enriched if row.status == "NO_TRIGGER")
     excluded = len(enriched) - len(triggered) - no_trigger
+
+    loo_means = [
+        row.leave_one_out_mean_return_advantage_pp
+        for row in enriched
+        if row.status == "TRIGGERED" and row.leave_one_out_mean_return_advantage_pp is not None
+    ]
+    loo_min = min(loo_means) if len(loo_means) >= 2 else None
+    loo_max = max(loo_means) if len(loo_means) >= 2 else None
+    loo_positive_fraction_pct = (
+        sum(1 for v in loo_means if v > 0) / Decimal(len(loo_means)) * _HUNDRED
+        if len(loo_means) >= 2
+        else None
+    )
 
     return ContinuousLossBacktestResult(
         methodology=(
@@ -642,9 +694,10 @@ def run_continuous_loss_backtest(session: Session) -> ContinuousLossBacktestResu
             "the split-adjusted first INITIATE price. Equal-weight proceeds across every "
             "other holding with measurable start and end prices, then compare both paths "
             "through that stock's actual exit. Every triggered episode receives the same "
-            "hypothetical ₹100, so results measure strategy consistency without assuming "
-            "future capital allocation. Mean, median, success rate, and the combined equal-"
-            "capital outcome summarize viability. Holdings without measurable prices are "
+            "hypothetical ₹100, so equal-episode mean uplift is the primary result when "
+            "future capital allocation is unknown. Median, win/loss/tie rates, leave-one-out "
+            "sensitivity, and equal-capital totals assess robustness. Historical rupee and "
+            "capital-weighted results are secondary. Holdings without measurable prices are "
             "excluded from that episode's equal-weight basket and reported."
         ),
         closed_episodes=len(episodes),
@@ -672,8 +725,13 @@ def run_continuous_loss_backtest(session: Session) -> ContinuousLossBacktestResu
         equal_capital_net_difference=(diversified_equal_capital_end - hold_equal_capital_end),
         mean_return_advantage_pp=mean_return_advantage,
         median_return_advantage_pp=median_return_advantage,
+        average_winner_pp=average_winner,
+        average_loser_pp=average_loser,
+        payoff_ratio=payoff_ratio,
+        profit_factor=profit_factor,
         positive_effect_sum_pp=positive_effect_sum,
         negative_effect_sum_pp=negative_effect_sum,
+        historical_capital_weighted_uplift_pct=historical_capital_weighted_uplift,
         stock_return_pct=stock_return,
         diversified_return_pct=diversified_return,
         return_uplift_pct=(
@@ -683,13 +741,20 @@ def run_continuous_loss_backtest(session: Session) -> ContinuousLossBacktestResu
         ),
         positive_episodes=positive,
         negative_episodes=negative,
+        tie_episodes=tie,
         positive_episode_rate_pct=(
             Decimal(positive) / Decimal(len(triggered)) * _HUNDRED if triggered else None
+        ),
+        tie_episode_rate_pct=(
+            Decimal(tie) / Decimal(len(triggered)) * _HUNDRED if triggered else None
         ),
         top_episode_contribution_pct=top_share,
         top_three_contribution_pct=top_three,
         contribution_hhi=hhi,
         conclusion=conclusion,
         conclusion_text=conclusion_text,
+        loo_min_mean_return_advantage_pp=loo_min,
+        loo_max_mean_return_advantage_pp=loo_max,
+        loo_positive_fraction_pct=loo_positive_fraction_pct,
         episodes=tuple(enriched),
     )

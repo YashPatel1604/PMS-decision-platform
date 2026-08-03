@@ -906,14 +906,17 @@ dependencies = [
     { name = "alembic" },
     { name = "cvxpy" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "numpy" },
     { name = "openpyxl" },
     { name = "polars" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
+    { name = "python-multipart" },
     { name = "scipy" },
     { name = "sqlalchemy" },
     { name = "uvicorn" },
+    { name = "xlrd" },
 ]
 
 [package.dev-dependencies]
@@ -932,14 +935,17 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.18.5" },
     { name = "cvxpy", specifier = ">=1.7.5" },
     { name = "fastapi", specifier = ">=0.139.0" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "openpyxl", specifier = ">=3.1.5" },
     { name = "polars", specifier = ">=1.42.1" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.4" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
+    { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "scipy", specifier = ">=1.15.3" },
     { name = "sqlalchemy", specifier = ">=2.0.51" },
     { name = "uvicorn", specifier = ">=0.51.0" },
+    { name = "xlrd", specifier = ">=2.0.2" },
 ]
 
 [package.metadata.requires-dev]
@@ -1227,6 +1233,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/82/ed/0301aeeac3e5353ef3d94b6ec08bbcabd04a72018415dcb29e588514bba8/python_dotenv-1.2.2.tar.gz", hash = "sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3", size = 50135, upload-time = "2026-03-01T16:00:26.196Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl", hash = "sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a", size = 22101, upload-time = "2026-03-01T16:00:25.09Z" },
+]
+
+[[package]]
+name = "python-multipart"
+version = "0.0.32"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5b/42/55c32bb9b12693c092ad250a0e82edb5b31ddeda6eb772de5f308b3804ad/python_multipart-0.0.32.tar.gz", hash = "sha256:be54b7f3fa167bb83e4fcd936b887b708f4e57fe75911c02aebf53efaf8d938e", size = 46881, upload-time = "2026-06-04T16:18:58.647Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/04/e8135ebd1ad02c56ec633277529b2602ff99ff634be76cdba5744cf554fd/python_multipart-0.0.32-py3-none-any.whl", hash = "sha256:ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23", size = 30042, upload-time = "2026-06-04T16:18:57.319Z" },
 ]
 
 [[package]]
@@ -1579,4 +1594,13 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/34/d9/b477fddb68840b570af8b22afe9b035cbc277b5fb7b33dea390617a8b10f/virtualenv-21.6.1.tar.gz", hash = "sha256:15f978b7cd329f24855ff4a0c4b4899cc7678589f49adbdcbbb4d3232e641128", size = 5526620, upload-time = "2026-07-10T19:33:53.312Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c1/7c/4e7225d46d634a0d8d534dd8a6ce0c319d09b4d0cf0337eb314ca4789d8c/virtualenv-21.6.1-py3-none-any.whl", hash = "sha256:afe991df855715a2b2f60edfcc0107ef95a79fdfd8cb4cdaa71603d1c12e463b", size = 5506392, upload-time = "2026-07-10T19:33:51.629Z" },
+]
+
+[[package]]
+name = "xlrd"
+version = "2.0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/5a/377161c2d3538d1990d7af382c79f3b2372e880b65de21b01b1a2b78691e/xlrd-2.0.2.tar.gz", hash = "sha256:08b5e25de58f21ce71dc7db3b3b8106c1fa776f3024c54e45b45b374e89234c9", size = 100167, upload-time = "2025-06-14T08:46:39.039Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1a/62/c8d562e7766786ba6587d09c5a8ba9f718ed3fa8af7f4553e8f91c36f302/xlrd-2.0.2-py2.py3-none-any.whl", hash = "sha256:ea762c3d29f4cca48d82df517b6d89fbce4db3107f9d78713e48cd321d5c9aa9", size = 96555, upload-time = "2025-06-14T08:46:37.766Z" },
 ]

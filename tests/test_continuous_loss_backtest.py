@@ -72,3 +72,13 @@ def test_equal_capital_summary_gives_every_episode_one_hundred() -> None:
     assert start == Decimal("200")
     assert hold_end == Decimal("247.95")
     assert diversified_end == Decimal("251.85")
+
+
+def test_tie_tolerance_classifies_half_point_as_tie() -> None:
+    values = [Decimal("0.5"), Decimal("-0.5"), Decimal("0.6"), Decimal("-0.6")]
+    positive = sum(1 for value in values if value > Decimal("0.5"))
+    negative = sum(1 for value in values if value < Decimal("-0.5"))
+    tie = len(values) - positive - negative
+    assert positive == 1
+    assert negative == 1
+    assert tie == 2

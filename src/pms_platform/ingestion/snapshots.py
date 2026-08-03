@@ -238,6 +238,100 @@ def import_portfolio_snapshots(
     )
 
 
+def import_portfolio_snapshot_workbook(
+    session: Session, path: Path
+) -> SnapshotImportResult:
+    """Import one portfolio snapshot workbook into the database."""
+    if not path.exists():
+        msg = f"Snapshot workbook not found: {path}"
+        raise FileNotFoundError(msg)
+
+    checksum = file_checksum(path)
+    existing_batch = session.scalar(
+        select(ImportBatch).where(
+            ImportBatch.source_type == "snapshots",
+            ImportBatch.source_file == str(path),
+            ImportBatch.source_checksum == checksum,
+        )
+    )
+    if existing_batch is not None:
+        count = len(
+            session.scalars(
+                select(PortfolioSnapshotRecord).where(
+                    PortfolioSnapshotRecord.import_batch_id == existing_batch.import_batch_id
+                )
+            ).all()
+        )
+        return SnapshotImportResult(
+            inserted=0,
+            skipped=count,
+            unresolved_names=0,
+            import_batch_id=existing_batch.import_batch_id,
+        )
+
+    batch = ImportBatch(
+        source_type="snapshots",
+        source_file=str(path),
+        source_checksum=checksum,
+        status="completed",
+    )
+    session.add(batch)
+    session.flush()
+
+    securities = list(session.scalars(select(Security)).all())
+    name_lookup = build_name_lookup(session)
+    inserted = 0
+    skipped = 0
+    unresolved_names = 0
+
+    for row in parse_snapshot_workbook(path):
+        existing = session.scalar(
+            select(PortfolioSnapshotRecord).where(
+                PortfolioSnapshotRecord.snapshot_date == row.snapshot_date,
+                PortfolioSnapshotRecord.source_file == row.source_file,
+                PortfolioSnapshotRecord.source_sheet == row.source_sheet,
+                PortfolioSnapshotRecord.source_row == row.source_row,
+            )
+        )
+        if existing is not None:
+            skipped += 1
+            continue
+
+        security_id, resolved_name = resolve_snapshot_security_id(
+            row.portfolio_name,
+            securities,
+            name_lookup,
+        )
+        if resolved_name is None:
+            unresolved_names += 1
+            continue
+
+        session.add(
+            PortfolioSnapshotRecord(
+                snapshot_date=row.snapshot_date,
+                security_id=security_id,
+                portfolio_name=resolved_name,
+                quantity=row.quantity,
+                market_price=row.market_price,
+                market_value=row.market_value,
+                portfolio_weight=row.portfolio_weight,
+                source_file=row.source_file,
+                source_sheet=row.source_sheet,
+                source_row=row.source_row,
+                import_batch_id=batch.import_batch_id,
+            )
+        )
+        inserted += 1
+
+    session.flush()
+    return SnapshotImportResult(
+        inserted=inserted,
+        skipped=skipped,
+        unresolved_names=unresolved_names,
+        import_batch_id=batch.import_batch_id,
+    )
+
+
 def clear_portfolio_snapshots(session: Session) -> None:
     """Delete imported portfolio snapshot rows."""
     session.execute(delete(PortfolioSnapshotRecord))

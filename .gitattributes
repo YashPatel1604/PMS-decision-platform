@@ -2,3 +2,7 @@
 *.xlsx binary
 *.xls binary
 *.xlsm binary
+
+# Shell scripts must stay LF for Linux containers
+*.sh text eol=lf
+docker/api-entrypoint.sh text eol=lf

@@ -93,19 +93,29 @@ class ContinuousLossBacktestResponse(BaseModel):
     equal_capital_net_difference: float
     mean_return_advantage_pp: float | None
     median_return_advantage_pp: float | None
+    average_winner_pp: float | None
+    average_loser_pp: float | None
+    payoff_ratio: float | None
+    profit_factor: float | None
     positive_effect_sum_pp: float
     negative_effect_sum_pp: float
+    historical_capital_weighted_uplift_pct: float | None
     stock_return_pct: float | None
     diversified_return_pct: float | None
     return_uplift_pct: float | None
     positive_episodes: int
     negative_episodes: int
+    tie_episodes: int
     positive_episode_rate_pct: float | None
+    tie_episode_rate_pct: float | None
     top_episode_contribution_pct: float | None
     top_three_contribution_pct: float | None
     contribution_hhi: float | None
     conclusion: str
     conclusion_text: str
+    loo_min_mean_return_advantage_pp: float | None
+    loo_max_mean_return_advantage_pp: float | None
+    loo_positive_fraction_pct: float | None
     episodes: list[ContinuousLossEpisodeResponse]
 
 
@@ -206,18 +216,30 @@ def one_year_continuous_loss_backtest(
         equal_capital_net_difference=float(result.equal_capital_net_difference),
         mean_return_advantage_pp=_float(result.mean_return_advantage_pp),
         median_return_advantage_pp=_float(result.median_return_advantage_pp),
+        average_winner_pp=_float(result.average_winner_pp),
+        average_loser_pp=_float(result.average_loser_pp),
+        payoff_ratio=_float(result.payoff_ratio),
+        profit_factor=_float(result.profit_factor),
         positive_effect_sum_pp=float(result.positive_effect_sum_pp),
         negative_effect_sum_pp=float(result.negative_effect_sum_pp),
+        historical_capital_weighted_uplift_pct=_float(
+            result.historical_capital_weighted_uplift_pct
+        ),
         stock_return_pct=_float(result.stock_return_pct),
         diversified_return_pct=_float(result.diversified_return_pct),
         return_uplift_pct=_float(result.return_uplift_pct),
         positive_episodes=result.positive_episodes,
         negative_episodes=result.negative_episodes,
+        tie_episodes=result.tie_episodes,
         positive_episode_rate_pct=_float(result.positive_episode_rate_pct),
+        tie_episode_rate_pct=_float(result.tie_episode_rate_pct),
         top_episode_contribution_pct=_float(result.top_episode_contribution_pct),
         top_three_contribution_pct=_float(result.top_three_contribution_pct),
         contribution_hhi=_float(result.contribution_hhi),
         conclusion=result.conclusion,
         conclusion_text=result.conclusion_text,
+        loo_min_mean_return_advantage_pp=_float(result.loo_min_mean_return_advantage_pp),
+        loo_max_mean_return_advantage_pp=_float(result.loo_max_mean_return_advantage_pp),
+        loo_positive_fraction_pct=_float(result.loo_positive_fraction_pct),
         episodes=[_episode_response(row) for row in result.episodes],
     )

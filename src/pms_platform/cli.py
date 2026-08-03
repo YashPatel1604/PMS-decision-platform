@@ -42,6 +42,7 @@ from pms_platform.market_data.coverage import (
     summarize_price_inventory,
 )
 from pms_platform.market_data.importer import import_market_data
+from pms_platform.market_data.live_quotes import refresh_live_quotes
 from pms_platform.market_data.validation import compare_prices_to_snapshots
 from pms_platform.portfolio.cash_engine import liquid_on
 from pms_platform.portfolio.position_engine import portfolio_on
@@ -123,11 +124,13 @@ def import_all(export_dir: Path | None = None) -> int:
 
 def import_snapshots(snapshot_dir: Path | None = None) -> int:
     """Import historical portfolio snapshot workbooks."""
+    from pms_platform.research_paths import default_portfolio_snapshots_dir
+
     _ensure_schema()
     session = get_session_factory()()
     try:
         result = import_portfolio_snapshots(
-            session, snapshot_dir or settings.raw_data_dir / "portfolio_snapshots"
+            session, snapshot_dir or default_portfolio_snapshots_dir()
         )
         session.commit()
         print("Snapshot import complete.")
@@ -275,6 +278,34 @@ def market_data_coverage(export_dir: Path | None = None) -> int:
         session.close()
 
 
+def refresh_live_quotes_cmd(*, prefer_bse: bool = True) -> int:
+    """Fetch live BSE/NSE quotes for open holdings via Indian Stock Market API."""
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        result = refresh_live_quotes(session, prefer_bse=prefer_bse)
+        session.commit()
+        exchange = "BSE (.BO)" if prefer_bse else "NSE (.NS)"
+        print(f"Live quote refresh complete ({exchange}).")
+        print(f"  Requested: {result.requested}")
+        print(f"  Fetched: {result.fetched}")
+        print(f"  Upserted: {result.upserted}")
+        print(f"  Missing symbol: {result.missing_symbol}")
+        print(f"  Failed: {result.failed}")
+        print(f"  As-of: {result.as_of_date.isoformat()}")
+        if result.notes:
+            print("  Notes:")
+            for note in result.notes[:20]:
+                print(f"    - {note}")
+        return 0 if result.failed == 0 or result.fetched > 0 else 1
+    except Exception as exc:
+        session.rollback()
+        print(f"Live quote refresh failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
 def analyze_episodes(export_dir: Path | None = None) -> int:
     """Compute closed-episode performance metrics and export CSV outputs."""
     output_dir = export_dir or settings.export_dir
@@ -378,6 +409,16 @@ def main() -> None:
     )
     analyze_parser.add_argument("--export-dir", type=Path, default=None)
 
+    live_parser = subparsers.add_parser(
+        "refresh-live-quotes",
+        help="Fetch live BSE quotes for open holdings (Indian Stock Market API)",
+    )
+    live_parser.add_argument(
+        "--nse",
+        action="store_true",
+        help="Prefer NSE (.NS) instead of BSE (.BO)",
+    )
+
     args = parser.parse_args()
     if args.command == "import-all":
         raise SystemExit(import_all(args.export_dir))
@@ -393,6 +434,8 @@ def main() -> None:
         raise SystemExit(market_data_coverage(args.export_dir))
     if args.command == "analyze-episodes":
         raise SystemExit(analyze_episodes(args.export_dir))
+    if args.command == "refresh-live-quotes":
+        raise SystemExit(refresh_live_quotes_cmd(prefer_bse=not args.nse))
 
 
 if __name__ == "__main__":

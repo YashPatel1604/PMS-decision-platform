@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     processed_data_dir: Path = Path("./data/processed")
     external_data_dir: Path = Path("./data/external")
     export_dir: Path = Path("./data/exports")
+    upload_dir: Path = Path("./data/uploads")
+    final_master_dir: Path | None = None
+    # Sibling OneDrive knowledge base: …/OneDrive-Personal/Research (read-only).
+    research_dir: Path | None = None
+    yahoo_finance_base_url: str = "https://query1.finance.yahoo.com"
     log_level: str = "INFO"
 
 

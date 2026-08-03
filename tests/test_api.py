@@ -31,4 +31,9 @@ def test_continuous_loss_backtest_endpoint() -> None:
     assert "diversified_equal_capital_end_value" in payload
     assert "mean_return_advantage_pp" in payload
     assert "median_return_advantage_pp" in payload
+    assert "average_winner_pp" in payload
+    assert "average_loser_pp" in payload
+    assert "payoff_ratio" in payload
+    assert "profit_factor" in payload
+    assert "historical_capital_weighted_uplift_pct" in payload
     assert "episodes" in payload
