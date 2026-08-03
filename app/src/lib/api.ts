@@ -519,6 +519,33 @@ export type OnedriveRefreshResult = {
     validation_errors: number;
     notes: string[];
   } | null;
+  market_data: {
+    source_dir: string;
+    used_seed_fallback: boolean;
+    missing_files: string[];
+    prices_inserted: number;
+    prices_skipped: number;
+    prices_unresolved: number;
+    prices_invalid: number;
+    dividends_inserted: number;
+    dividends_skipped: number;
+    dividends_unresolved: number;
+    dividends_invalid: number;
+    benchmarks_inserted: number;
+    benchmarks_skipped: number;
+    benchmarks_invalid: number;
+    successors_inserted: number;
+    successors_skipped: number;
+    successors_invalid: number;
+    notes: string[];
+  } | null;
+  analysis: {
+    ownership_ok: number;
+    ownership_insufficient: number;
+    post_exit_ok: number;
+    post_exit_insufficient: number;
+    cash_flow_rows: number;
+  } | null;
 };
 
 export const api = {

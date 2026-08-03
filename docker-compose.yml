@@ -55,10 +55,15 @@ services:
         target: /data/snapshot_seed
         read_only: true
       # Prices / dividends / benchmarks for Holdings % and exit analysis.
-      # Default: shipped seed. Override with OneDrive 05_External_Data path in .env.
+      # Prefer OneDrive external data when ONEDRIVE_EXTERNAL_DATA_DIR is set.
       - type: bind
-        source: ${EXTERNAL_DATA_DIR:-./docker/market_data_seed}
+        source: ${ONEDRIVE_EXTERNAL_DATA_DIR:-./docker/market_data_seed}
         target: /data/external
+        read_only: true
+      # Always mount seed fallback.
+      - type: bind
+        source: ./docker/market_data_seed
+        target: /data/external_seed
         read_only: true
       - api_raw:/data/raw
       - api_processed:/data/processed

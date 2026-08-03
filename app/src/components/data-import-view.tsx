@@ -101,7 +101,8 @@ export function DataImportView() {
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Import Excel</h1>
         <p className="mt-3 text-base leading-7 text-stone-600">
           Research/OneDrive is not watched automatically. Use Refresh from Research when masters
-          or portfolio snapshots change, or upload a single workbook below for calibration.
+          or portfolio snapshots change. Refresh now also imports market-data CSVs and recomputes
+          episode analysis. You can still upload a single workbook below for calibration.
         </p>
       </header>
 
@@ -115,8 +116,9 @@ export function DataImportView() {
               Copies the latest securities, transactions, and{" "}
               <code className="rounded bg-white/80 px-1">Portfolio_*.xlsx</code> files from
               Research (with Final Master fallback) into{" "}
-              <code className="rounded bg-white/80 px-1">data/raw</code>, then fully reimports
-              episodes and snapshots. Takes a minute or two.
+              <code className="rounded bg-white/80 px-1">data/raw</code>, reimports portfolio
+              data, imports prices/dividends/benchmarks from the external data source, and
+              recomputes episode analysis. Takes a few minutes.
             </p>
           </div>
           <button
@@ -157,6 +159,25 @@ export function DataImportView() {
                 {refreshResult.reimport.validation_errors
                   ? ` · ${refreshResult.reimport.validation_errors} validation errors`
                   : ""}
+              </p>
+            ) : null}
+            {refreshResult.market_data ? (
+              <p className="mt-1">
+                Market data ({refreshResult.market_data.used_seed_fallback ? "seed fallback" : "OneDrive path"}
+                ): prices +{refreshResult.market_data.prices_inserted} ({refreshResult.market_data.prices_skipped} unchanged) ·{" "}
+                benchmarks +{refreshResult.market_data.benchmarks_inserted} · dividends +{refreshResult.market_data.dividends_inserted}
+                {refreshResult.market_data.missing_files.length
+                  ? ` · missing ${refreshResult.market_data.missing_files.join(", ")}`
+                  : ""}
+                .
+              </p>
+            ) : null}
+            {refreshResult.analysis ? (
+              <p className="mt-1">
+                Analysis: ownership OK {refreshResult.analysis.ownership_ok} / insufficient{" "}
+                {refreshResult.analysis.ownership_insufficient} · post-exit OK{" "}
+                {refreshResult.analysis.post_exit_ok} / insufficient{" "}
+                {refreshResult.analysis.post_exit_insufficient}.
               </p>
             ) : null}
           </div>
@@ -308,12 +329,13 @@ export function DataImportView() {
       ) : null}
 
       <section className="border-t border-stone-200 pt-6 text-sm text-stone-500">
-        <h2 className="text-lg font-semibold text-stone-800">Market data stays on the CLI</h2>
+        <h2 className="text-lg font-semibold text-stone-800">Refresh scope</h2>
         <p className="mt-2 max-w-3xl leading-6">
-          Daily prices, dividends, and benchmark TRI files are imported with{" "}
-          <code className="rounded bg-stone-100 px-1">make import-market-data</code> or{" "}
-          <code className="rounded bg-stone-100 px-1">pms-platform import-market-data</code>.
-          This page refreshes masters/snapshots from Research and calibrates Excel uploads.
+          Refresh handles both portfolio imports and market-data/analysis rebuild. For best
+          results on Windows Docker, set both <code className="rounded bg-stone-100 px-1">RESEARCH_DIR</code> and{" "}
+          <code className="rounded bg-stone-100 px-1">ONEDRIVE_EXTERNAL_DATA_DIR</code> in
+          <code className="rounded bg-stone-100 px-1">.env</code> so the app prefers OneDrive
+          data over bundled seed fallbacks.
         </p>
       </section>
     </div>

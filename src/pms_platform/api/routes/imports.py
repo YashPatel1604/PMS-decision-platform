@@ -38,11 +38,42 @@ class ReimportResponse(BaseModel):
     notes: list[str]
 
 
+class MarketDataRefreshResponse(BaseModel):
+    source_dir: str
+    used_seed_fallback: bool
+    missing_files: list[str]
+    prices_inserted: int
+    prices_skipped: int
+    prices_unresolved: int
+    prices_invalid: int
+    dividends_inserted: int
+    dividends_skipped: int
+    dividends_unresolved: int
+    dividends_invalid: int
+    benchmarks_inserted: int
+    benchmarks_skipped: int
+    benchmarks_invalid: int
+    successors_inserted: int
+    successors_skipped: int
+    successors_invalid: int
+    notes: list[str]
+
+
+class AnalysisRefreshResponse(BaseModel):
+    ownership_ok: int
+    ownership_insufficient: int
+    post_exit_ok: int
+    post_exit_insufficient: int
+    cash_flow_rows: int
+
+
 class OnedriveRefreshResponse(BaseModel):
     ok: bool
     error: str | None = None
     sync: SyncRawResponse
     reimport: ReimportResponse | None = None
+    market_data: MarketDataRefreshResponse | None = None
+    analysis: AnalysisRefreshResponse | None = None
 
 
 @router.post("/refresh-from-onedrive", response_model=OnedriveRefreshResponse)
@@ -55,6 +86,8 @@ def refresh_data_from_onedrive(
     """
     result = refresh_from_onedrive(session)
     reimport = None
+    market_data = None
+    analysis = None
     if result.reimport is not None:
         reimport = ReimportResponse(
             securities_inserted=result.reimport.securities_inserted,
@@ -67,6 +100,35 @@ def refresh_data_from_onedrive(
             validation_errors=result.reimport.validation_errors,
             notes=list(result.reimport.notes),
         )
+    if result.market_data is not None:
+        market_data = MarketDataRefreshResponse(
+            source_dir=result.market_data.source_dir,
+            used_seed_fallback=result.market_data.used_seed_fallback,
+            missing_files=list(result.market_data.missing_files),
+            prices_inserted=result.market_data.prices_inserted,
+            prices_skipped=result.market_data.prices_skipped,
+            prices_unresolved=result.market_data.prices_unresolved,
+            prices_invalid=result.market_data.prices_invalid,
+            dividends_inserted=result.market_data.dividends_inserted,
+            dividends_skipped=result.market_data.dividends_skipped,
+            dividends_unresolved=result.market_data.dividends_unresolved,
+            dividends_invalid=result.market_data.dividends_invalid,
+            benchmarks_inserted=result.market_data.benchmarks_inserted,
+            benchmarks_skipped=result.market_data.benchmarks_skipped,
+            benchmarks_invalid=result.market_data.benchmarks_invalid,
+            successors_inserted=result.market_data.successors_inserted,
+            successors_skipped=result.market_data.successors_skipped,
+            successors_invalid=result.market_data.successors_invalid,
+            notes=list(result.market_data.notes),
+        )
+    if result.analysis is not None:
+        analysis = AnalysisRefreshResponse(
+            ownership_ok=result.analysis.ownership_ok,
+            ownership_insufficient=result.analysis.ownership_insufficient,
+            post_exit_ok=result.analysis.post_exit_ok,
+            post_exit_insufficient=result.analysis.post_exit_insufficient,
+            cash_flow_rows=result.analysis.cash_flow_rows,
+        )
     response = OnedriveRefreshResponse(
         ok=result.ok,
         error=result.error,
@@ -77,6 +139,8 @@ def refresh_data_from_onedrive(
             notes=list(result.sync.notes),
         ),
         reimport=reimport,
+        market_data=market_data,
+        analysis=analysis,
     )
     return response
 

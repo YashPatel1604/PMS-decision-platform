@@ -219,6 +219,16 @@ def bootstrap_symbol_history_from_securities(
             )
             if existing is not None:
                 continue
+            identity_existing = session.scalar(
+                select(SecuritySymbolHistory).where(
+                    SecuritySymbolHistory.security_id == security.security_id,
+                    SecuritySymbolHistory.symbol_type == symbol_type,
+                    SecuritySymbolHistory.symbol == symbol,
+                    SecuritySymbolHistory.effective_from == effective_from,
+                )
+            )
+            if identity_existing is not None:
+                continue
             session.add(
                 SecuritySymbolHistory(
                     security_id=security.security_id,

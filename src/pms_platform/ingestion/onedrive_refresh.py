@@ -1,4 +1,11 @@
-"""Sync Research/OneDrive masters into data/raw and fully reimport."""
+"""Sync Research/OneDrive sources into DB through one pipeline.
+
+Pipeline steps:
+1) Sync masters/snapshots from Research into data/raw
+2) Reimport portfolio data into Postgres
+3) Import market-data CSVs (prefer OneDrive external path over seed)
+4) Recompute episode analysis
+"""
 
 from __future__ import annotations
 
@@ -10,13 +17,16 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from pms_platform.analytics.research_portfolio_value import clear_research_portfolio_value_cache
+from pms_platform.analytics.service import run_full_episode_analysis
 from pms_platform.config import settings
 from pms_platform.episodes.builder import build_episodes
 from pms_platform.ingestion.securities import import_security_master
 from pms_platform.ingestion.snapshots import clear_portfolio_snapshots, import_portfolio_snapshots
 from pms_platform.ingestion.transactions import import_transaction_master
 from pms_platform.ingestion.validators import ValidationSeverity, validate_imported_data
-from pms_platform.masters.paths import final_master_dir, resolve_master_path, MasterKind
+from pms_platform.market_data.contracts import CanonicalPaths
+from pms_platform.market_data.importer import import_market_data
+from pms_platform.masters.paths import MasterKind, final_master_dir, resolve_master_path
 from pms_platform.models import (
     DecisionEvent,
     EpisodeCashFlowRecord,
@@ -26,7 +36,6 @@ from pms_platform.models import (
     LiquidTransaction,
     PostExitHorizonPerformance,
     PostExitPerformance,
-    Security,
     SellAssessment,
     Transaction,
 )
@@ -59,9 +68,42 @@ class ReimportResult:
 
 
 @dataclass
+class MarketDataRefreshResult:
+    source_dir: str
+    used_seed_fallback: bool
+    missing_files: list[str] = field(default_factory=list)
+    prices_inserted: int = 0
+    prices_skipped: int = 0
+    prices_unresolved: int = 0
+    prices_invalid: int = 0
+    dividends_inserted: int = 0
+    dividends_skipped: int = 0
+    dividends_unresolved: int = 0
+    dividends_invalid: int = 0
+    benchmarks_inserted: int = 0
+    benchmarks_skipped: int = 0
+    benchmarks_invalid: int = 0
+    successors_inserted: int = 0
+    successors_skipped: int = 0
+    successors_invalid: int = 0
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AnalysisRefreshResult:
+    ownership_ok: int = 0
+    ownership_insufficient: int = 0
+    post_exit_ok: int = 0
+    post_exit_insufficient: int = 0
+    cash_flow_rows: int = 0
+
+
+@dataclass
 class OnedriveRefreshResult:
     sync: SyncRawResult
     reimport: ReimportResult | None = None
+    market_data: MarketDataRefreshResult | None = None
+    analysis: AnalysisRefreshResult | None = None
     ok: bool = True
     error: str | None = None
 
@@ -205,8 +247,77 @@ def reimport_from_raw(session: Session, *, raw_dir: Path | None = None) -> Reimp
     )
 
 
+def _has_any_market_csv(path: Path) -> bool:
+    contract = CanonicalPaths()
+    expected = (
+        path / contract.prices,
+        path / contract.dividends,
+        path / contract.benchmarks,
+        path / contract.successors,
+    )
+    return any(p.is_file() for p in expected)
+
+
+def _resolve_market_data_source_dir() -> tuple[Path, bool]:
+    """Prefer OneDrive external path when present; otherwise use seed fallback."""
+    candidates = [
+        Path(settings.external_data_dir),  # Compose points this to mounted external source.
+        Path("/data/external"),  # Docker default mount path.
+    ]
+    seed = Path("/data/external_seed")
+
+    for candidate in candidates:
+        if candidate.is_dir() and _has_any_market_csv(candidate):
+            return candidate, False
+    if seed.is_dir() and _has_any_market_csv(seed):
+        return seed, True
+    # Fall back to configured dir for clearer missing-file diagnostics downstream.
+    return Path(settings.external_data_dir), False
+
+
+def import_market_and_analyze(session: Session) -> tuple[MarketDataRefreshResult, AnalysisRefreshResult]:
+    source_dir, used_seed_fallback = _resolve_market_data_source_dir()
+    market = import_market_data(session, source_dir)
+    summary = run_full_episode_analysis(session)
+    session.commit()
+
+    return (
+        MarketDataRefreshResult(
+            source_dir=str(source_dir),
+            used_seed_fallback=used_seed_fallback,
+            missing_files=list(market.missing_files),
+            prices_inserted=market.prices.inserted if market.prices else 0,
+            prices_skipped=market.prices.skipped if market.prices else 0,
+            prices_unresolved=market.prices.unresolved if market.prices else 0,
+            prices_invalid=market.prices.invalid if market.prices else 0,
+            dividends_inserted=market.dividends.inserted if market.dividends else 0,
+            dividends_skipped=market.dividends.skipped if market.dividends else 0,
+            dividends_unresolved=market.dividends.unresolved if market.dividends else 0,
+            dividends_invalid=market.dividends.invalid if market.dividends else 0,
+            benchmarks_inserted=market.benchmarks.inserted if market.benchmarks else 0,
+            benchmarks_skipped=market.benchmarks.skipped if market.benchmarks else 0,
+            benchmarks_invalid=market.benchmarks.invalid if market.benchmarks else 0,
+            successors_inserted=market.successors.inserted if market.successors else 0,
+            successors_skipped=market.successors.skipped if market.successors else 0,
+            successors_invalid=market.successors.invalid if market.successors else 0,
+            notes=(
+                ["Used docker market-data seed fallback"]
+                if used_seed_fallback
+                else ["Used OneDrive-configured external market-data path"]
+            ),
+        ),
+        AnalysisRefreshResult(
+            ownership_ok=summary.ownership_ok,
+            ownership_insufficient=summary.ownership_insufficient,
+            post_exit_ok=summary.post_exit_ok,
+            post_exit_insufficient=summary.post_exit_insufficient,
+            cash_flow_rows=summary.cash_flow_rows,
+        ),
+    )
+
+
 def refresh_from_onedrive(session: Session) -> OnedriveRefreshResult:
-    """Sync Research/OneDrive → data/raw, then full reimport."""
+    """Full refresh: sync raw + reimport + market import + analysis."""
     try:
         sync = sync_raw_from_onedrive()
     except Exception as exc:  # noqa: BLE001
@@ -224,10 +335,31 @@ def refresh_from_onedrive(session: Session) -> OnedriveRefreshResult:
             ok=False,
             error=f"Reimport failed: {exc}",
         )
-    ok = reimport.validation_errors == 0
+
+    if reimport.validation_errors:
+        return OnedriveRefreshResult(
+            sync=sync,
+            reimport=reimport,
+            ok=False,
+            error="Validation errors during reimport",
+        )
+
+    try:
+        market_data, analysis = import_market_and_analyze(session)
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        return OnedriveRefreshResult(
+            sync=sync,
+            reimport=reimport,
+            ok=False,
+            error=f"Market-data import or analysis failed: {exc}",
+        )
+
     return OnedriveRefreshResult(
         sync=sync,
         reimport=reimport,
-        ok=ok,
-        error=None if ok else "Validation errors during reimport",
+        market_data=market_data,
+        analysis=analysis,
+        ok=True,
+        error=None,
     )

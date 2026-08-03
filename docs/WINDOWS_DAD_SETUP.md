@@ -108,20 +108,20 @@ When `postgres`, `api`, and `ui` show as running / healthy:
 
 ---
 
-## Step 6 — Load market analysis (required for Open positions % / exit signals)
+## Step 6 — Confirm market data and analysis populated
 
-**Refresh alone is not enough.** Open positions STOCK%/BSE% and exit “1-year evidence” need price CSVs in the database.
+Refresh now includes:
+- market-data import (prices, dividends, benchmarks, successors)
+- episode analysis recompute
 
-In PowerShell (Docker still running):
+After Step 5, hard-refresh the browser (Ctrl+F5). Open positions and exit signals should show numbers instead of `—`.
+
+If you still see blanks, run this manual fallback once:
 
 ```powershell
 cd $HOME\Apps\PMS-decision-platform
 .\scripts\windows\load-market-analysis.ps1
 ```
-
-This imports `daily_prices.csv` + benchmarks from `docker/market_data_seed` (or `EXTERNAL_DATA_DIR`), then runs episode analysis. First run can take several minutes.
-
-Then Ctrl+F5 in the browser. Open positions and exit signals should show numbers instead of `—` / Insufficient Data.
 
 ---
 
@@ -146,7 +146,7 @@ cd $HOME\Apps\PMS-decision-platform
 
 Then refresh the browser (Ctrl+F5).
 
-If Open positions % or exit analysis look empty after an update/reimport, also run:
+If Open positions % or exit analysis still look empty after an update/reimport, also run:
 
 ```powershell
 .\scripts\windows\load-market-analysis.ps1
@@ -159,7 +159,7 @@ If Open positions % or exit analysis look empty after an update/reimport, also r
 1. Wait until OneDrive finishes syncing (no pending arrows on the files).
 2. In the app, click **Refresh data**.
 3. No `git pull` needed for data-only changes.
-4. If you also refreshed/wiped prices somehow, re-run `.\scripts\windows\load-market-analysis.ps1`.
+4. If you still see blank percentages, run `.\scripts\windows\load-market-analysis.ps1`.
 
 ---
 
@@ -169,7 +169,7 @@ If Open positions % or exit analysis look empty after an update/reimport, also r
 |---------|-------------|
 | `RESEARCH_DIR` error on start | Path in `.env` wrong; must contain `Portfolio` folder |
 | Refresh: no portfolio snapshots | See **Fix: empty snapshots** below |
-| Open positions all `—` / exit Insufficient Data | Run `.\scripts\windows\load-market-analysis.ps1` (market prices not in DB yet) |
+| Open positions all `—` / exit Insufficient Data | Refresh once more, then run `.\scripts\windows\load-market-analysis.ps1` as fallback |
 | Refresh fails / empty data | Mark Research **Always keep on this device**; re-run Refresh |
 | Page won’t load | Docker Desktop running? `docker compose ps` |
 | `git clone` / `git pull` denied | Ask Yash for GitHub access |
