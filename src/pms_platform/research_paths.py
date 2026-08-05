@@ -2,6 +2,10 @@
 
 Research is read-only authoritative portfolio data. The app may read from it
 and copy into data/raw; it must never write back into Research.
+
+``RESEARCH_DIR`` may point at either:
+- ``…/Research`` (preferred — contains ``Portfolio/``), or
+- ``…/Research/Portfolio`` (also accepted; History lives here as ``History/``).
 """
 
 from __future__ import annotations
@@ -23,24 +27,77 @@ def _onedrive_personal_root() -> Path:
     return cwd.parent
 
 
+def _looks_like_portfolio_dir(path: Path) -> bool:
+    """True when path is Research/Portfolio (History / Yearly / Values live here)."""
+    if not path.is_dir():
+        return False
+    markers = (
+        path / "History",
+        path / "Portfolio Yearly",
+        path / "Values.xlsx",
+    )
+    if any(marker.exists() for marker in markers):
+        return True
+    # Case-insensitive History on Windows mounts
+    try:
+        names = {child.name.lower() for child in path.iterdir()}
+    except OSError:
+        return False
+    return "history" in names or "portfolio yearly" in names
+
+
+def _child_dir_ci(parent: Path, name: str) -> Path | None:
+    """Return parent/name if present, matching case-insensitively when needed."""
+    direct = parent / name
+    if direct.is_dir():
+        return direct
+    try:
+        for child in parent.iterdir():
+            if child.is_dir() and child.name.lower() == name.lower():
+                return child
+    except OSError:
+        return None
+    return None
+
+
 def research_dir() -> Path | None:
-    """Return configured or auto-detected Research directory if it exists."""
+    """Return configured or auto-detected Research directory if it exists.
+
+    If ``RESEARCH_DIR`` points at the Portfolio folder itself, return its parent
+    when that parent is named Research; otherwise still treat Portfolio as usable
+    via ``research_portfolio_dir``.
+    """
     configured = settings.research_dir
     if configured is not None:
         path = Path(configured).expanduser().resolve()
-        return path if path.is_dir() else None
+        if not path.is_dir():
+            return None
+        # User pointed at …/Research/Portfolio — Research root is parent.
+        if _looks_like_portfolio_dir(path):
+            parent = path.parent
+            if parent.is_dir():
+                return parent
+            return path
+        return path
 
     candidate = _onedrive_personal_root() / "Research"
     return candidate if candidate.is_dir() else None
 
 
 def research_portfolio_dir() -> Path | None:
-    """Return Research/Portfolio when present."""
+    """Return Research/Portfolio when present (or RESEARCH_DIR if it is Portfolio)."""
+    configured = settings.research_dir
+    if configured is not None:
+        path = Path(configured).expanduser().resolve()
+        if _looks_like_portfolio_dir(path):
+            return path
+
     root = research_dir()
     if root is None:
         return None
-    portfolio = root / "Portfolio"
-    return portfolio if portfolio.is_dir() else None
+    if _looks_like_portfolio_dir(root):
+        return root
+    return _child_dir_ci(root, "Portfolio")
 
 
 def research_portfolio_yearly_dir() -> Path | None:
@@ -48,8 +105,7 @@ def research_portfolio_yearly_dir() -> Path | None:
     portfolio = research_portfolio_dir()
     if portfolio is None:
         return None
-    yearly = portfolio / "Portfolio Yearly"
-    return yearly if yearly.is_dir() else None
+    return _child_dir_ci(portfolio, "Portfolio Yearly")
 
 
 def research_portfolio_history_dir() -> Path | None:
@@ -57,8 +113,7 @@ def research_portfolio_history_dir() -> Path | None:
     portfolio = research_portfolio_dir()
     if portfolio is None:
         return None
-    history = portfolio / "History"
-    return history if history.is_dir() else None
+    return _child_dir_ci(portfolio, "History")
 
 
 def research_values_workbook() -> Path | None:
@@ -67,7 +122,15 @@ def research_values_workbook() -> Path | None:
     if portfolio is None:
         return None
     path = portfolio / "Values.xlsx"
-    return path if path.is_file() else None
+    if path.is_file():
+        return path
+    try:
+        for child in portfolio.iterdir():
+            if child.is_file() and child.name.lower() == "values.xlsx":
+                return child
+    except OSError:
+        return None
+    return None
 
 
 def prefer_newest_existing(*candidates: Path) -> Path | None:
@@ -76,6 +139,41 @@ def prefer_newest_existing(*candidates: Path) -> Path | None:
     if not existing:
         return None
     return max(existing, key=lambda path: path.stat().st_mtime)
+
+
+def describe_research_layout() -> dict[str, object]:
+    """Diagnostic snapshot of what the process can see under RESEARCH_DIR."""
+    configured = str(settings.research_dir) if settings.research_dir else None
+    root = research_dir()
+    portfolio = research_portfolio_dir()
+    history = research_portfolio_history_dir()
+    yearly = research_portfolio_yearly_dir()
+    portfolio_children: list[str] = []
+    if portfolio is not None:
+        try:
+            portfolio_children = sorted(child.name for child in portfolio.iterdir())[:40]
+        except OSError as exc:
+            portfolio_children = [f"<error: {exc}>"]
+    history_count = 0
+    if history is not None:
+        try:
+            history_count = sum(
+                1
+                for p in history.iterdir()
+                if p.is_file() and p.name.lower().startswith("pms_clientportfolio_")
+            )
+        except OSError:
+            history_count = -1
+    return {
+        "configured_research_dir": configured,
+        "resolved_research_dir": str(root) if root else None,
+        "resolved_portfolio_dir": str(portfolio) if portfolio else None,
+        "resolved_history_dir": str(history) if history else None,
+        "resolved_yearly_dir": str(yearly) if yearly else None,
+        "portfolio_children": portfolio_children,
+        "history_file_count": history_count,
+        "values_xlsx": str(research_values_workbook()) if research_values_workbook() else None,
+    }
 
 
 def portfolio_snapshot_source_dirs() -> list[Path]:

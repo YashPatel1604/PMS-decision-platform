@@ -160,6 +160,8 @@ def _adjusted_initial_threshold(
     return transaction_price_in_series_units(
         initiate.price,
         observation.adjusted_close,
+        security_id=security_id,
+        as_of=initiate.event_date,
     )
 
 

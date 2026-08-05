@@ -209,24 +209,55 @@ Portfolio totals should come from `Research\Portfolio\History\PMS_ClientPortfoli
 If Holdings shows `src MODEL_PORTFOLIO`, Docker is using yearly `Portfolio_*.xlsx` books
 (often the snapshot seed) because **History is missing or unreadable** in the container.
 
-1. Open `Research\Portfolio\History` in Explorer.
-2. Right-click → **Always keep on this device**. Wait for green checks.
-3. Confirm files like `PMS_ClientPortfolio_311225.xlsx` exist.
-4. Verify Docker sees them:
+#### A. Confirm History exists on the PC (not only in Research)
 
 ```powershell
-docker compose exec api ls /data/research/Portfolio/History
+# Show what .env points at
+Get-Content .env | Select-String RESEARCH
+
+# On the host — this path must work (use your RESEARCH_DIR value)
+$dir = (Get-Content .env | Where-Object { $_ -match '^RESEARCH_DIR=' }) -replace '^RESEARCH_DIR=',''
+dir "$dir\Portfolio"
+dir "$dir\Portfolio\History"
 ```
 
-If empty/missing, fix `RESEARCH_DIR` and remount:
+- If `dir "$dir\Portfolio"` fails → `.env` `RESEARCH_DIR` is wrong. It must be the folder that
+  **contains** `Portfolio` (named `Research`), not a random parent and not usually `History` itself.
+- If Portfolio lists but History is missing → open OneDrive → pin `History` → **Always keep on this device**.
+
+#### B. Confirm Docker sees the same tree
+
+```powershell
+docker compose exec api ls -la /data/research
+docker compose exec api ls -la /data/research/Portfolio
+docker compose exec api ls -la /data/research/Portfolio/History
+curl http://127.0.0.1:8000/health/research
+```
+
+| What you see | Meaning |
+| --- | --- |
+| `/data/research` empty or wrong | Bad mount — fix `RESEARCH_DIR`, then recreate API |
+| `/data/research/Portfolio` ok, no `History` | Host folder incomplete / OneDrive cloud-only |
+| `History` works after recreate | Path was fine; container had stale mount |
+
+Common mistake: setting `RESEARCH_DIR=…\Research\Portfolio`. Prefer `…\Research`.
+(Newer builds accept Portfolio as well, but still recreate after changing `.env`.)
 
 ```powershell
 cd $HOME\Apps\PMS-decision-platform
+# Edit .env so RESEARCH_DIR=C:/Users/.../Research  (folder that contains Portfolio)
 git pull
 docker compose up -d --build --force-recreate api
 ```
 
-5. Hard-refresh the browser (Ctrl+F5). For 31 Dec 2025 you should see `src HISTORY`.
+Then hard-refresh the browser (Ctrl+F5). For 31 Dec 2025 you should see `src HISTORY`.
+
+### Corporate actions (splits / bonuses)
+
+- **Quantities** while you held a stock: already in the transactions master as `Split`/`Bonus` (matches History).
+- **Price units** (first-buy / underwater / continuous-loss): use Yahoo calendar file shipped in the app seed:
+  `docker/market_data_seed/corporate_actions/corporate_actions.csv`
+- After Yash pushes an update: `git pull` → rebuild API → Refresh. Same CSV on both machines.
 
 ---
 

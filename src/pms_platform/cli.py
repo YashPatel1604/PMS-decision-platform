@@ -306,6 +306,60 @@ def refresh_live_quotes_cmd(*, prefer_bse: bool = True) -> int:
         session.close()
 
 
+def build_corporate_actions_cmd(
+    *,
+    output: Path | None = None,
+    security_master: Path | None = None,
+    transactions: Path | None = None,
+) -> int:
+    """Fetch Yahoo splits/bonuses and write the canonical corporate-actions CSV."""
+    from pms_platform.market_data.corporate_actions import (
+        build_corporate_actions_from_yahoo,
+        clear_corporate_actions_cache,
+        write_corporate_actions_csv,
+    )
+    from pms_platform.masters.paths import MasterKind, resolve_master_path
+
+    sec_path = security_master or resolve_master_path(MasterKind.SECURITY)
+    txn_path = transactions or resolve_master_path(MasterKind.TRANSACTIONS)
+    if sec_path is None or not sec_path.exists():
+        print("Missing security master", file=sys.stderr)
+        return 1
+    if txn_path is None or not txn_path.exists():
+        print("Missing transactions master", file=sys.stderr)
+        return 1
+
+    seed_out = Path("docker/market_data_seed/corporate_actions/corporate_actions.csv")
+    export_out = (output or settings.export_dir / "corporate_actions.csv").resolve()
+    external_out = Path(settings.external_data_dir) / "corporate_actions" / "corporate_actions.csv"
+
+    print(f"Building corporate-action calendar from Yahoo…")
+    print(f"  Security master: {sec_path}")
+    print(f"  Transactions:    {txn_path}")
+    rows = build_corporate_actions_from_yahoo(
+        security_master_path=sec_path,
+        transactions_path=txn_path,
+    )
+    for path in (seed_out, export_out, external_out):
+        write_corporate_actions_csv(path, rows)
+    clear_corporate_actions_cache()
+
+    held_gaps = [r for r in rows if r.held_through and not r.in_transaction_ledger]
+    ledger_matched = sum(1 for r in rows if r.in_transaction_ledger)
+    print(f"Corporate actions written: {len(rows)}")
+    print(f"  Matched transaction ledger: {ledger_matched}")
+    print(f"  Held-through but missing ledger qty event: {len(held_gaps)}")
+    for gap in held_gaps:
+        print(
+            f"    - {gap.action_date} {gap.portfolio_name} {gap.split_ratio} "
+            f"pre={gap.pre_qty} delta={gap.quantity_delta}"
+        )
+    print(f"  Seed (Dad Docker): {seed_out.resolve()}")
+    print(f"  Export:            {export_out}")
+    print(f"  External:          {external_out.resolve()}")
+    return 0
+
+
 def analyze_episodes(export_dir: Path | None = None) -> int:
     """Compute closed-episode performance metrics and export CSV outputs."""
     output_dir = export_dir or settings.export_dir
@@ -419,6 +473,14 @@ def main() -> None:
         help="Prefer NSE (.NS) instead of BSE (.BO)",
     )
 
+    ca_parser = subparsers.add_parser(
+        "build-corporate-actions",
+        help="Fetch Yahoo split/bonus events and write corporate_actions.csv (Dad-replicable)",
+    )
+    ca_parser.add_argument("--output", type=Path, default=None)
+    ca_parser.add_argument("--security-master", type=Path, default=None)
+    ca_parser.add_argument("--transactions", type=Path, default=None)
+
     args = parser.parse_args()
     if args.command == "import-all":
         raise SystemExit(import_all(args.export_dir))
@@ -436,6 +498,14 @@ def main() -> None:
         raise SystemExit(analyze_episodes(args.export_dir))
     if args.command == "refresh-live-quotes":
         raise SystemExit(refresh_live_quotes_cmd(prefer_bse=not args.nse))
+    if args.command == "build-corporate-actions":
+        raise SystemExit(
+            build_corporate_actions_cmd(
+                output=args.output,
+                security_master=args.security_master,
+                transactions=args.transactions,
+            )
+        )
 
 
 if __name__ == "__main__":

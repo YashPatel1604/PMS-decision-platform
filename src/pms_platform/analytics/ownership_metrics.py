@@ -80,6 +80,8 @@ def _episode_first_buy_states(
                 first_buy_price = transaction_price_in_series_units(
                     event.price,
                     market.adjusted_close,
+                    security_id=security_id,
+                    as_of=event.event_date,
                 )
 
         quantity = event.position_after

@@ -29,5 +29,6 @@ copy_ro "$EXTERNAL_SRC/prices/daily_prices.csv" "$EXTERNAL_DIR/prices/daily_pric
 copy_ro "$EXTERNAL_SRC/dividends/dividends.csv" "$EXTERNAL_DIR/dividends/dividends.csv"
 copy_ro "$EXTERNAL_SRC/benchmarks/benchmark_tri.csv" "$EXTERNAL_DIR/benchmarks/benchmark_tri.csv"
 copy_ro "$EXTERNAL_SRC/symbol_maps/security_successors.csv" "$EXTERNAL_DIR/symbol_maps/security_successors.csv"
+copy_ro "$EXTERNAL_SRC/corporate_actions/corporate_actions.csv" "$EXTERNAL_DIR/corporate_actions/corporate_actions.csv"
 
 echo "Done. Next: make import-market-data"

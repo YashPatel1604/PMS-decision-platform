@@ -46,6 +46,24 @@ SECURITY_SUCCESSORS_COLUMNS: tuple[str, ...] = (
     "confirmed",
 )
 
+CORPORATE_ACTIONS_COLUMNS: tuple[str, ...] = (
+    "security_id",
+    "portfolio_name",
+    "action_date",
+    "action_type",
+    "split_ratio",
+    "numerator",
+    "denominator",
+    "share_multiplier",
+    "yahoo_ticker",
+    "source",
+    "in_transaction_ledger",
+    "held_through",
+    "pre_qty",
+    "quantity_delta",
+    "notes",
+)
+
 IDENTIFIER_TYPES: frozenset[str] = frozenset(
     {"SECURITY_ID", "NSE_SYMBOL", "BSE_CODE", "ISIN", "PORTFOLIO_NAME"}
 )
@@ -75,3 +93,4 @@ class CanonicalPaths:
     dividends: str = "dividends/dividends.csv"
     benchmarks: str = "benchmarks/benchmark_tri.csv"
     successors: str = "symbol_maps/security_successors.csv"
+    corporate_actions: str = "corporate_actions/corporate_actions.csv"

@@ -117,6 +117,8 @@ def build_first_buy_price_audit(session: Session) -> list[FirstBuyAuditRow]:
         normalization = normalize_transaction_price(
             initiate.price,
             market.adjusted_close,
+            security_id=episode.security_id,
+            as_of=initiate.event_date,
         )
         if normalization is None:
             audit_rows.append(
@@ -151,7 +153,7 @@ def build_first_buy_price_audit(session: Session) -> list[FirstBuyAuditRow]:
                 entry_deviation_pct=normalization.entry_deviation_pct,
                 status=normalization.status,
                 note=(
-                    "Validated against the entry-date market price."
+                    f"Validated via {normalization.factor_source}."
                     if normalization.status == "OK"
                     else "Unit factor requires review; loss triggers are disabled."
                 ),

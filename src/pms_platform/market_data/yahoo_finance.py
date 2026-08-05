@@ -162,6 +162,24 @@ class YahooPeriodReturn:
     total_return_pct: Decimal
 
 
+@dataclass(frozen=True)
+class YahooSplitEvent:
+    """Stock split (or bonus encoded as a split) from Yahoo chart events."""
+
+    ticker: str
+    action_date: date
+    numerator: Decimal
+    denominator: Decimal
+    split_ratio: str
+
+    @property
+    def share_multiplier(self) -> Decimal:
+        """Shares after / shares before (e.g. 10:1 → 10)."""
+        if self.denominator == 0:
+            return Decimal("1")
+        return self.numerator / self.denominator
+
+
 class YahooFinanceClient:
     """HTTP client for Yahoo Finance chart quotes."""
 
@@ -264,6 +282,74 @@ class YahooFinanceClient:
             if len(hits) >= limit:
                 break
         return hits
+
+    def fetch_splits(
+        self,
+        ticker: str,
+        *,
+        start: date = date(2010, 1, 1),
+        end: date | None = None,
+    ) -> list[YahooSplitEvent]:
+        """Fetch split/bonus events from Yahoo chart ``events=splits``."""
+        end = end or date.today()
+        period1 = int(datetime(start.year, start.month, start.day, tzinfo=timezone.utc).timestamp())
+        end_plus = date.fromordinal(end.toordinal() + 1)
+        period2 = int(
+            datetime(
+                end_plus.year, end_plus.month, end_plus.day, tzinfo=timezone.utc
+            ).timestamp()
+        )
+        path = f"/v8/finance/chart/{ticker}"
+        with self._client() as client:
+            response = client.get(
+                path,
+                params={
+                    "interval": "1d",
+                    "period1": period1,
+                    "period2": period2,
+                    "events": "splits",
+                },
+            )
+            if response.status_code != 200:
+                return []
+            payload = response.json()
+        chart = payload.get("chart") if isinstance(payload, dict) else None
+        if not isinstance(chart, dict):
+            return []
+        results = chart.get("result")
+        if not isinstance(results, list) or not results or not isinstance(results[0], dict):
+            return []
+        events = results[0].get("events")
+        if not isinstance(events, dict):
+            return []
+        splits = events.get("splits")
+        if not isinstance(splits, dict):
+            return []
+        out: list[YahooSplitEvent] = []
+        for raw in splits.values():
+            if not isinstance(raw, dict):
+                continue
+            ts = raw.get("date")
+            num = _to_decimal(raw.get("numerator"))
+            den = _to_decimal(raw.get("denominator"))
+            if ts is None or num is None or den is None or den == 0:
+                continue
+            try:
+                action_date = datetime.fromtimestamp(int(ts), tz=timezone.utc).date()
+            except (TypeError, ValueError, OSError, OverflowError):
+                continue
+            ratio = str(raw.get("splitRatio") or f"{num:g}:{den:g}")
+            out.append(
+                YahooSplitEvent(
+                    ticker=ticker,
+                    action_date=action_date,
+                    numerator=num,
+                    denominator=den,
+                    split_ratio=ratio,
+                )
+            )
+        out.sort(key=lambda item: item.action_date)
+        return out
 
     def fetch_chart_history(
         self, ticker: str, start: date, end: date

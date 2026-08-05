@@ -1,0 +1,54 @@
+security_id,portfolio_name,action_date,action_type,split_ratio,numerator,denominator,share_multiplier,yahoo_ticker,source,in_transaction_ledger,held_through,pre_qty,quantity_delta,notes
+SEC010,RSSoftware,2010-06-08,Split,1.28:1,1.28,1.0,1.28,RSSOFTWARE.NS,YAHOO_FINANCE,false,false,0,0,Yahoo RSSOFTWARE.NS 1.28:1; not held on action date; no matching ledger qty event
+SEC010,RSSoftware,2010-06-21,Split,1.28:1,1.28,1.0,1.28,RSSOFTWARE.NS,YAHOO_FINANCE,false,false,0,0,Yahoo RSSOFTWARE.NS 1.28:1; not held on action date; no matching ledger qty event
+SEC038,Tata Global,2010-06-30,Split,10:1,10.0,1.0,10,TATACONSUM.NS,YAHOO_FINANCE,false,false,0,0,Yahoo TATACONSUM.NS 10:1; not held on action date; no matching ledger qty event
+SEC011,Zensar,2010-07-21,Split,2:1,2.0,1.0,2,ZENSARTECH.NS,YAHOO_FINANCE,false,false,0,0,Yahoo ZENSARTECH.NS 2:1; not held on action date; no matching ledger qty event
+SEC034,Magma,2010-08-13,Split,5:1,5.0,1.0,5,POONAWALLA.NS,YAHOO_FINANCE,false,false,0,0,Yahoo POONAWALLA.NS 5:1; not held on action date; no matching ledger qty event
+SEC039,South Indian Bank,2010-09-23,Split,10:1,10.0,1.0,10,SOUTHBANK.NS,YAHOO_FINANCE,false,false,0,0,Yahoo SOUTHBANK.NS 10:1; not held on action date; no matching ledger qty event
+SEC004,Havells,2010-10-08,Split,2:1,2.0,1.0,2,HAVELLS.NS,YAHOO_FINANCE,false,false,0,0,Yahoo HAVELLS.NS 2:1; not held on action date; no matching ledger qty event
+SEC063,AstraMicro,2010-12-30,Split,3:2,3.0,2.0,1.5,ASTRAMICRO.NS,YAHOO_FINANCE,false,false,0,0,Yahoo ASTRAMICRO.NS 3:2; not held on action date; no matching ledger qty event
+SEC023,Selan,2010-12-31,Split,11:10,11.0,10.0,1.1,530075.BO,YAHOO_FINANCE,false,false,0,0,Yahoo 530075.BO 11:10; not held on action date; no matching ledger qty event
+SEC001,Amara Raja,2012-09-25,Split,2:1,2.0,1.0,2,ARE&M.NS,YAHOO_FINANCE,true,true,490,490,Yahoo ARE&M.NS 2:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=2
+SEC014,Heritage,2013-07-26,Bonus,2:1,2.0,1.0,2,HERITGFOOD.NS,YAHOO_FINANCE,true,true,420,420,Yahoo HERITGFOOD.NS 2:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=2
+SEC019,Federal Bank,2013-10-17,Split,5:1,5.0,1.0,5,FEDERALBNK.NS,YAHOO_FINANCE,true,true,329,1316,Yahoo FEDERALBNK.NS 5:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=5
+SEC002,Ashiana,2013-10-24,Split,5:1,5.0,1.0,5,ASHIANA.NS,YAHOO_FINANCE,true,true,766,3064,Yahoo ASHIANA.NS 5:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=5
+SEC005,Kaveri,2014-01-27,Split,5:1,5.0,1.0,5,KSCL.NS,YAHOO_FINANCE,true,true,141,564,Yahoo KSCL.NS 5:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=5
+SEC004,Havells,2014-08-26,Split,5:1,5.0,1.0,5,HAVELLS.NS,YAHOO_FINANCE,false,false,0,0,Yahoo HAVELLS.NS 5:1; not held on action date; no matching ledger qty event
+SEC031,JKBank,2014-09-04,Split,10:1,10.0,1.0,10,J&KBANK.NS,YAHOO_FINANCE,false,false,0,0,Yahoo J&KBANK.NS 10:1; not held on action date; no matching ledger qty event
+SEC065,ZenTech,2014-11-21,Split,10:1,10.0,1.0,10,533339.BO,YAHOO_FINANCE,false,false,0,0,Yahoo 533339.BO 10:1; not held on action date; no matching ledger qty event
+SEC010,RSSoftware,2015-01-21,Split,2:1,2.0,1.0,2,RSSOFTWARE.NS,YAHOO_FINANCE,true,true,317,317,Yahoo RSSOFTWARE.NS 2:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=2
+SEC051,AartiDrugs,2015-03-24,Split,2:1,2.0,1.0,2,AARTIDRUGS.NS,YAHOO_FINANCE,false,false,0,0,Yahoo AARTIDRUGS.NS 2:1; not held on action date; no matching ledger qty event
+SEC042,Insecticides,2015-04-16,Split,3:2,3.0,2.0,1.5,INSECTICID.NS,YAHOO_FINANCE,false,false,0,0,Yahoo INSECTICID.NS 3:2; not held on action date; no matching ledger qty event
+SEC057,TWL,2015-04-23,Split,5:1,5.0,1.0,5,TITAGARH.NS,YAHOO_FINANCE,false,false,0,0,Yahoo TITAGARH.NS 5:1; not held on action date; no matching ledger qty event
+SEC019,Federal Bank,2015-07-08,Bonus,2:1,2.0,1.0,2,FEDERALBNK.NS,YAHOO_FINANCE,true,true,1645,1645,Yahoo FEDERALBNK.NS 2:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=2
+SEC026,MBL Infra,2015-07-28,Bonus,2:1,2.0,1.0,2,MBLINFRA.NS,YAHOO_FINANCE,true,true,614,614,Yahoo MBLINFRA.NS 2:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=2
+SEC007,Vguard,2016-08-30,Split,10:1,10.0,1.0,10,VGUARD.NS,YAHOO_FINANCE,false,false,0,0,Yahoo VGUARD.NS 10:1; not held on action date; no matching ledger qty event
+SEC007,Vguard,2017-03-15,Split,7:5,7.0,5.0,1.4,VGUARD.NS,YAHOO_FINANCE,false,false,0,0,Yahoo VGUARD.NS 7:5; not held on action date; no matching ledger qty event
+SEC003,BharatForg,2017-09-28,Split,2:1,2.0,1.0,2,BHARATFORG.NS,YAHOO_FINANCE,false,false,0,0,Yahoo BHARATFORG.NS 2:1; not held on action date; no matching ledger qty event
+SEC014,Heritage,2017-10-10,Split,2:1,2.0,1.0,2,HERITGFOOD.NS,YAHOO_FINANCE,true,true,1260,1260,Yahoo HERITGFOOD.NS 2:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=2
+SEC011,Zensar,2018-09-07,Split,5:1,5.0,1.0,5,ZENSARTECH.NS,YAHOO_FINANCE,false,false,0,0,Yahoo ZENSARTECH.NS 5:1; not held on action date; no matching ledger qty event
+SEC017,Eicher Motors,2020-08-24,Split,10:1,10.0,1.0,10,EICHERMOT.NS,YAHOO_FINANCE,false,false,0,0,Yahoo EICHERMOT.NS 10:1; not held on action date; no matching ledger qty event
+SEC051,AartiDrugs,2020-09-30,Split,4:1,4.0,1.0,4,AARTIDRUGS.NS,YAHOO_FINANCE,false,false,0,0,Yahoo AARTIDRUGS.NS 4:1; not held on action date; no matching ledger qty event
+SEC054,GPIL,2021-10-26,Split,2:1,2.0,1.0,4,GPIL.NS,YAHOO_FINANCE,true,true,1098,3294,Yahoo GPIL.NS 2:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=4
+SEC043,RKForge,2022-03-14,Split,5:1,5.0,1.0,5,RKFORGE.NS,YAHOO_FINANCE,false,false,0,0,Yahoo RKFORGE.NS 5:1; not held on action date; no matching ledger qty event
+SEC040,Saregama,2022-04-26,Split,10:1,10.0,1.0,10,SAREGAMA.NS,YAHOO_FINANCE,true,true,230,2070,Yahoo SAREGAMA.NS 10:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=1E+1
+SEC060,PiramalPharma,2022-08-30,Demerger,,1,1,1,,TRANSACTION_LEDGER,true,false,0,2540,Portfolio_2022.xlsx / 30Aug22: New Shares Allocated. 4 shares for every 1 shares in PEL
+SEC042,Insecticides,2022-09-30,Split,3:2,3.0,2.0,1.5,INSECTICID.NS,YAHOO_FINANCE,false,false,0,0,Yahoo INSECTICID.NS 3:2; not held on action date; no matching ledger qty event
+SEC014,Heritage,2023-01-20,Rights,,1,1,1,,TRANSACTION_LEDGER,true,true,3372,3372,Portfolio_2023.xlsx / 20Jan23: Right Issue 1:1 at face value of Rs5. 3372*5 = 16860
+SEC020,JBChem,2023-09-18,Split,2:1,2.0,1.0,2,JBCHEPHARM.NS,YAHOO_FINANCE,false,false,0,0,Yahoo JBCHEPHARM.NS 2:1; not held on action date; no matching ledger qty event
+SEC055,SuryaRosni,2023-10-06,Split,2:1,2.0,1.0,2,SURYAROSNI.NS,YAHOO_FINANCE,true,true,3740,3740,Yahoo SURYAROSNI.NS 2:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=2
+SEC059,MAS Financial,2024-02-22,Split,3:1,3.0,1.0,3,MASFIN.NS,YAHOO_FINANCE,false,false,0,0,Yahoo MASFIN.NS 3:1; not held on action date; no matching ledger qty event
+SEC076,InoxWind,2024-05-17,Split,4:1,4.0,1.0,4,INOXWIND.NS,YAHOO_FINANCE,false,false,0,0,Yahoo INOXWIND.NS 4:1; not held on action date; no matching ledger qty event
+SEC076,InoxWind,2024-05-24,Split,4:1,4.0,1.0,4,INOXWIND.NS,YAHOO_FINANCE,false,false,0,0,Yahoo INOXWIND.NS 4:1; not held on action date; no matching ledger qty event
+SEC041,MOSL,2024-06-10,Split,4:1,4.0,1.0,4,MOTILALOFS.NS,YAHOO_FINANCE,false,false,0,0,Yahoo MOTILALOFS.NS 4:1; not held on action date; no matching ledger qty event
+SEC067,Aurionpro,2024-06-27,Bonus,2:1,2.0,1.0,2,AURIONPRO.NS,YAHOO_FINANCE,true,true,448,448,Yahoo AURIONPRO.NS 2:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=2
+SEC006,SanghviMov,2024-09-27,Split,2:1,2.0,1.0,2,SANGHVIMOV.NS,YAHOO_FINANCE,false,false,0,0,Yahoo SANGHVIMOV.NS 2:1; not held on action date; no matching ledger qty event
+SEC054,GPIL,2024-10-04,Split,5:1,5.0,1.0,5,GPIL.NS,YAHOO_FINANCE,false,false,0,0,Yahoo GPIL.NS 5:1; not held on action date; no matching ledger qty event
+SEC061,PowerMech,2024-10-08,Bonus,2:1,2.0,1.0,2,POWERMECH.NS,YAHOO_FINANCE,true,true,931,931,Yahoo POWERMECH.NS 2:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=2
+SEC075,HEG,2024-10-18,Split,5:1,5.0,1.0,5,HEG.NS,YAHOO_FINANCE,false,false,0,0,Yahoo HEG.NS 5:1; not held on action date; no matching ledger qty event
+SEC055,SuryaRosni,2025-01-01,Bonus,2:1,2.0,1.0,2,SURYAROSNI.NS,YAHOO_FINANCE,true,true,7480,7480,Yahoo SURYAROSNI.NS 2:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=2
+SEC050,IOLCP,2025-03-11,Split,5:1,5.0,1.0,5,IOLCP.NS,YAHOO_FINANCE,false,false,0,0,Yahoo IOLCP.NS 5:1; not held on action date; no matching ledger qty event
+SEC009,NIITTech,2025-06-04,Split,5:1,5.0,1.0,5,COFORGE.NS,YAHOO_FINANCE,false,false,0,0,Yahoo COFORGE.NS 5:1; not held on action date; no matching ledger qty event
+SEC053,VRLLogistics,2025-08-14,Bonus,2:1,2.0,1.0,2,VRLLOG.NS,YAHOO_FINANCE,true,true,5424,5424,Yahoo VRLLOG.NS 2:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=2
+SEC021,MCX,2026-01-02,Split,5:1,5.0,1.0,5,MCX.NS,YAHOO_FINANCE,false,false,0,0,Yahoo MCX.NS 5:1; not held on action date; no matching ledger qty event
+SEC070,E2E,2026-06-05,Split,10:1,10.0,1.0,10,E2E.NS,YAHOO_FINANCE,true,true,1065,9585,Yahoo E2E.NS 10:1; held through; ledger has matching Split/Bonus; ledger-implied multiplier=1E+1
