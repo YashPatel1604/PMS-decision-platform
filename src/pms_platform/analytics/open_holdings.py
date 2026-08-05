@@ -445,7 +445,18 @@ def _analyze_open_episode(
         stock_return_pct=stock_return,
         benchmark_codes=benchmark_codes,
     )
-    bse_ret, excess_bse = _bse_from_benchmarks(benchmarks, primary)
+    from pms_platform.analytics.portfolio_calendar_returns import (
+        linked_bse_smallcap_return_pct,
+    )
+
+    bse_nav = linked_bse_smallcap_return_pct(period_start, as_of_date)
+    if bse_nav is not None:
+        bse_ret = bse_nav
+        excess_bse = (
+            stock_return - bse_ret if stock_return is not None else None
+        )
+    else:
+        bse_ret, excess_bse = _bse_from_benchmarks(benchmarks, primary)
     port_ret = _portfolio_return_cached(session, cache, period_start, as_of_date)
     excess_port = (
         stock_return - port_ret if stock_return is not None and port_ret is not None else None

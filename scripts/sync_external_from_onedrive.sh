@@ -31,5 +31,6 @@ copy_ro "$EXTERNAL_SRC/benchmarks/benchmark_tri.csv" "$EXTERNAL_DIR/benchmarks/b
 copy_ro "$EXTERNAL_SRC/symbol_maps/security_successors.csv" "$EXTERNAL_DIR/symbol_maps/security_successors.csv"
 copy_ro "$EXTERNAL_SRC/corporate_actions/corporate_actions.csv" "$EXTERNAL_DIR/corporate_actions/corporate_actions.csv"
 copy_ro "$EXTERNAL_SRC/portfolio/pms_calendar_returns.csv" "$EXTERNAL_DIR/portfolio/pms_calendar_returns.csv"
+copy_ro "$EXTERNAL_SRC/portfolio/pms_nav_monthly.csv" "$EXTERNAL_DIR/portfolio/pms_nav_monthly.csv"
 
 echo "Done. Next: make import-market-data"

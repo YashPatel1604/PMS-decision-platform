@@ -53,9 +53,13 @@ def _seed_benchmark(session, import_batch, trade_date: date, level: str) -> None
 def test_open_holding_portfolio_and_bse_excess(
     session, import_batch, sample_security, monkeypatch
 ) -> None:
-    # Use MV fallback so this fixture is independent of the shipped CAGR calendar.
+    # Use MV / TRI fixtures — independent of shipped Values/CAGR series.
     monkeypatch.setattr(
         "pms_platform.analytics.portfolio_calendar_returns.linked_portfolio_return_pct",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "pms_platform.analytics.portfolio_calendar_returns.linked_bse_smallcap_return_pct",
         lambda *args, **kwargs: None,
     )
     add_transaction(

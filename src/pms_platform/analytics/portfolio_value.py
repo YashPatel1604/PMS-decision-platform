@@ -96,7 +96,7 @@ def compute_portfolio_period_return(
             end_value=_ZERO,
             total_return_pct=linked,
             annualized_return_pct=annualized,
-            methodology="PMS_CALENDAR_YEAR_TWR",
+            methodology="VALUES_NAV_OR_CAGR_TWR",
         )
 
     start_value = equity_portfolio_market_value(session, start_date)
