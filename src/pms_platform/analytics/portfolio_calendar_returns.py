@@ -225,6 +225,11 @@ def linked_calendar_return_pct(
     return (growth - _ONE) * _HUNDRED
 
 
+def _nav_covers_end(end_date: date, last: date) -> bool:
+    """True when end_date is on/before the last Values month (same calendar month OK)."""
+    return (end_date.year, end_date.month) <= (last.year, last.month)
+
+
 def linked_portfolio_return_pct(
     start_date: date,
     end_date: date,
@@ -240,7 +245,7 @@ def linked_portfolio_return_pct(
 
     months = list(_cached_nav())
     last = months[-1].as_of_date if months else None
-    if last is not None and end_date <= last:
+    if last is not None and _nav_covers_end(end_date, last):
         nav = nav_period_return_pct(
             start_date, end_date, field="portfolio_nav", months=months
         )
@@ -256,8 +261,10 @@ def linked_bse_smallcap_return_pct(
     """BSE SmallCap from Values NAV when possible; else CAGR calendar."""
     months = list(_cached_nav())
     last = months[-1].as_of_date if months else None
-    if last is not None and end_date <= last:
-        nav = nav_period_return_pct(start_date, end_date, field="bse_smallcap", months=months)
+    if last is not None and _nav_covers_end(end_date, last):
+        nav = nav_period_return_pct(
+            start_date, end_date, field="bse_smallcap", months=months
+        )
         if nav is not None:
             return nav[0]
     return linked_calendar_return_pct(start_date, end_date, use_bse_smallcap=True)
