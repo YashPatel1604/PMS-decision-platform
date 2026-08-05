@@ -68,7 +68,37 @@ def compute_portfolio_period_return(
     start_date: date,
     end_date: date,
 ) -> PortfolioPeriodReturn | None:
-    """Compute a linked start/end portfolio return over the same window."""
+    """Compute portfolio return over the same window as a stock comparison.
+
+    Prefer official calendar-year TWR from ``CAGR_PMS`` (contribution-neutral).
+    Fall back to reconstructed equity MV start→end only when the calendar is
+    unavailable (that fallback is *not* a true investment return when capital
+    was added during the window).
+    """
+    from pms_platform.analytics.portfolio_calendar_returns import (
+        linked_portfolio_return_pct,
+    )
+
+    linked = linked_portfolio_return_pct(start_date, end_date)
+    if linked is not None:
+        holding_days = max((end_date - start_date).days, 0)
+        annualized: Decimal | None
+        if holding_days <= 0:
+            annualized = None
+        else:
+            growth = _ONE + (linked / _HUNDRED)
+            exponent = _DAYS_PER_YEAR / Decimal(holding_days)
+            annualized = ((growth**exponent) - _ONE) * _HUNDRED
+        return PortfolioPeriodReturn(
+            start_date=start_date,
+            end_date=end_date,
+            start_value=_ZERO,
+            end_value=_ZERO,
+            total_return_pct=linked,
+            annualized_return_pct=annualized,
+            methodology="PMS_CALENDAR_YEAR_TWR",
+        )
+
     start_value = equity_portfolio_market_value(session, start_date)
     end_value = equity_portfolio_market_value(session, end_date)
     if start_value is None or end_value is None or start_value <= 0:
@@ -76,10 +106,8 @@ def compute_portfolio_period_return(
 
     total_return = ((end_value / start_value) - _ONE) * _HUNDRED
     holding_days = max((end_date - start_date).days, 0)
-    annualized: Decimal | None
-    if holding_days <= 0:
-        annualized = None
-    else:
+    annualized = None
+    if holding_days > 0:
         growth = _ONE + (total_return / _HUNDRED)
         exponent = _DAYS_PER_YEAR / Decimal(holding_days)
         annualized = ((growth**exponent) - _ONE) * _HUNDRED

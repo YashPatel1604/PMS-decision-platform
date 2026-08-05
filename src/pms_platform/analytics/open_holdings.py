@@ -632,7 +632,12 @@ def analyze_open_holdings(
             and portfolio_value_source != "RECONSTRUCTED"
             and portfolio_value_from_source != "RECONSTRUCTED"
         ):
-            book_portfolio_return = ((equity_mv / equity_mv_from) - _ONE) * _HUNDRED
+            # Prefer contribution-neutral calendar TWR over book AUM growth.
+            book_portfolio_return = _portfolio_return_cached(
+                session, portfolio_cache, from_date, resolved_as_of
+            )
+            if book_portfolio_return is None:
+                book_portfolio_return = ((equity_mv / equity_mv_from) - _ONE) * _HUNDRED
         else:
             book_portfolio_return = _portfolio_return_cached(
                 session, portfolio_cache, from_date, resolved_as_of
