@@ -15,14 +15,25 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "Clearing existing daily prices (so old EOD2 rows cannot win) ..." -ForegroundColor Cyan
 docker compose exec -T api uv run python -c @"
-from sqlalchemy import delete, select, func
+from sqlalchemy import delete, select
 from pms_platform.db import get_session_factory
 from pms_platform.models import DailyPrice, ImportBatch
+
 s = get_session_factory()()
 s.execute(delete(DailyPrice))
-s.execute(delete(ImportBatch).where(ImportBatch.source_type.in_(['daily_prices','daily_prices_yahoo_repair'])))
+# Do not delete ImportBatch rows (FK from security_symbol_history).
+# Invalidate checksums so import-market-data will re-insert from the seed.
+batches = list(
+    s.scalars(
+        select(ImportBatch).where(
+            ImportBatch.source_type.in_(['daily_prices', 'daily_prices_yahoo_repair'])
+        )
+    )
+)
+for batch in batches:
+    batch.source_checksum = f'INVALIDATED-{batch.import_batch_id}'
 s.commit()
-print('cleared daily prices')
+print(f'cleared daily prices; invalidated {len(batches)} import batch checksum(s)')
 s.close()
 "@
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
