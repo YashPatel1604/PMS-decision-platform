@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from pms_platform.ingestion.common import file_checksum
@@ -89,6 +89,11 @@ def import_daily_prices(session: Session, path: Path) -> PriceImportResult:
         status="completed",
     )
     session.add(batch)
+    session.flush()
+
+    # Full-file reload: drop existing marks so re-import is idempotent.
+    # (Partial leftovers from a failed prior import otherwise hit uq_daily_prices_*)
+    session.execute(delete(DailyPrice))
     session.flush()
 
     bootstrap_symbol_history_from_securities(

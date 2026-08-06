@@ -15,14 +15,13 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "Clearing existing daily prices (so old EOD2 rows cannot win) ..." -ForegroundColor Cyan
 docker compose exec -T api uv run python -c @"
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, text
 from pms_platform.db import get_session_factory
 from pms_platform.models import DailyPrice, ImportBatch
 
 s = get_session_factory()()
-s.execute(delete(DailyPrice))
-# Do not delete ImportBatch rows (FK from security_symbol_history).
-# Invalidate checksums so import-market-data will re-insert from the seed.
+# TRUNCATE avoids leftover rows that DELETE+reimport can race with.
+s.execute(text('TRUNCATE TABLE daily_prices RESTART IDENTITY'))
 batches = list(
     s.scalars(
         select(ImportBatch).where(
@@ -33,7 +32,10 @@ batches = list(
 for batch in batches:
     batch.source_checksum = f'INVALIDATED-{batch.import_batch_id}'
 s.commit()
-print(f'cleared daily prices; invalidated {len(batches)} import batch checksum(s)')
+remaining = s.scalar(select(func.count()).select_from(DailyPrice)) or 0
+print(f'cleared daily prices; remaining={remaining}; invalidated {len(batches)} import batch checksum(s)')
+if remaining:
+    raise SystemExit('daily_prices not empty after truncate')
 s.close()
 "@
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
