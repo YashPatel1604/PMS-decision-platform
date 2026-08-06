@@ -34,7 +34,12 @@ class PortfolioPeriodReturn:
     methodology: str
 
 
-def equity_portfolio_market_value(session: Session, as_of_date: date) -> Decimal | None:
+def equity_portfolio_market_value(
+    session: Session,
+    as_of_date: date,
+    *,
+    allow_live: bool = True,
+) -> Decimal | None:
     """Value all equity holdings using adjusted closes on or before a date.
 
     Quantities are scaled by later SPLIT/BONUS factors so they stay consistent
@@ -50,7 +55,9 @@ def equity_portfolio_market_value(session: Session, as_of_date: date) -> Decimal
     total = _ZERO
     priced_holdings = 0
     for security_id, quantity in quantities.items():
-        observation = lookup_daily_price(session, security_id, as_of_date)
+        observation = lookup_daily_price(
+            session, security_id, as_of_date, allow_live=allow_live
+        )
         if observation is None:
             continue
         factor = factors.get(security_id, _ONE)

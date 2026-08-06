@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   api,
@@ -20,10 +20,6 @@ import {
   toneClass,
   valueTone,
 } from "@/lib/format";
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function shiftMonths(iso: string, months: number): string {
   const d = new Date(`${iso}T12:00:00`);
@@ -170,24 +166,35 @@ function CompareChart({ series }: { series: CompareSeries }) {
 }
 
 export function HoldingsView() {
-  const [asOf, setAsOf] = useState(todayIso);
+  const [asOf, setAsOf] = useState<string>("");
   const [fromDate, setFromDate] = useState<string>("");
   const [preset, setPreset] = useState<RangePreset>("since_entry");
   const [query, setQuery] = useState("");
-  const [useLive, setUseLive] = useState(true);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [peerQuery, setPeerQuery] = useState("");
   const [peerHits, setPeerHits] = useState<YahooSearchHit[]>([]);
   const [peerTickers, setPeerTickers] = useState<string[]>([]);
-  const queryClient = useQueryClient();
-  const isToday = asOf === todayIso();
   const effectiveFrom = fromDate.trim() || null;
 
   const holdingsQuery = useQuery({
-    queryKey: ["open-holdings", asOf, effectiveFrom, useLive && isToday],
-    queryFn: () => api.getOpenHoldings(asOf, undefined, useLive && isToday, effectiveFrom),
+    queryKey: ["open-holdings", asOf || "book-latest", effectiveFrom],
+    queryFn: () => api.getOpenHoldings(asOf || null, undefined, false, effectiveFrom),
     staleTime: 60 * 1000,
   });
+
+  useEffect(() => {
+    if (holdingsQuery.data?.as_of_date && !asOf) {
+      setAsOf(holdingsQuery.data.as_of_date);
+    }
+  }, [holdingsQuery.data?.as_of_date, asOf]);
+
+  // If API capped as-of to the last Excel book date, sync the date picker.
+  useEffect(() => {
+    const book = holdingsQuery.data?.as_of_date;
+    if (book && asOf && book < asOf) {
+      setAsOf(book);
+    }
+  }, [holdingsQuery.data?.as_of_date, asOf]);
 
   const selected = useMemo(
     () => holdingsQuery.data?.holdings.find((h) => h.episode_id === selectedId) ?? null,
@@ -203,13 +210,13 @@ export function HoldingsView() {
   const industryQuery = useQuery({
     queryKey: ["industry-compare", selectedId, asOf, effectiveFrom],
     queryFn: () => api.getIndustryCompare(selectedId!, asOf, effectiveFrom),
-    enabled: selectedId != null,
+    enabled: selectedId != null && Boolean(asOf),
   });
 
   const seriesQuery = useQuery({
     queryKey: ["compare-series", selectedId, asOf, effectiveFrom, peerTickers],
     queryFn: () => api.getCompareSeries(selectedId!, asOf, effectiveFrom, peerTickers),
-    enabled: selectedId != null,
+    enabled: selectedId != null && Boolean(asOf),
   });
 
   const peerFrom =
@@ -229,19 +236,13 @@ export function HoldingsView() {
     return () => window.clearTimeout(handle);
   }, [peerQuery]);
 
-  const refreshMutation = useMutation({
-    mutationFn: () => api.refreshLiveQuotes(true),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["open-holdings"] });
-    },
-  });
-
   const applyPreset = (next: RangePreset) => {
     setPreset(next);
     if (next === "since_entry") {
       setFromDate("");
       return;
     }
+    if (!asOf) return;
     if (next === "3m") {
       setFromDate(shiftMonths(asOf, -3));
       return;
@@ -283,8 +284,7 @@ export function HoldingsView() {
   }
 
   const data = holdingsQuery.data;
-  const primaryCode = data.primary_benchmark_code.replaceAll("_", " ");
-  const live = data.live_refresh;
+  const bookDate = data.portfolio_value_observation_date ?? data.as_of_date;
   const periodLabel = data.from_date
     ? `${formatDate(data.from_date)} → ${formatDate(data.as_of_date)}`
     : `Entry → ${formatDate(data.as_of_date)}`;
@@ -298,8 +298,9 @@ export function HoldingsView() {
           </p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">Holdings analyze</h1>
           <p className="mt-3 text-base leading-7 text-stone-600">
-            Period returns vs provisional portfolio MV and {primaryCode}. Select a row for
-            industry equal-weight peers and a Yahoo/BSE peer stock.
+            Values come from Research Excel only (latest History book{" "}
+            {formatDate(bookDate)}). Yahoo live quotes do not affect this page. Select a row for
+            industry peers and an optional Yahoo/BSE peer chart.
           </p>
         </div>
         <div className="flex flex-col gap-3">
@@ -333,7 +334,7 @@ export function HoldingsView() {
               <input
                 type="date"
                 value={fromDate}
-                max={asOf}
+                max={asOf || undefined}
                 onChange={(event) => {
                   setFromDate(event.target.value);
                   setPreset(event.target.value ? "custom" : "since_entry");
@@ -342,10 +343,11 @@ export function HoldingsView() {
               />
             </label>
             <label className="flex flex-col gap-1 text-sm text-stone-600">
-              To
+              To (Excel book)
               <input
                 type="date"
                 value={asOf}
+                max={bookDate}
                 onChange={(event) => {
                   const next = event.target.value;
                   setAsOf(next);
@@ -356,34 +358,9 @@ export function HoldingsView() {
                 className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
               />
             </label>
-            <label className="flex items-center gap-2 pb-2 text-sm text-stone-600">
-              <input
-                type="checkbox"
-                checked={useLive}
-                disabled={!isToday}
-                onChange={(event) => setUseLive(event.target.checked)}
-              />
-              Live refresh
-            </label>
-            <button
-              type="button"
-              disabled={!isToday || refreshMutation.isPending}
-              onClick={() => refreshMutation.mutate()}
-              className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-emerald-200"
-            >
-              {refreshMutation.isPending ? "Refreshing…" : "Refresh quotes"}
-            </button>
           </div>
         </div>
       </header>
-
-      {live ? (
-        <section className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
-          Live refresh: fetched {live.fetched}/{live.requested}
-          {live.failed > 0 ? ` · ${live.failed} failed` : ""}
-          {" · "}source {live.source}
-        </section>
-      ) : null}
 
       <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8">
         <div

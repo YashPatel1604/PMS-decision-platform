@@ -9,6 +9,10 @@ import { api } from "@/lib/api";
 const links = [
   { href: "/", label: "Dashboard" },
   { href: "/holdings", label: "Holdings" },
+  { href: "/block-deals", label: "Block Deals" },
+  { href: "/bulk-deals", label: "Bulk Deals" },
+  { href: "/sast", label: "SAST" },
+  { href: "/insider-trading", label: "Insider Trading" },
   { href: "/episodes", label: "Episodes" },
   { href: "/strategy/continuous-loss", label: "1-Year Loss Strategy" },
   { href: "/masters", label: "Masters" },

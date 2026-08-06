@@ -41,15 +41,22 @@ def lookup_daily_price(
     session: Session,
     security_id: str,
     as_of_date: date,
+    *,
+    allow_live: bool = True,
 ) -> PriceObservation | None:
-    """Return the exact-date or prior-trading-day price for a security."""
+    """Return the exact-date or prior-trading-day price for a security.
+
+    When ``allow_live`` is False, Yahoo / live API marks are ignored so
+    Current Holdings stay on Excel/EOD book prices only.
+    """
+    exact_query = select(DailyPrice).where(
+        DailyPrice.security_id == security_id,
+        DailyPrice.trade_date == as_of_date,
+    )
+    if not allow_live:
+        exact_query = exact_query.where(DailyPrice.source.not_in(_LIVE_SOURCES))
     exact = session.scalar(
-        select(DailyPrice)
-        .where(
-            DailyPrice.security_id == security_id,
-            DailyPrice.trade_date == as_of_date,
-        )
-        .order_by(
+        exact_query.order_by(
             case((DailyPrice.source.in_(_LIVE_SOURCES), 0), else_=1),
             DailyPrice.source,
         )
@@ -64,13 +71,14 @@ def lookup_daily_price(
             lookup_mode="EXACT",
         )
 
+    prior_query = select(DailyPrice).where(
+        DailyPrice.security_id == security_id,
+        DailyPrice.trade_date < as_of_date,
+    )
+    if not allow_live:
+        prior_query = prior_query.where(DailyPrice.source.not_in(_LIVE_SOURCES))
     prior = session.scalar(
-        select(DailyPrice)
-        .where(
-            DailyPrice.security_id == security_id,
-            DailyPrice.trade_date < as_of_date,
-        )
-        .order_by(DailyPrice.trade_date.desc(), DailyPrice.source)
+        prior_query.order_by(DailyPrice.trade_date.desc(), DailyPrice.source)
     )
     if prior is None:
         return None

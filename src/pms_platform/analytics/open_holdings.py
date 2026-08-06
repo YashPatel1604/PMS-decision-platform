@@ -19,7 +19,10 @@ from pms_platform.analytics.portfolio_value import (
     equity_portfolio_market_value,
     list_security_trading_dates,
 )
-from pms_platform.analytics.research_portfolio_value import lookup_research_portfolio_value
+from pms_platform.analytics.research_portfolio_value import (
+    latest_research_book_date,
+    lookup_research_portfolio_value,
+)
 from pms_platform.analytics.successor_chain import resolve_price_security_id
 from pms_platform.market_data.contracts import REQUIRED_BENCHMARKS
 from pms_platform.market_data.lookup import lookup_daily_price
@@ -154,8 +157,12 @@ def _stock_return_pct(
     """Return stock total return, observation dates, and start price used."""
     start_security_id = resolve_price_security_id(session, security_id, start_date)
     end_security_id = resolve_price_security_id(session, security_id, as_of_date)
-    start = lookup_daily_price(session, start_security_id, start_date)
-    end = lookup_daily_price(session, end_security_id, as_of_date)
+    start = lookup_daily_price(
+        session, start_security_id, start_date, allow_live=False
+    )
+    end = lookup_daily_price(
+        session, end_security_id, as_of_date, allow_live=False
+    )
     if start is None:
         return None, None, end.trade_date if end else None, None, "Missing period-start price"
     if end is None:
@@ -190,7 +197,9 @@ def _days_below_first_buy(
         if state is None:
             continue
         price_security_id = resolve_price_security_id(session, security_id, trade_date)
-        observation = lookup_daily_price(session, price_security_id, trade_date)
+        observation = lookup_daily_price(
+            session, price_security_id, trade_date, allow_live=False
+        )
         if observation is None:
             continue
         if observation.adjusted_close < state.first_buy_price:
@@ -202,7 +211,9 @@ def _days_below_first_buy(
         state = _cost_state_on_date(cost_states, latest)
         if state is not None:
             price_security_id = resolve_price_security_id(session, security_id, latest)
-            observation = lookup_daily_price(session, price_security_id, latest)
+            observation = lookup_daily_price(
+                session, price_security_id, latest, allow_live=False
+            )
             if observation is not None:
                 underwater_now = observation.adjusted_close < state.first_buy_price
     return underwater_now, days_below
@@ -381,7 +392,9 @@ def _analyze_open_episode(
     first_buy = cost_state.first_buy_price if cost_state is not None else None
 
     price_security_id = resolve_price_security_id(session, episode.security_id, as_of_date)
-    as_of_obs = lookup_daily_price(session, price_security_id, as_of_date)
+    as_of_obs = lookup_daily_price(
+        session, price_security_id, as_of_date, allow_live=False
+    )
     as_of_adj = as_of_obs.adjusted_close if as_of_obs is not None else None
     as_of_price_date = as_of_obs.trade_date if as_of_obs is not None else None
     # Pair ledger qty with adjusted prices via later split/bonus factors;
@@ -510,32 +523,27 @@ def analyze_open_holdings(
 ) -> OpenHoldingsResult:
     """Compute open-holding metrics through an as-of date.
 
+    Current Holdings are Excel/book only:
+    - as-of defaults to (and is capped at) the latest Research History date
+    - Yahoo / live quotes are never applied
+
     When ``from_date`` is set, stock and benchmark returns use
     ``max(from_date, entry_date)`` → ``as_of_date`` instead of entry → as-of.
     """
-    resolved_as_of = as_of_date or date.today()
+    del refresh_live  # Holdings never refresh or use Yahoo live marks.
+    book_as_of = latest_research_book_date()
+    if as_of_date is None:
+        resolved_as_of = book_as_of or date.today()
+    elif book_as_of is not None and as_of_date > book_as_of:
+        resolved_as_of = book_as_of
+    else:
+        resolved_as_of = as_of_date
     if from_date is not None and from_date > resolved_as_of:
         msg = f"from_date {from_date} is after as_of_date {resolved_as_of}"
         raise ValueError(msg)
     benchmark_codes = _parse_benchmark_codes(benchmarks)
     primary = benchmark_codes[0] if benchmark_codes else default_benchmark_codes()[0]
     live_refresh: dict[str, object] | None = None
-
-    if refresh_live and resolved_as_of >= date.today():
-        from pms_platform.market_data.live_quotes import refresh_live_quotes
-
-        result = refresh_live_quotes(session, prefer_bse=True)
-        live_refresh = {
-            "requested": result.requested,
-            "fetched": result.fetched,
-            "upserted": result.upserted,
-            "missing_symbol": result.missing_symbol,
-            "failed": result.failed,
-            "as_of_date": result.as_of_date.isoformat(),
-            "notes": list(result.notes),
-            "source": "YAHOO_FINANCE",
-            "prefer_bse": True,
-        }
 
     query = select(InvestmentEpisode).where(
         InvestmentEpisode.status == EpisodeStatus.OPEN.value
@@ -563,7 +571,9 @@ def analyze_open_holdings(
         ).all():
             events_by_episode.setdefault(event.episode_id, []).append(event)
 
-    equity_mv_reconstructed = equity_portfolio_market_value(session, resolved_as_of)
+    equity_mv_reconstructed = equity_portfolio_market_value(
+        session, resolved_as_of, allow_live=False
+    )
     research_as_of = lookup_research_portfolio_value(resolved_as_of)
     if research_as_of is not None:
         equity_mv = research_as_of.value
@@ -615,7 +625,9 @@ def analyze_open_holdings(
     portfolio_value_from_observation_date: date | None = None
     portfolio_value_from_check_delta: Decimal | None = None
     if from_date is not None:
-        equity_mv_from_reconstructed = equity_portfolio_market_value(session, from_date)
+        equity_mv_from_reconstructed = equity_portfolio_market_value(
+            session, from_date, allow_live=False
+        )
         research_from = lookup_research_portfolio_value(from_date)
         if research_from is not None:
             equity_mv_from = research_from.value

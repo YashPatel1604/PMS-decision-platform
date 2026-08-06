@@ -306,6 +306,40 @@ def refresh_live_quotes_cmd(*, prefer_bse: bool = True) -> int:
         session.close()
 
 
+def repair_prices_yahoo_cmd(
+    *,
+    security_id: str | None,
+    portfolio_name: str | None,
+    seed_csv: Path | None,
+) -> int:
+    """Overwrite one security's daily prices with Yahoo back-adjusted history."""
+    from pms_platform.market_data.repair_prices import repair_security_prices_from_yahoo
+
+    _ensure_schema()
+    session = get_session_factory()()
+    seed = seed_csv or Path("docker/market_data_seed/prices/daily_prices.csv")
+    try:
+        result = repair_security_prices_from_yahoo(
+            session,
+            security_id=security_id,
+            portfolio_name=portfolio_name,
+            seed_csv=seed if seed.exists() else None,
+        )
+        session.commit()
+        print(f"Repaired {result.portfolio_name} ({result.security_id}) from {result.yahoo_ticker}")
+        print(f"  Bars fetched: {result.bars_fetched}")
+        print(f"  Rows updated: {result.rows_updated}")
+        print(f"  Rows inserted: {result.rows_inserted}")
+        print(f"  Seed CSV rows rewritten: {result.csv_rows_rewritten}")
+        return 0
+    except Exception as exc:
+        session.rollback()
+        print(f"Price repair failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
 def build_corporate_actions_cmd(
     *,
     output: Path | None = None,
@@ -481,6 +515,19 @@ def main() -> None:
     ca_parser.add_argument("--security-master", type=Path, default=None)
     ca_parser.add_argument("--transactions", type=Path, default=None)
 
+    repair_parser = subparsers.add_parser(
+        "repair-prices-yahoo",
+        help="Replace a security's daily prices with Yahoo back-adjusted history (rights/splits)",
+    )
+    repair_parser.add_argument("--security-id", default=None)
+    repair_parser.add_argument("--portfolio-name", default=None)
+    repair_parser.add_argument(
+        "--seed-csv",
+        type=Path,
+        default=None,
+        help="Optional daily_prices.csv to rewrite (default: docker seed)",
+    )
+
     args = parser.parse_args()
     if args.command == "import-all":
         raise SystemExit(import_all(args.export_dir))
@@ -504,6 +551,14 @@ def main() -> None:
                 output=args.output,
                 security_master=args.security_master,
                 transactions=args.transactions,
+            )
+        )
+    if args.command == "repair-prices-yahoo":
+        raise SystemExit(
+            repair_prices_yahoo_cmd(
+                security_id=args.security_id,
+                portfolio_name=args.portfolio_name,
+                seed_csv=args.seed_csv,
             )
         )
 

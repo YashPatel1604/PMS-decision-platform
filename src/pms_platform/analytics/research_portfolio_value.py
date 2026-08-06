@@ -261,6 +261,22 @@ def clear_research_portfolio_value_cache() -> None:
     _history_date_index.cache_clear()
 
 
+def latest_research_book_date() -> date | None:
+    """Latest Excel book date for Current Holdings (History preferred).
+
+    Current Holdings must not run past the last Research workbook
+    observation. Prefer ``History/PMS_ClientPortfolio_*``; fall back to
+    Model Portfolio / Values only when History is unavailable.
+    """
+    history = _history_date_index()
+    if history:
+        return max(history)
+    models = _model_portfolio_index()
+    values = _values_series()
+    candidates = list(models) + list(values)
+    return max(candidates) if candidates else None
+
+
 def _on_or_before(mapping_dates: list[date], target: date) -> date | None:
     prior = [day for day in mapping_dates if day <= target]
     return max(prior) if prior else None

@@ -390,6 +390,65 @@ export type YahooSearchHit = {
   yahoo_ticker: string;
 };
 
+export type BlockDeal = {
+  deal_date: string | null;
+  bse_code: string;
+  scrip_name: string;
+  client_name: string;
+  deal_type: string;
+  quantity: number;
+  price: number;
+  value: number;
+  is_arbitrage: boolean;
+  portfolio_name: string | null;
+  in_portfolio: boolean;
+  is_open: boolean;
+  market_cap_cr: number | null;
+};
+
+export type TodayBlockDeals = {
+  as_of_date: string;
+  fetched_at: string;
+  deal_count: number;
+  arbitrage_deal_count: number;
+  non_arbitrage_deal_count: number;
+  available_dates: string[];
+  deals: BlockDeal[];
+};
+
+export type BulkDeal = BlockDeal;
+export type TodayBulkDeals = TodayBlockDeals;
+
+export type CorporateDisclosure = {
+  kind: "sast" | "insider" | string;
+  disclosure_date: string | null;
+  bse_code: string;
+  company_name: string;
+  person_name: string;
+  category: string;
+  transaction_type: string;
+  quantity: number | null;
+  value: number | null;
+  pct_pre: number | null;
+  pct_post: number | null;
+  mode: string;
+  regulation: string;
+  isin: string | null;
+  market_cap_cr: number | null;
+  portfolio_name: string | null;
+  in_portfolio: boolean;
+  is_open: boolean;
+};
+
+export type TodayCorporateDisclosures = {
+  kind: string;
+  as_of_date: string;
+  fetched_at: string;
+  row_count: number;
+  available_dates: string[];
+  rows: CorporateDisclosure[];
+};
+
 export type PeerCompare = {
   ticker: string;
   start_date: string;
@@ -557,16 +616,17 @@ export const api = {
   getContinuousLossStrategy: () =>
     request<ContinuousLossStrategy>("/backtests/one-year-continuous-loss"),
   getOpenHoldings: (
-    asOf?: string,
+    asOf?: string | null,
     benchmarks?: string,
-    refreshLive = true,
+    refreshLive = false,
     fromDate?: string | null,
   ) => {
     const params = new URLSearchParams();
     if (asOf) params.set("as_of", asOf);
     if (fromDate) params.set("from_date", fromDate);
     if (benchmarks) params.set("benchmarks", benchmarks);
-    params.set("refresh_live", refreshLive ? "true" : "false");
+    params.set("refresh_live", "false");
+    void refreshLive;
     const query = params.toString();
     return request<OpenHoldings>(`/holdings/open?${query}`);
   },
@@ -610,6 +670,42 @@ export const api = {
   },
   searchYahoo: (q: string) =>
     request<YahooSearchHit[]>(`/market-data/yahoo/search?q=${encodeURIComponent(q)}`),
+  getTodayBlockDeals: (date?: string | null, month?: string | null) => {
+    const params = new URLSearchParams();
+    if (date) params.set("date", date);
+    if (month) params.set("month", month);
+    const query = params.toString();
+    return request<TodayBlockDeals>(
+      `/market-data/block-deals/today${query ? `?${query}` : ""}`,
+    );
+  },
+  getTodayBulkDeals: (date?: string | null, month?: string | null) => {
+    const params = new URLSearchParams();
+    if (date) params.set("date", date);
+    if (month) params.set("month", month);
+    const query = params.toString();
+    return request<TodayBulkDeals>(
+      `/market-data/bulk-deals/today${query ? `?${query}` : ""}`,
+    );
+  },
+  getTodaySastDisclosures: (date?: string | null, month?: string | null) => {
+    const params = new URLSearchParams();
+    if (date) params.set("date", date);
+    if (month) params.set("month", month);
+    const query = params.toString();
+    return request<TodayCorporateDisclosures>(
+      `/market-data/sast/today${query ? `?${query}` : ""}`,
+    );
+  },
+  getTodayInsiderTrading: (date?: string | null, month?: string | null) => {
+    const params = new URLSearchParams();
+    if (date) params.set("date", date);
+    if (month) params.set("month", month);
+    const query = params.toString();
+    return request<TodayCorporateDisclosures>(
+      `/market-data/insider-trading/today${query ? `?${query}` : ""}`,
+    );
+  },
   comparePeer: (ticker: string, asOf?: string, fromDate?: string | null) => {
     const params = new URLSearchParams();
     params.set("ticker", ticker);

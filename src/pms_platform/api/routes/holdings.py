@@ -263,7 +263,15 @@ def _resolve_period(
     as_of: date | None,
     from_date: date | None,
 ) -> tuple[date, date]:
-    end = as_of or date.today()
+    from pms_platform.analytics.research_portfolio_value import latest_research_book_date
+
+    book_as_of = latest_research_book_date()
+    if as_of is None:
+        end = book_as_of or date.today()
+    elif book_as_of is not None and as_of > book_as_of:
+        end = book_as_of
+    else:
+        end = as_of
     start = from_date if from_date is not None else episode.entry_date
     start = max(start, episode.entry_date)
     if start > end:
@@ -276,23 +284,24 @@ def list_open_holdings(
     as_of: date | None = Query(default=None),
     from_date: date | None = Query(default=None),
     benchmarks: str | None = Query(default=None),
-    refresh_live: bool = Query(default=True),
+    refresh_live: bool = Query(
+        default=False,
+        description="Ignored: Current Holdings are Excel/book only (no Yahoo).",
+    ),
     session: Session = Depends(get_db),
 ) -> OpenHoldingsResponse:
-    """List open holdings valued through as-of; optional from-date for period returns."""
-    use_live = refresh_live and (as_of is None or as_of >= date.today())
+    """List open holdings valued through the latest Excel book date (capped)."""
+    del refresh_live
     try:
         result = analyze_open_holdings(
             session,
             as_of_date=as_of,
             from_date=from_date,
             benchmarks=benchmarks,
-            refresh_live=use_live,
+            refresh_live=False,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if use_live:
-        session.commit()
     return _result_response(result)
 
 
@@ -302,11 +311,14 @@ def get_open_holding(
     as_of: date | None = Query(default=None),
     from_date: date | None = Query(default=None),
     benchmarks: str | None = Query(default=None),
-    refresh_live: bool = Query(default=True),
+    refresh_live: bool = Query(
+        default=False,
+        description="Ignored: Current Holdings are Excel/book only (no Yahoo).",
+    ),
     session: Session = Depends(get_db),
 ) -> OpenHoldingResponse:
     """Return one open holding valued through an as-of date."""
-    use_live = refresh_live and (as_of is None or as_of >= date.today())
+    del refresh_live
     try:
         result = analyze_open_holdings(
             session,
@@ -314,12 +326,10 @@ def get_open_holding(
             from_date=from_date,
             benchmarks=benchmarks,
             episode_id=episode_id,
-            refresh_live=use_live,
+            refresh_live=False,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if use_live:
-        session.commit()
     if not result.holdings:
         raise HTTPException(status_code=404, detail="Open holding not found")
     return _holding_response(result.holdings[0])

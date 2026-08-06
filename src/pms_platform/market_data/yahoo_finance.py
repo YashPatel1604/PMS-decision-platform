@@ -180,6 +180,19 @@ class YahooSplitEvent:
         return self.numerator / self.denominator
 
 
+@dataclass(frozen=True)
+class YahooDailyBar:
+    """One daily OHLCV bar with split/dividend-adjusted close."""
+
+    trade_date: date
+    open: Decimal | None
+    high: Decimal | None
+    low: Decimal | None
+    close: Decimal
+    adjusted_close: Decimal
+    volume: int | None
+
+
 class YahooFinanceClient:
     """HTTP client for Yahoo Finance chart quotes."""
 
@@ -351,10 +364,10 @@ class YahooFinanceClient:
         out.sort(key=lambda item: item.action_date)
         return out
 
-    def fetch_chart_history(
+    def fetch_chart_bars(
         self, ticker: str, start: date, end: date
-    ) -> list[tuple[date, Decimal]]:
-        """Daily closes between start and end (inclusive), via chart period1/period2."""
+    ) -> list[YahooDailyBar]:
+        """Daily OHLCV + adjusted close between start and end (inclusive)."""
         period1 = int(datetime(start.year, start.month, start.day, tzinfo=timezone.utc).timestamp())
         # Yahoo period2 is exclusive-ish; add a day buffer.
         end_plus = end.toordinal() + 1
@@ -366,7 +379,12 @@ class YahooFinanceClient:
         with self._client() as client:
             response = client.get(
                 path,
-                params={"interval": "1d", "period1": period1, "period2": period2},
+                params={
+                    "interval": "1d",
+                    "period1": period1,
+                    "period2": period2,
+                    "includeAdjustedClose": "true",
+                },
             )
             response.raise_for_status()
             payload = response.json()
@@ -384,21 +402,55 @@ class YahooFinanceClient:
         quotes = indicators.get("quote")
         if not isinstance(quotes, list) or not quotes or not isinstance(quotes[0], dict):
             return []
-        closes = quotes[0].get("close")
+        quote = quotes[0]
+        closes = quote.get("close")
         if not isinstance(closes, list):
             return []
-        points: list[tuple[date, Decimal]] = []
-        for ts, close in zip(timestamps, closes, strict=False):
+        opens = quote.get("open") if isinstance(quote.get("open"), list) else [None] * len(closes)
+        highs = quote.get("high") if isinstance(quote.get("high"), list) else [None] * len(closes)
+        lows = quote.get("low") if isinstance(quote.get("low"), list) else [None] * len(closes)
+        volumes = (
+            quote.get("volume") if isinstance(quote.get("volume"), list) else [None] * len(closes)
+        )
+        adj_list: list[object] = [None] * len(closes)
+        adj_block = indicators.get("adjclose")
+        if isinstance(adj_block, list) and adj_block and isinstance(adj_block[0], dict):
+            raw_adj = adj_block[0].get("adjclose")
+            if isinstance(raw_adj, list):
+                adj_list = raw_adj
+        bars: list[YahooDailyBar] = []
+        for ts, close, open_, high, low, volume, adj in zip(
+            timestamps, closes, opens, highs, lows, volumes, adj_list, strict=False
+        ):
             price = _to_decimal(close)
             if price is None or price <= 0:
                 continue
+            adj_price = _to_decimal(adj) or price
+            if adj_price <= 0:
+                adj_price = price
             try:
                 day = datetime.fromtimestamp(int(ts), tz=timezone.utc).date()
             except (TypeError, ValueError, OSError, OverflowError):
                 continue
             if start <= day <= end:
-                points.append((day, price))
-        return points
+                bars.append(
+                    YahooDailyBar(
+                        trade_date=day,
+                        open=_to_decimal(open_),
+                        high=_to_decimal(high),
+                        low=_to_decimal(low),
+                        close=price,
+                        adjusted_close=adj_price,
+                        volume=_to_int(volume),
+                    )
+                )
+        return bars
+
+    def fetch_chart_history(
+        self, ticker: str, start: date, end: date
+    ) -> list[tuple[date, Decimal]]:
+        """Daily closes between start and end (inclusive), via chart period1/period2."""
+        return [(bar.trade_date, bar.close) for bar in self.fetch_chart_bars(ticker, start, end)]
 
     def period_return(
         self, ticker: str, start: date, end: date
