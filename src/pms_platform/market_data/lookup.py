@@ -13,6 +13,14 @@ from pms_platform.models import BenchmarkTri, DailyPrice
 
 _LIVE_SOURCES = frozenset({"YAHOO_FINANCE", "INDIAN_STOCK_API"})
 
+# Prefer rights-aware Yahoo repair over older EOD2 rows when both exist for a date.
+# Alphabetical source order alone would pick EOD2_* over YAHOO_CHART_REPAIR.
+_SOURCE_PRIORITY = case(
+    (DailyPrice.source == "YAHOO_CHART_REPAIR", 0),
+    (DailyPrice.source.in_(_LIVE_SOURCES), 1),
+    else_=2,
+)
+
 
 @dataclass(frozen=True)
 class PriceObservation:
@@ -56,10 +64,7 @@ def lookup_daily_price(
     if not allow_live:
         exact_query = exact_query.where(DailyPrice.source.not_in(_LIVE_SOURCES))
     exact = session.scalar(
-        exact_query.order_by(
-            case((DailyPrice.source.in_(_LIVE_SOURCES), 0), else_=1),
-            DailyPrice.source,
-        )
+        exact_query.order_by(_SOURCE_PRIORITY, DailyPrice.source)
     )
     if exact is not None:
         return PriceObservation(
@@ -78,7 +83,11 @@ def lookup_daily_price(
     if not allow_live:
         prior_query = prior_query.where(DailyPrice.source.not_in(_LIVE_SOURCES))
     prior = session.scalar(
-        prior_query.order_by(DailyPrice.trade_date.desc(), DailyPrice.source)
+        prior_query.order_by(
+            DailyPrice.trade_date.desc(),
+            _SOURCE_PRIORITY,
+            DailyPrice.source,
+        )
     )
     if prior is None:
         return None
