@@ -10,7 +10,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 COPY --from=ghcr.io/astral-sh/uv:0.8.4 /uv /usr/local/bin/uv
 
-RUN apt-get update \
+# Harden apt against ISP/proxy "Hash Sum mismatch" (common on some Indian networks).
+RUN printf '%s\n' \
+      'Acquire::http::Pipeline-Depth "0";' \
+      'Acquire::http::No-Cache "true";' \
+      'Acquire::BrokenProxy "true";' \
+      > /etc/apt/apt.conf.d/99fix-proxy \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean \
+    && apt-get update -o Acquire::Retries=5 \
     && apt-get install -y --no-install-recommends \
         build-essential \
         curl \
