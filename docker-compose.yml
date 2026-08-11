@@ -41,6 +41,7 @@ services:
       EXPORT_DIR: /data/exports
       UPLOAD_DIR: /data/uploads
       YAHOO_FINANCE_BASE_URL: ${YAHOO_FINANCE_BASE_URL:-https://query1.finance.yahoo.com}
+      FUNDAMENTALS_PROVIDER: ${FUNDAMENTALS_PROVIDER:-manual}
     volumes:
       - type: bind
         source: ${RESEARCH_DIR:?Set RESEARCH_DIR in .env to your Research folder}

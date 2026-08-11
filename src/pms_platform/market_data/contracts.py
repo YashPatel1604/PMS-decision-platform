@@ -94,3 +94,4 @@ class CanonicalPaths:
     benchmarks: str = "benchmarks/benchmark_tri.csv"
     successors: str = "symbol_maps/security_successors.csv"
     corporate_actions: str = "corporate_actions/corporate_actions.csv"
+    fundamentals: str = "fundamentals/quarterly_fundamentals.csv"

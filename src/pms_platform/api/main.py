@@ -12,6 +12,7 @@ from pms_platform.api.routes import (
     imports,
     market_data,
     masters,
+    watchlists,
 )
 
 app = FastAPI(title="PMS Decision Platform", version="0.1.0")
@@ -35,3 +36,4 @@ app.include_router(holdings.router, prefix="/holdings", tags=["holdings"])
 app.include_router(imports.router, prefix="/imports", tags=["imports"])
 app.include_router(masters.router, prefix="/masters", tags=["masters"])
 app.include_router(market_data.router, prefix="/market-data", tags=["market-data"])
+app.include_router(watchlists.router, prefix="/watchlists", tags=["watchlists"])

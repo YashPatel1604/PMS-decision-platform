@@ -7,11 +7,13 @@ from pms_platform.config import settings
 from pms_platform.db.base import Base
 from pms_platform.models import (  # noqa: F401
     BenchmarkTri,
+    CompanyFundamentalsQuarterly,
     DailyPrice,
     DecisionEvent,
     Dividend,
     EpisodeCashFlowRecord,
     EpisodePerformance,
+    FundamentalSnapshot,
     ImportBatch,
     InvestmentEpisode,
     LiquidTransaction,
@@ -22,6 +24,11 @@ from pms_platform.models import (  # noqa: F401
     SecuritySymbolHistory,
     SellAssessment,
     Transaction,
+    Watchlist,
+    WatchlistAlert,
+    WatchlistMember,
+    WatchlistRefreshLock,
+    WatchlistResolutionLog,
 )
 
 config = context.config

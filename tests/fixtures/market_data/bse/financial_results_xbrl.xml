@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xbrli:xbrl xmlns:in-bse-fin="http://www.bseindia.com/xbrl/fin/2020-03-31/in-bse-fin"
+  xmlns:xbrli="http://www.xbrl.org/2003/instance">
+  <xbrli:context id="OneD">
+    <xbrli:entity>
+      <xbrli:identifier scheme="http://www.bseindia.com/bse-fin/ScripCode">527001</xbrli:identifier>
+    </xbrli:entity>
+    <xbrli:period>
+      <xbrli:startDate>2024-10-01</xbrli:startDate>
+      <xbrli:endDate>2024-12-31</xbrli:endDate>
+    </xbrli:period>
+  </xbrli:context>
+  <xbrli:context id="FourD">
+    <xbrli:entity>
+      <xbrli:identifier scheme="http://www.bseindia.com/bse-fin/ScripCode">527001</xbrli:identifier>
+    </xbrli:entity>
+    <xbrli:period>
+      <xbrli:startDate>2024-04-01</xbrli:startDate>
+      <xbrli:endDate>2024-12-31</xbrli:endDate>
+    </xbrli:period>
+  </xbrli:context>
+  <in-bse-fin:RevenueFromOperations contextRef="OneD" unitRef="INR">968522700</in-bse-fin:RevenueFromOperations>
+  <in-bse-fin:OtherIncome contextRef="OneD" unitRef="INR">64461800</in-bse-fin:OtherIncome>
+  <in-bse-fin:ProfitBeforeExceptionalItemsAndTax contextRef="OneD" unitRef="INR">217111700</in-bse-fin:ProfitBeforeExceptionalItemsAndTax>
+  <in-bse-fin:FinanceCosts contextRef="OneD" unitRef="INR">18798500</in-bse-fin:FinanceCosts>
+  <in-bse-fin:ProfitLossForPeriod contextRef="OneD" unitRef="INR">260278200</in-bse-fin:ProfitLossForPeriod>
+</xbrli:xbrl>

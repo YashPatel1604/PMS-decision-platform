@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
@@ -13,6 +13,7 @@ const links = [
   { href: "/bulk-deals", label: "Bulk Deals" },
   { href: "/sast", label: "SAST" },
   { href: "/insider-trading", label: "Insider Trading" },
+  { href: "/watchlists", label: "Watchlists", badgeKey: "watchlists" as const },
   { href: "/episodes", label: "Episodes" },
   { href: "/strategy/continuous-loss", label: "1-Year Loss Strategy" },
   { href: "/masters", label: "Masters" },
@@ -22,6 +23,14 @@ const links = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
+
+  const alertsSummaryQuery = useQuery({
+    queryKey: ["watchlist-alerts-summary"],
+    queryFn: () => api.getWatchlistAlertsSummary(),
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  const unacknowledgedAlerts = alertsSummaryQuery.data?.unacknowledged ?? 0;
 
   const refreshMutation = useMutation({
     mutationFn: () => api.refreshFromOnedrive(),
@@ -54,9 +63,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <Link
                   key={link.href}
                   href={link.href}
-                  className="rounded-lg px-3 py-2 text-sm font-medium text-stone-600 transition hover:bg-stone-100 hover:text-stone-900"
+                  className="relative rounded-lg px-3 py-2 text-sm font-medium text-stone-600 transition hover:bg-stone-100 hover:text-stone-900"
                 >
                   {link.label}
+                  {link.badgeKey === "watchlists" && unacknowledgedAlerts > 0 ? (
+                    <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      {unacknowledgedAlerts > 99 ? "99+" : unacknowledgedAlerts}
+                    </span>
+                  ) : null}
                 </Link>
               ))}
             </nav>

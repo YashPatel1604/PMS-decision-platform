@@ -21,6 +21,8 @@ from pms_platform.analytics.exports import (
 from pms_platform.analytics.service import run_full_episode_analysis
 from pms_platform.config import settings
 from pms_platform.db.base import get_session_factory
+from pms_platform.fundamentals.service import sync_fundamentals
+from pms_platform.watchlists.refresh import sync_all_watchlists
 from pms_platform.episodes.builder import build_episodes
 from pms_platform.ingestion.exports import (
     export_decision_events_csv,
@@ -191,6 +193,102 @@ def reconcile_snapshots(snapshot_dir: Path | None = None, export_dir: Path | Non
         return 0
     except Exception as exc:
         print(f"Snapshot reconciliation failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
+def import_fundamentals_cmd(
+    external_dir: Path | None = None,
+    *,
+    provider: str | None = None,
+    yahoo_fallback: bool = False,
+    bse_all_securities: bool = False,
+) -> int:
+    """Import quarterly fundamentals CSV and recompute snapshots."""
+    data_dir = external_dir or settings.external_data_dir
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        result = sync_fundamentals(
+            session,
+            external_dir=data_dir,
+            provider=provider,
+            include_yahoo_fallback=yahoo_fallback,
+            bse_all_securities=bse_all_securities,
+        )
+        session.commit()
+
+        print("Fundamentals import complete.")
+        print(f"  Provider: {provider or settings.fundamentals_provider}")
+        if result.import_result is not None:
+            imp = result.import_result
+            print(
+                f"  CSV: inserted={imp.inserted}, updated={imp.updated}, "
+                f"skipped={imp.skipped}, invalid={imp.invalid}"
+            )
+        if result.yahoo_result is not None:
+            yahoo = result.yahoo_result
+            print(
+                f"  Yahoo: inserted={yahoo.inserted}, updated={yahoo.updated}, "
+                f"invalid={yahoo.invalid}"
+            )
+        if result.bse_result is not None:
+            bse = result.bse_result
+            print(
+                f"  BSE: inserted={bse.inserted}, updated={bse.updated}, "
+                f"skipped={bse.skipped}, invalid={bse.invalid}"
+            )
+        print(
+            f"  Snapshots: {result.snapshots_written} rows, "
+            f"{result.identifiers_processed} identifiers"
+        )
+        return 0
+    except Exception as exc:
+        session.rollback()
+        print(f"Fundamentals import failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
+def sync_watchlists_cmd(
+    external_dir: Path | None = None,
+    *,
+    watchlist_id: int | None = None,
+    skip_fundamentals: bool = False,
+) -> int:
+    """Resolve symbols, import fundamentals, and poll alerts for watchlists."""
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        result = sync_all_watchlists(
+            session,
+            external_dir=external_dir,
+            include_fundamentals=not skip_fundamentals,
+            watchlist_id=watchlist_id,
+        )
+        session.commit()
+
+        print("Watchlist sync complete.")
+        print(f"  Provider: {settings.fundamentals_provider}")
+        if result.fundamentals is not None:
+            f = result.fundamentals
+            print(
+                f"  Fundamentals: inserted={f.csv_inserted}, updated={f.csv_updated}, "
+                f"skipped={f.csv_skipped}, invalid={f.csv_invalid}, "
+                f"snapshots={f.snapshots_written}, identifiers={f.identifiers_processed}"
+            )
+        for row in result.results:
+            print(
+                f"  {row.watchlist_name}: resolved={row.resolution.resolved}, "
+                f"failed={row.resolution.failed}, alerts+={row.alerts.inserted} "
+                f"({row.duration_ms}ms)"
+            )
+        return 0
+    except Exception as exc:
+        session.rollback()
+        print(f"Watchlist sync failed: {exc}", file=sys.stderr)
         return 1
     finally:
         session.close()
@@ -485,6 +583,40 @@ def main() -> None:
         help="Directory containing canonical market-data CSV files",
     )
 
+    fundamentals_parser = subparsers.add_parser(
+        "import-fundamentals",
+        help="Import quarterly fundamentals CSV and recompute snapshots",
+    )
+    fundamentals_parser.add_argument("--external-dir", type=Path, default=None)
+    fundamentals_parser.add_argument(
+        "--provider",
+        choices=["manual", "screener", "yahoo", "xbrl"],
+        default=None,
+        help="Fundamentals provider (default: FUNDAMENTALS_PROVIDER env)",
+    )
+    fundamentals_parser.add_argument(
+        "--bse-all-securities",
+        action="store_true",
+        help="With --provider xbrl, fetch all security-master BSE codes (slow)",
+    )
+    fundamentals_parser.add_argument(
+        "--yahoo-fallback",
+        action="store_true",
+        help="Also fetch Yahoo quarterly income statements after CSV import",
+    )
+
+    sync_watchlists_parser = subparsers.add_parser(
+        "sync-watchlists",
+        help="Refresh all watchlists: resolve symbols, fundamentals, SAST/insider alerts",
+    )
+    sync_watchlists_parser.add_argument("--external-dir", type=Path, default=None)
+    sync_watchlists_parser.add_argument("--watchlist-id", type=int, default=None)
+    sync_watchlists_parser.add_argument(
+        "--skip-fundamentals",
+        action="store_true",
+        help="Skip CSV fundamentals import (alerts-only refresh)",
+    )
+
     market_coverage_parser = subparsers.add_parser(
         "market-data-coverage",
         help="Export price and benchmark coverage reports",
@@ -539,6 +671,23 @@ def main() -> None:
         raise SystemExit(reconcile_snapshots(args.snapshot_dir, args.export_dir))
     if args.command == "import-market-data":
         raise SystemExit(import_market_data_cmd(args.external_dir))
+    if args.command == "import-fundamentals":
+        raise SystemExit(
+            import_fundamentals_cmd(
+                args.external_dir,
+                provider=args.provider,
+                yahoo_fallback=args.yahoo_fallback,
+                bse_all_securities=args.bse_all_securities,
+            )
+        )
+    if args.command == "sync-watchlists":
+        raise SystemExit(
+            sync_watchlists_cmd(
+                args.external_dir,
+                watchlist_id=args.watchlist_id,
+                skip_fundamentals=args.skip_fundamentals,
+            )
+        )
     if args.command == "market-data-coverage":
         raise SystemExit(market_data_coverage(args.export_dir))
     if args.command == "analyze-episodes":

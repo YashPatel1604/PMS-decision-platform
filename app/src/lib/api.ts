@@ -607,6 +607,197 @@ export type OnedriveRefreshResult = {
   } | null;
 };
 
+export type Watchlist = {
+  watchlist_id: number;
+  name: string;
+  description: string | null;
+  is_default: boolean;
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WatchlistMember = {
+  member_id: number;
+  watchlist_id: number;
+  security_id: string | null;
+  display_name: string;
+  nse_symbol: string | null;
+  bse_code: string | null;
+  isin: string | null;
+  notes: string | null;
+  resolution_status: string;
+  resolution_source: string | null;
+  resolution_note: string | null;
+  resolved_at: string | null;
+  resolution_stale: boolean;
+  sector: string | null;
+  industry: string | null;
+  in_portfolio: boolean;
+  added_at: string;
+};
+
+export type WatchlistSearchHit = {
+  source: string;
+  security_id: string | null;
+  portfolio_name: string;
+  nse_symbol: string | null;
+  bse_code: string | null;
+  isin: string | null;
+  sector: string | null;
+  industry: string | null;
+  yahoo_ticker?: string | null;
+};
+
+export type ResolveWatchlistResult = {
+  resolved: number;
+  failed: number;
+  skipped: number;
+};
+
+export type MetricDefinition = {
+  key: string;
+  label: string;
+  group: string;
+  format: string;
+  description: string;
+};
+
+export type WatchlistScreenRow = {
+  member_id: number;
+  display_name: string;
+  nse_symbol: string | null;
+  bse_code: string | null;
+  security_id: string | null;
+  sector: string | null;
+  industry: string | null;
+  resolution_status: string;
+  fiscal_year: number | null;
+  fiscal_quarter: string | null;
+  period_end_date: string | null;
+  retrieved_at: string | null;
+  has_fundamentals: boolean;
+  fundamentals_stale: boolean;
+  metrics: Record<string, number | null>;
+};
+
+export type WatchlistScreen = {
+  watchlist_id: number;
+  columns: string[];
+  sort: string | null;
+  row_count: number;
+  rows: WatchlistScreenRow[];
+};
+
+export type WatchlistAlert = {
+  alert_id: number;
+  watchlist_id: number;
+  member_id: number | null;
+  kind: string;
+  disclosure_date: string;
+  bse_code: string;
+  company_name: string;
+  person_name: string;
+  category: string;
+  transaction_type: string;
+  quantity: number | null;
+  value: number | null;
+  pct_pre: number | null;
+  pct_post: number | null;
+  mode: string;
+  regulation: string;
+  market_cap_cr: number | null;
+  fetched_at: string;
+  acknowledged: boolean;
+  acknowledged_at: string | null;
+  created_at: string;
+};
+
+export type WatchlistAlertsSummary = {
+  unacknowledged: number;
+};
+
+export type AlertPollResult = {
+  inserted: number;
+  skipped: number;
+  matched: number;
+};
+
+export type RefreshStats = {
+  resolved: number;
+  failed: number;
+  skipped: number;
+};
+
+export type FundamentalsRefreshStats = {
+  csv_inserted: number;
+  csv_updated: number;
+  csv_skipped: number;
+  csv_invalid: number;
+  snapshots_written: number;
+  identifiers_processed: number;
+};
+
+export type AlertsRefreshStats = {
+  inserted: number;
+  skipped: number;
+  matched: number;
+};
+
+export type WatchlistRefreshResult = {
+  watchlist_id: number;
+  watchlist_name: string;
+  resolution: RefreshStats;
+  fundamentals: FundamentalsRefreshStats | null;
+  alerts: AlertsRefreshStats;
+  duration_ms: number;
+};
+
+export type SyncWatchlistsResult = {
+  watchlists_refreshed: number;
+  fundamentals: FundamentalsRefreshStats | null;
+  results: WatchlistRefreshResult[];
+};
+
+export type WatchlistSettings = {
+  fundamentals_provider: string;
+  available_providers: string[];
+};
+
+export type WatchlistHealthRow = {
+  watchlist_id: number;
+  name: string;
+  member_count: number;
+  resolved_count: number;
+  unresolved_count: number;
+  stale_resolution_count: number;
+  with_fundamentals_count: number;
+  missing_fundamentals_count: number;
+  stale_fundamentals_count: number;
+  unacknowledged_alerts: number;
+  refresh_locked: boolean;
+};
+
+export type WatchlistsHealth = {
+  fundamentals_provider: string;
+  watchlist_count: number;
+  total_members: number;
+  total_unresolved: number;
+  total_stale_resolution: number;
+  total_missing_fundamentals: number;
+  total_stale_fundamentals: number;
+  total_unacknowledged_alerts: number;
+  any_refresh_locked: boolean;
+  watchlists: WatchlistHealthRow[];
+};
+
+export type WatchlistImportResult = {
+  watchlist_id: number;
+  watchlist_name: string;
+  members_added: number;
+  members_skipped: number;
+};
+
 export const api = {
   getSummary: () => request<DashboardSummary>("/dashboard/summary"),
   getExitInsights: () => request<ExitInsightRow[]>("/dashboard/exit-insights"),
@@ -762,4 +953,158 @@ export const api = {
     }),
   runAnalysis: () =>
     request<AnalysisRunResult>("/episodes/analyze", { method: "POST" }),
+  listWatchlists: () => request<Watchlist[]>("/watchlists"),
+  createWatchlist: (body: {
+    name: string;
+    description?: string | null;
+    make_default?: boolean;
+  }) =>
+    request<Watchlist>("/watchlists", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateWatchlist: (
+    watchlistId: number,
+    body: {
+      name?: string;
+      description?: string | null;
+      make_default?: boolean;
+    },
+  ) =>
+    request<Watchlist>(`/watchlists/${watchlistId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteWatchlist: (watchlistId: number) =>
+    request<void>(`/watchlists/${watchlistId}?confirm=true`, { method: "DELETE" }),
+  searchWatchlistSecurities: (q: string, limit = 20) =>
+    request<WatchlistSearchHit[]>(
+      `/watchlists/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
+  listWatchlistMembers: (watchlistId: number) =>
+    request<WatchlistMember[]>(`/watchlists/${watchlistId}/members`),
+  addWatchlistMember: (
+    watchlistId: number,
+    body: {
+      portfolio_name?: string;
+      security_id?: string;
+      nse_symbol?: string;
+      bse_code?: string;
+      display_name?: string;
+      notes?: string;
+    },
+  ) =>
+    request<WatchlistMember>(`/watchlists/${watchlistId}/members`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateWatchlistMember: (
+    watchlistId: number,
+    memberId: number,
+    body: {
+      display_name?: string;
+      nse_symbol?: string;
+      bse_code?: string;
+      notes?: string;
+    },
+  ) =>
+    request<WatchlistMember>(`/watchlists/${watchlistId}/members/${memberId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  resolveWatchlistMember: (watchlistId: number, memberId: number) =>
+    request<WatchlistMember>(
+      `/watchlists/${watchlistId}/members/${memberId}/resolve`,
+      { method: "POST" },
+    ),
+  resolveWatchlist: (watchlistId: number) =>
+    request<ResolveWatchlistResult>(`/watchlists/${watchlistId}/resolve`, {
+      method: "POST",
+    }),
+  removeWatchlistMember: (watchlistId: number, memberId: number) =>
+    request<void>(`/watchlists/${watchlistId}/members/${memberId}`, {
+      method: "DELETE",
+    }),
+  listWatchlistMetricCatalog: () =>
+    request<MetricDefinition[]>("/watchlists/metrics/catalog"),
+  getWatchlistScreen: (
+    watchlistId: number,
+    params?: { columns?: string; sort?: string },
+  ) => {
+    const query = new URLSearchParams();
+    if (params?.columns) query.set("columns", params.columns);
+    if (params?.sort) query.set("sort", params.sort);
+    const suffix = query.toString();
+    return request<WatchlistScreen>(
+      `/watchlists/${watchlistId}/screen${suffix ? `?${suffix}` : ""}`,
+    );
+  },
+  exportWatchlistScreenCsv: async (
+    watchlistId: number,
+    params?: { columns?: string; sort?: string },
+  ) => {
+    const query = new URLSearchParams({ export: "csv" });
+    if (params?.columns) query.set("columns", params.columns);
+    if (params?.sort) query.set("sort", params.sort);
+    const response = await fetch(
+      `${API_BASE}/watchlists/${watchlistId}/screen?${query.toString()}`,
+    );
+    if (!response.ok) {
+      throw new Error(`Export failed (${response.status})`);
+    }
+    return response.blob();
+  },
+  getWatchlistAlertsSummary: () =>
+    request<WatchlistAlertsSummary>("/watchlists/alerts/summary"),
+  listWatchlistAlerts: (
+    watchlistId: number,
+    params?: { unacknowledgedOnly?: boolean; refresh?: boolean },
+  ) => {
+    const query = new URLSearchParams();
+    if (params?.unacknowledgedOnly) query.set("unacknowledged_only", "true");
+    if (params?.refresh) query.set("refresh", "true");
+    const suffix = query.toString();
+    return request<WatchlistAlert[]>(
+      `/watchlists/${watchlistId}/alerts${suffix ? `?${suffix}` : ""}`,
+    );
+  },
+  pollWatchlistAlerts: (watchlistId: number) =>
+    request<AlertPollResult>(`/watchlists/${watchlistId}/alerts/poll`, {
+      method: "POST",
+    }),
+  acknowledgeWatchlistAlert: (watchlistId: number, alertId: number) =>
+    request<WatchlistAlert>(
+      `/watchlists/${watchlistId}/alerts/${alertId}/acknowledge`,
+      { method: "POST" },
+    ),
+  refreshWatchlist: (watchlistId: number, includeFundamentals = true) =>
+    request<WatchlistRefreshResult>(
+      `/watchlists/${watchlistId}/refresh?include_fundamentals=${includeFundamentals ? "true" : "false"}`,
+      { method: "POST" },
+    ),
+  refreshAllWatchlists: (includeFundamentals = true) =>
+    request<SyncWatchlistsResult>(
+      `/watchlists/refresh-all?include_fundamentals=${includeFundamentals ? "true" : "false"}`,
+      { method: "POST" },
+    ),
+  getWatchlistSettings: () => request<WatchlistSettings>("/watchlists/settings"),
+  getWatchlistsHealth: () => request<WatchlistsHealth>("/watchlists/health"),
+  getWatchlistHealth: (watchlistId: number) =>
+    request<WatchlistHealthRow>(`/watchlists/${watchlistId}/health`),
+  exportWatchlistJson: async (watchlistId: number) => {
+    const response = await fetch(
+      `${API_BASE}/watchlists/${watchlistId}/export?format=json`,
+    );
+    if (!response.ok) throw new Error(`Export failed (${response.status})`);
+    return response.blob();
+  },
+  importWatchlistJson: (payload: object, options?: { watchlistId?: number; createName?: string }) =>
+    request<WatchlistImportResult>("/watchlists/import", {
+      method: "POST",
+      body: JSON.stringify({
+        payload,
+        watchlist_id: options?.watchlistId,
+        create_name: options?.createName,
+      }),
+    }),
 };

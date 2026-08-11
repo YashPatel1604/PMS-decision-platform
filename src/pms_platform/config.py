@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # Optional fallback dir of Portfolio_*.xlsx (Docker ships docker/portfolio_snapshot_seed).
     snapshot_seed_dir: Path | None = None
     yahoo_finance_base_url: str = "https://query1.finance.yahoo.com"
+    fundamentals_provider: str = "manual"
     log_level: str = "INFO"
 
 

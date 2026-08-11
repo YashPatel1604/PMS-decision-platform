@@ -131,6 +131,27 @@ cd $HOME\Apps\PMS-decision-platform
 2. Open the bookmark `http://localhost:3000`.
 3. If the page fails: wait 30 seconds for containers to wake, or run `.\scripts\windows\start.ps1` again.
 
+**Watchlist alerts (optional scheduled task):** run daily so SAST / insider hits show on your watchlists:
+
+```powershell
+cd $HOME\Apps\PMS-decision-platform
+.\scripts\windows\refresh-watchlists.ps1 -SkipFundamentals
+```
+
+**Watchlist fundamentals (weekly):** run once a week (e.g. Sunday) to pull quarterly metrics from BSE (set `FUNDAMENTALS_PROVIDER=xbrl` in `.env`) or reload a fundamentals CSV:
+
+```powershell
+.\scripts\windows\refresh-watchlists.ps1
+```
+
+To fetch live BSE quarterly results instead of a CSV seed:
+
+```powershell
+docker compose exec -T api uv run pms-platform import-fundamentals --provider xbrl
+```
+
+Or use **Watchlists → Refresh all** in the app for a one-button sync.
+
 **Sleep:** if the laptop sleeps, the app pauses. Wake the PC and reopen the bookmark. While working, you can set Windows to not sleep.
 
 ---
