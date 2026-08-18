@@ -40,7 +40,7 @@ const KIND_COPY: Record<
     description:
       "BSE Insider Trading Regulations 2015 disclosures submitted by the company (Reg 7(2)).",
     sourceNote:
-      "Days without disclosures are greyed out. Source: BSE corporates/insider_trading_new. Default min mcap ₹2,000 Cr.",
+      "Days without filings are grey. History is stored after the first day-by-day BSE search (BSE returns at most 25 rows per query). Default min mcap ₹2,000 Cr.",
     emptyDay: "No insider disclosures reported for",
     hasDealsTitle: (d) => `Insider disclosures on ${d}`,
     noDealsTitle: "No insider disclosures this day",

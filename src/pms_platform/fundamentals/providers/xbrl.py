@@ -29,8 +29,8 @@ from pms_platform.models import ImportBatch, Security, WatchlistMember
 from pms_platform.models.company_fundamentals_quarterly import CompanyFundamentalsQuarterly
 
 _REQUEST_DELAY_SEC = 0.1
-_HISTORY_QUARTERS = 8
-_HISTORY_YEARS_BACK = 2
+_HISTORY_QUARTERS = 16
+_HISTORY_YEARS_BACK = 4
 _INTEGRATED_QUARTERS = 4
 _FETCH_WORKERS = 4
 

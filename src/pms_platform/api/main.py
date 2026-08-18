@@ -3,7 +3,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from pms_platform.api.auth_middleware import AuthMiddleware
 from pms_platform.api.routes import (
+    auth,
     backtests,
     dashboard,
     episodes,
@@ -14,21 +16,29 @@ from pms_platform.api.routes import (
     masters,
     watchlists,
 )
+from pms_platform.config import settings
 
 app = FastAPI(title="PMS Decision Platform", version="0.1.0")
 
+_default_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+_extra = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=[*_default_origins, *_extra],
+    # Tailscale mesh UIs: http://100.x.x.x:3000
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|100\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Added after CORS so it runs first on the request path; OPTIONS stays public.
+app.add_middleware(AuthMiddleware)
 
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 app.include_router(episodes.router, prefix="/episodes", tags=["episodes"])
 app.include_router(backtests.router, prefix="/backtests", tags=["backtests"])

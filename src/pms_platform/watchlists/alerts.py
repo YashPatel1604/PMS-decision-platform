@@ -86,12 +86,21 @@ def fetch_disclosures_for_codes(
     start: date,
     end: date,
     bse_codes: set[str],
+    session: Session | None = None,
 ) -> list[CorporateDisclosureRow]:
     """Fetch disclosures in a date range filtered to watchlist BSE codes."""
     if not bse_codes:
         return []
     if kind == "sast":
         raw_rows = fetch_sast_rows(start, end)
+    elif session is not None:
+        from pms_platform.market_data.insider_store import (
+            load_insider_raw_rows,
+            sync_insider_days,
+        )
+
+        sync_insider_days(session, start, end)
+        raw_rows = load_insider_raw_rows(session, start, end)
     else:
         raw_rows = fetch_insider_rows(start, end)
     rows = _normalize_rows(kind, raw_rows, start=start, end=end, bse_codes=bse_codes)
@@ -125,6 +134,7 @@ def poll_watchlist_alerts(
             start=start,
             end=end,
             bse_codes=set(code_to_member),
+            session=session,
         )
         matched += len(rows)
         for row in rows:

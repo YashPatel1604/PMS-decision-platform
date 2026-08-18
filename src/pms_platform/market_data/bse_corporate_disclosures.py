@@ -382,6 +382,9 @@ def fetch_corporate_disclosures(
             start = min(start, as_of_date)
             end = max(end, as_of_date)
         end = min(end, today)
+    elif kind == "insider" and session is not None:
+        start, end = _month_bounds(today.year, today.month)
+        end = min(end, today)
     else:
         end = today
         start = date.fromordinal(max(end.toordinal() - 45, date(2018, 1, 1).toordinal()))
@@ -395,7 +398,17 @@ def fetch_corporate_disclosures(
                 if (row := normalize_sast_row(raw)) is not None
             ]
         else:
-            raw_rows = fetch_insider_rows(start, end)
+            if session is not None:
+                from pms_platform.market_data.insider_store import (
+                    load_insider_raw_rows,
+                    sync_insider_days,
+                )
+
+                sync_insider_days(session, start, end, today=today)
+                session.commit()
+                raw_rows = load_insider_raw_rows(session, start, end)
+            else:
+                raw_rows = fetch_insider_rows(start, end)
             normalized = [
                 row
                 for raw in raw_rows

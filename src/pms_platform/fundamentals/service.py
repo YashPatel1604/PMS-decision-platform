@@ -14,11 +14,14 @@ from pms_platform.fundamentals.compute import compute_snapshots_for_identifier, 
 from pms_platform.fundamentals.import_csv import FundamentalsImportResult, import_quarterly_fundamentals
 from pms_platform.fundamentals.providers.base import FundamentalsProvider, ProviderImportResult
 from pms_platform.fundamentals.providers.manual_csv import ManualCsvProvider, ScreenerExportProvider
+from pms_platform.fundamentals.providers.annual_xbrl import refresh_annual_fundamentals
 from pms_platform.fundamentals.providers.promoter import refresh_promoter_snapshots
 from pms_platform.fundamentals.providers.valuation import refresh_valuation_snapshots
 from pms_platform.fundamentals.providers.yahoo import YahooFundamentalsProvider
 from pms_platform.fundamentals.providers.xbrl import XbrlFundamentalsProvider
+from pms_platform.market_data.price_returns import refresh_price_returns
 from pms_platform.models.company_fundamentals_quarterly import CompanyFundamentalsQuarterly
+from pms_platform.models.fundamental_snapshot import FundamentalSnapshot
 
 
 @dataclass(frozen=True)
@@ -102,6 +105,43 @@ def _recompute_grouped(
     return written
 
 
+def _valuation_enrichment(
+    session: Session,
+    bse_codes: list[str],
+) -> tuple[dict[str, Decimal | None], dict[str, Decimal | None]]:
+    """Latest TTM sales and PAT 3Y CAGR per BSE code for valuation derivations."""
+    from decimal import Decimal
+
+    trailing_sales: dict[str, Decimal | None] = {}
+    pat_3y_cagr: dict[str, Decimal | None] = {}
+    for code in bse_codes:
+        snap = session.scalar(
+            select(FundamentalSnapshot)
+            .where(
+                FundamentalSnapshot.identifier_type == "BSE_CODE",
+                FundamentalSnapshot.identifier == code,
+            )
+            .order_by(FundamentalSnapshot.period_end_date.desc())
+        )
+        if snap is not None:
+            pat_3y_cagr[code] = snap.pat_3y_cagr
+
+        quarters = session.scalars(
+            select(CompanyFundamentalsQuarterly)
+            .where(
+                CompanyFundamentalsQuarterly.identifier_type == "BSE_CODE",
+                CompanyFundamentalsQuarterly.identifier == code,
+            )
+            .order_by(CompanyFundamentalsQuarterly.period_end_date.desc())
+            .limit(4)
+        ).all()
+        if len(quarters) >= 4 and all(q.sales is not None for q in quarters):
+            trailing_sales[code] = sum((q.sales for q in quarters), Decimal("0"))
+        else:
+            trailing_sales[code] = None
+    return trailing_sales, pat_3y_cagr
+
+
 def sync_fundamentals(
     session: Session,
     *,
@@ -111,11 +151,13 @@ def sync_fundamentals(
     bse_codes: list[str] | None = None,
     bse_all_securities: bool = False,
     include_valuation: bool = True,
+    include_annual: bool = True,
+    include_price_returns: bool = True,
 ) -> FundamentalsSyncResult:
     """Import fundamentals from CSV, BSE, and/or Yahoo, then recompute snapshots.
 
     When ``include_valuation`` and scoped ``bse_codes`` are provided, also refresh
-    valuation + promoter snapshots for those codes (annual stays lazy on screener).
+    valuation, promoter, annual, and price-return snapshots for those codes.
     """
     data_dir = external_dir or settings.external_data_dir
     csv_path = data_dir / "fundamentals" / "quarterly_fundamentals.csv"
@@ -147,20 +189,6 @@ def sync_fundamentals(
     if include_yahoo_fallback or provider_name == "yahoo":
         yahoo_result = YahooFundamentalsProvider().import_data(session)
 
-    if include_valuation and bse_codes:
-        codes = sorted({str(c).strip() for c in bse_codes if c and str(c).strip()})
-        if codes:
-            try:
-                refresh_valuation_snapshots(session, codes, force=False)
-            except Exception:
-                pass
-            try:
-                refresh_promoter_snapshots(session, codes)
-            except Exception:
-                pass
-            for code in codes:
-                touched.add(("BSE_CODE", code))
-
     if touched and not (import_result or yahoo_result or bse_all_securities):
         snapshots_written = recompute_snapshots_for_identifiers(session, list(touched))
         identifiers_processed = len(touched)
@@ -172,6 +200,43 @@ def sync_fundamentals(
                 for row in session.scalars(select(CompanyFundamentalsQuarterly)).all()
             }
         )
+
+    if include_valuation and bse_codes:
+        codes = sorted({str(c).strip() for c in bse_codes if c and str(c).strip()})
+        if codes:
+            trailing_sales, pat_cagr = _valuation_enrichment(session, codes)
+            try:
+                refresh_valuation_snapshots(
+                    session,
+                    codes,
+                    force=False,
+                    trailing_sales_by_code=trailing_sales,
+                    pat_3y_cagr_by_code=pat_cagr,
+                )
+            except Exception:
+                pass
+            try:
+                refresh_promoter_snapshots(session, codes)
+            except Exception:
+                pass
+            if include_annual:
+                try:
+                    refresh_annual_fundamentals(
+                        session,
+                        codes,
+                        years_back=1,
+                        request_delay_sec=0.15,
+                    )
+                except Exception:
+                    pass
+            if include_price_returns:
+                try:
+                    refresh_price_returns(
+                        session,
+                        [("BSE_CODE", code) for code in codes],
+                    )
+                except Exception:
+                    pass
 
     return FundamentalsSyncResult(
         import_result=import_result,

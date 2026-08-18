@@ -13,6 +13,7 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...init?.headers,
@@ -23,8 +24,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const text = await response.text();
     throw new ApiError(text || response.statusText, response.status);
   }
+  if (response.status === 204) {
+    return undefined as T;
+  }
   return response.json() as Promise<T>;
 }
+
+export type AuthUser = {
+  user_id: number;
+  email: string;
+  display_name: string;
+  role: string;
+  is_active: boolean;
+  last_login_at: string | null;
+};
+
+export type MeResponse = {
+  auth_disabled: boolean;
+  user: AuthUser | null;
+};
 
 export type DashboardSummary = {
   total_episodes: number;
@@ -799,6 +817,14 @@ export type WatchlistImportResult = {
 };
 
 export const api = {
+  getMe: () => request<MeResponse>("/auth/me"),
+  login: (email: string, password: string) =>
+    request<{ user: AuthUser }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  logout: () => request<{ status: string }>("/auth/logout", { method: "POST" }),
+
   getSummary: () => request<DashboardSummary>("/dashboard/summary"),
   getExitInsights: () => request<ExitInsightRow[]>("/dashboard/exit-insights"),
   listEpisodes: () => request<EpisodePerformance[]>("/episodes/performance"),
@@ -911,6 +937,7 @@ export const api = {
     const response = await fetch(`${API_BASE}/imports/upload`, {
       method: "POST",
       body,
+      credentials: "include",
       cache: "no-store",
     });
     if (!response.ok) {
@@ -1048,6 +1075,7 @@ export const api = {
     if (params?.sort) query.set("sort", params.sort);
     const response = await fetch(
       `${API_BASE}/watchlists/${watchlistId}/screen?${query.toString()}`,
+      { credentials: "include" },
     );
     if (!response.ok) {
       throw new Error(`Export failed (${response.status})`);
@@ -1094,6 +1122,7 @@ export const api = {
   exportWatchlistJson: async (watchlistId: number) => {
     const response = await fetch(
       `${API_BASE}/watchlists/${watchlistId}/export?format=json`,
+      { credentials: "include" },
     );
     if (!response.ok) throw new Error(`Export failed (${response.status})`);
     return response.blob();

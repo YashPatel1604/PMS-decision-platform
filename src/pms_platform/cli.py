@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from alembic import command
@@ -19,10 +20,12 @@ from pms_platform.analytics.exports import (
     export_sell_since_workbook,
 )
 from pms_platform.analytics.service import run_full_episode_analysis
+from pms_platform.auth.service import create_user
 from pms_platform.config import settings
 from pms_platform.db.base import get_session_factory
 from pms_platform.fundamentals.service import sync_fundamentals
-from pms_platform.watchlists.refresh import sync_all_watchlists
+from pms_platform.watchlists.quotes_refresh import refresh_watchlist_quotes
+from pms_platform.watchlists.refresh import refresh_watchlist_fundamentals, sync_all_watchlists
 from pms_platform.episodes.builder import build_episodes
 from pms_platform.ingestion.exports import (
     export_decision_events_csv,
@@ -247,6 +250,67 @@ def import_fundamentals_cmd(
     except Exception as exc:
         session.rollback()
         print(f"Fundamentals import failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
+def refresh_watchlist_quotes_cmd(
+    *,
+    watchlist_id: int | None = None,
+) -> int:
+    """Daily job: valuation + promoter + price returns + materialized screener cache."""
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        result = refresh_watchlist_quotes(session, watchlist_id=watchlist_id)
+        session.commit()
+        print("Watchlist quotes refresh complete.")
+        print(f"  BSE codes: {result.bse_codes}")
+        print(f"  Valuation rows touched: {result.valuation_updated}")
+        print(f"  Promoter rows touched: {result.promoter_updated}")
+        print(f"  Materialized screener rows: {result.metrics_rows}")
+        return 0
+    except Exception as exc:
+        session.rollback()
+        print(f"Watchlist quotes refresh failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
+def refresh_watchlist_fundamentals_cmd(
+    external_dir: Path | None = None,
+    *,
+    watchlist_id: int | None = None,
+) -> int:
+    """Fetch BSE data for watchlist codes, persist, and recompute snapshots only."""
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        result = refresh_watchlist_fundamentals(
+            session,
+            external_dir=external_dir,
+            watchlist_id=watchlist_id,
+        )
+        session.commit()
+
+        print("Watchlist fundamentals refresh complete.")
+        print(f"  Provider: {settings.fundamentals_provider}")
+        if result.bse_result is not None:
+            bse = result.bse_result
+            print(
+                f"  BSE quarterly: inserted={bse.inserted}, updated={bse.updated}, "
+                f"skipped={bse.skipped}, invalid={bse.invalid}"
+            )
+        print(
+            f"  Snapshots: {result.snapshots_written} rows, "
+            f"{result.identifiers_processed} identifiers"
+        )
+        return 0
+    except Exception as exc:
+        session.rollback()
+        print(f"Watchlist fundamentals refresh failed: {exc}", file=sys.stderr)
         return 1
     finally:
         session.close()
@@ -532,6 +596,66 @@ def analyze_episodes(export_dir: Path | None = None) -> int:
         session.close()
 
 
+def create_user_cmd(
+    email: str,
+    display_name: str,
+    role: str = "member",
+    password: str | None = None,
+) -> int:
+    """Create an invite-only application user."""
+    pwd = password
+    if not pwd:
+        pwd = getpass.getpass("Password: ")
+        confirm = getpass.getpass("Confirm password: ")
+        if pwd != confirm:
+            print("Passwords do not match", file=sys.stderr)
+            return 1
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        user = create_user(
+            session,
+            email=email,
+            password=pwd,
+            display_name=display_name,
+            role=role,
+        )
+        session.commit()
+        print(f"Created user {user.email} (id={user.user_id}, role={user.role})")
+        return 0
+    except ValueError as exc:
+        session.rollback()
+        print(str(exc), file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        print(f"create-user failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
+def sync_insider_disclosures_cmd(days: int = 90) -> int:
+    """Backfill BSE insider filings day-by-day into insider_disclosure_days."""
+    from pms_platform.market_data.insider_store import sync_insider_days
+
+    end = date.today()
+    start = end - timedelta(days=max(1, days) - 1)
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        fetched = sync_insider_days(session, start, end)
+        session.commit()
+        print(f"Insider days fetched from BSE: {fetched} ({start} .. {end})")
+        return 0
+    except Exception as exc:
+        session.rollback()
+        print(f"sync-insider-disclosures failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
 def main() -> None:
     """Parse CLI arguments and dispatch commands."""
     parser = argparse.ArgumentParser(description="PMS Decision Platform")
@@ -614,8 +738,21 @@ def main() -> None:
     sync_watchlists_parser.add_argument(
         "--skip-fundamentals",
         action="store_true",
-        help="Skip CSV fundamentals import (alerts-only refresh)",
+        help="Skip fundamentals import (alerts-only refresh)",
     )
+
+    refresh_fundamentals_parser = subparsers.add_parser(
+        "refresh-watchlist-fundamentals",
+        help="Scheduled job: BSE fetch + DB write + snapshot recompute (no alerts)",
+    )
+    refresh_fundamentals_parser.add_argument("--external-dir", type=Path, default=None)
+    refresh_fundamentals_parser.add_argument("--watchlist-id", type=int, default=None)
+
+    refresh_quotes_parser = subparsers.add_parser(
+        "refresh-watchlist-quotes",
+        help="Daily job: quotes + shareholding + materialized screener cache",
+    )
+    refresh_quotes_parser.add_argument("--watchlist-id", type=int, default=None)
 
     market_coverage_parser = subparsers.add_parser(
         "market-data-coverage",
@@ -660,6 +797,34 @@ def main() -> None:
         help="Optional daily_prices.csv to rewrite (default: docker seed)",
     )
 
+    create_user_parser = subparsers.add_parser(
+        "create-user",
+        help="Create an invite-only app user (first admin via CLI)",
+    )
+    create_user_parser.add_argument("--email", required=True)
+    create_user_parser.add_argument("--name", required=True, help="Display name")
+    create_user_parser.add_argument(
+        "--role",
+        choices=["admin", "member"],
+        default="member",
+    )
+    create_user_parser.add_argument(
+        "--password",
+        default=None,
+        help="Password (omit to prompt interactively)",
+    )
+
+    insider_parser = subparsers.add_parser(
+        "sync-insider-disclosures",
+        help="Fetch BSE insider filings day-by-day and store them (BSE search is capped at 25 rows)",
+    )
+    insider_parser.add_argument(
+        "--days",
+        type=int,
+        default=90,
+        help="How many calendar days to backfill ending today (default 90)",
+    )
+
     args = parser.parse_args()
     if args.command == "import-all":
         raise SystemExit(import_all(args.export_dir))
@@ -688,6 +853,19 @@ def main() -> None:
                 skip_fundamentals=args.skip_fundamentals,
             )
         )
+    if args.command == "refresh-watchlist-fundamentals":
+        raise SystemExit(
+            refresh_watchlist_fundamentals_cmd(
+                args.external_dir,
+                watchlist_id=args.watchlist_id,
+            )
+        )
+    if args.command == "refresh-watchlist-quotes":
+        raise SystemExit(
+            refresh_watchlist_quotes_cmd(
+                watchlist_id=args.watchlist_id,
+            )
+        )
     if args.command == "market-data-coverage":
         raise SystemExit(market_data_coverage(args.export_dir))
     if args.command == "analyze-episodes":
@@ -710,6 +888,17 @@ def main() -> None:
                 seed_csv=args.seed_csv,
             )
         )
+    if args.command == "create-user":
+        raise SystemExit(
+            create_user_cmd(
+                email=args.email,
+                display_name=args.name,
+                role=args.role,
+                password=args.password,
+            )
+        )
+    if args.command == "sync-insider-disclosures":
+        raise SystemExit(sync_insider_disclosures_cmd(days=args.days))
 
 
 if __name__ == "__main__":

@@ -188,6 +188,51 @@ def refresh_watchlist(
         release_refresh_lock(session, watchlist_id)
 
 
+def _all_watchlist_bse_codes(session: Session) -> list[str]:
+    """Distinct BSE codes across every watchlist."""
+    codes: list[str] = []
+    seen: set[str] = set()
+    for row in wl.list_watchlists(session):
+        for code in _watchlist_bse_codes(session, row.watchlist_id):
+            if code not in seen:
+                seen.add(code)
+                codes.append(code)
+    return codes
+
+
+def refresh_watchlist_fundamentals(
+    session: Session,
+    *,
+    external_dir: Path | None = None,
+    watchlist_id: int | None = None,
+) -> FundamentalsSyncResult:
+    """Fetch BSE fundamentals for watchlist codes, write DB, recompute snapshots.
+
+    No symbol resolution or alert polling — intended for scheduled jobs and
+    manual fundamentals-only refresh. Screener reads the persisted snapshots.
+    """
+    from pms_platform.watchlists.metrics_cache import (
+        rebuild_all_watchlist_metrics,
+        rebuild_watchlist_metrics,
+    )
+
+    if watchlist_id is not None:
+        codes = _watchlist_bse_codes(session, watchlist_id)
+    else:
+        codes = _all_watchlist_bse_codes(session)
+    result = sync_fundamentals(
+        session,
+        external_dir=external_dir or settings.external_data_dir,
+        bse_codes=codes or None,
+    )
+    if watchlist_id is not None:
+        rebuild_watchlist_metrics(session, watchlist_id)
+    else:
+        rebuild_all_watchlist_metrics(session)
+    session.flush()
+    return result
+
+
 def sync_all_watchlists(
     session: Session,
     *,
@@ -199,15 +244,19 @@ def sync_all_watchlists(
     fundamentals_result: FundamentalsSyncResult | None = None
     fundamentals_stats: FundamentalsRefreshStats | None = None
     if include_fundamentals:
-        scoped_codes: list[str] | None = None
         if watchlist_id is not None:
             scoped_codes = _watchlist_bse_codes(session, watchlist_id)
+        else:
+            scoped_codes = _all_watchlist_bse_codes(session) or None
         fundamentals_result = sync_fundamentals(
             session,
             external_dir=external_dir or settings.external_data_dir,
             bse_codes=scoped_codes,
         )
         fundamentals_stats = _fundamentals_stats(fundamentals_result)
+        from pms_platform.watchlists.metrics_cache import rebuild_all_watchlist_metrics
+
+        rebuild_all_watchlist_metrics(session)
 
     if watchlist_id is not None:
         watchlists = [wl.get_watchlist(session, watchlist_id)]

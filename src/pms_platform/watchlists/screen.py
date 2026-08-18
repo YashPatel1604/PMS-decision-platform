@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from pms_platform.fundamentals.catalog import COMPUTATION_VERSION, METRIC_CATALOG, MetricDefinition
@@ -163,6 +163,103 @@ def _member_keys(member: WatchlistMember) -> list[tuple[str, str]]:
     if member.display_name:
         keys.append(("PORTFOLIO_NAME", member.display_name.strip()))
     return keys
+
+
+def _collect_lookup_keys(members: list[WatchlistMember]) -> list[tuple[str, str]]:
+    seen: set[tuple[str, str]] = set()
+    keys: list[tuple[str, str]] = []
+    for member in members:
+        for key in _member_keys(member):
+            if key not in seen:
+                seen.add(key)
+                keys.append(key)
+    return keys
+
+
+def _or_identifier_filter(model: type, keys: list[tuple[str, str]]):
+    if not keys:
+        return None
+    return or_(
+        *(
+            (model.identifier_type == identifier_type)
+            & (model.identifier == identifier)
+            for identifier_type, identifier in keys
+        )
+    )
+
+
+def _load_latest_snapshots_scoped(
+    session: Session,
+    keys: list[tuple[str, str]],
+    *,
+    computation_version: str,
+) -> dict[tuple[str, str], FundamentalSnapshot]:
+    clause = _or_identifier_filter(FundamentalSnapshot, keys)
+    if clause is None:
+        return {}
+    rows = session.scalars(
+        select(FundamentalSnapshot).where(
+            clause,
+            FundamentalSnapshot.computation_version == computation_version,
+        )
+    ).all()
+    return _index_latest_snapshots(list(rows))
+
+
+def _load_latest_valuations_scoped(
+    session: Session,
+    keys: list[tuple[str, str]],
+) -> dict[tuple[str, str], ValuationSnapshot]:
+    clause = _or_identifier_filter(ValuationSnapshot, keys)
+    if clause is None:
+        return {}
+    rows = session.scalars(select(ValuationSnapshot).where(clause)).all()
+    return _index_latest_valuations(list(rows))
+
+
+def _load_latest_promoter_scoped(
+    session: Session,
+    keys: list[tuple[str, str]],
+) -> dict[tuple[str, str], PromoterSnapshot]:
+    clause = _or_identifier_filter(PromoterSnapshot, keys)
+    if clause is None:
+        return {}
+    rows = session.scalars(select(PromoterSnapshot).where(clause)).all()
+    return _index_latest_promoter(list(rows))
+
+
+def _load_latest_annual_scoped(
+    session: Session,
+    keys: list[tuple[str, str]],
+) -> dict[tuple[str, str], AnnualFundamentalsSnapshot]:
+    clause = _or_identifier_filter(AnnualFundamentalsSnapshot, keys)
+    if clause is None:
+        return {}
+    rows = session.scalars(select(AnnualFundamentalsSnapshot).where(clause)).all()
+    return _index_latest_annual(list(rows))
+
+
+def member_fundamentals_status(
+    session: Session,
+    member: WatchlistMember,
+    *,
+    computation_version: str = COMPUTATION_VERSION,
+) -> tuple[bool, bool]:
+    """Return (has_fundamentals, fundamentals_stale) without building full screen."""
+    keys = _member_keys(member)
+    clause = _or_identifier_filter(FundamentalSnapshot, keys)
+    if clause is None:
+        return False, True
+    rows = session.scalars(
+        select(FundamentalSnapshot).where(
+            clause,
+            FundamentalSnapshot.computation_version == computation_version,
+        )
+    ).all()
+    if not rows:
+        return False, True
+    latest = max(rows, key=lambda row: row.period_end_date)
+    return True, _is_stale(latest.retrieved_at)
 
 
 def _index_latest_snapshots(
@@ -330,12 +427,25 @@ def _member_bse_codes(members: list[WatchlistMember]) -> list[str]:
 _VALUATION_FRESH_HOURS = 6
 
 
-def _valuation_needs_refresh(row: ValuationSnapshot | None) -> bool:
+def _valuation_needs_refresh(
+    row: ValuationSnapshot | None,
+    *,
+    column_keys: tuple[str, ...] = (),
+) -> bool:
     if row is None:
         return True
-    # Hollow rows are useless — force a re-fetch.
-    if row.market_cap_cr is None and row.pe_ratio is None:
+    quote_cols = {
+        col
+        for col in column_keys
+        if col in VALUATION_FIELDS and not col.startswith("return_") and col != "all_time_high"
+    }
+    if not quote_cols:
+        quote_cols = {"market_cap_cr", "pe_ratio", "last_price"}
+    if all(getattr(row, col, None) is None for col in quote_cols):
         return True
+    for col in column_keys:
+        if col in VALUATION_FIELDS and getattr(row, col, None) is None:
+            return True
     if row.as_of_date == date.today():
         return False
     computed = row.computed_at
@@ -348,10 +458,29 @@ def _valuation_needs_refresh(row: ValuationSnapshot | None) -> bool:
     return True
 
 
-def _promoter_needs_refresh(row: PromoterSnapshot | None) -> bool:
+def _promoter_needs_refresh(
+    row: PromoterSnapshot | None,
+    *,
+    column_keys: tuple[str, ...] = (),
+) -> bool:
     if row is None:
         return True
-    return row.promoter_holding_pct is None and row.pledged_pct is None
+    need_cols = [col for col in column_keys if col in PROMOTER_FIELDS] or [
+        "promoter_holding_pct",
+        "pledged_pct",
+    ]
+    return any(getattr(row, col, None) is None for col in need_cols)
+
+
+def _annual_needs_refresh(row: AnnualFundamentalsSnapshot | None) -> bool:
+    if row is None:
+        return True
+    return (
+        row.current_ratio is None
+        and row.roce is None
+        and row.roe is None
+        and row.debt_to_equity is None
+    )
 
 
 def ensure_screen_metrics(
@@ -359,10 +488,9 @@ def ensure_screen_metrics(
     members: list[WatchlistMember],
     column_keys: tuple[str, ...],
 ) -> None:
-    """Fetch and persist missing valuation/promoter metrics for visible columns.
+    """Fetch and persist missing valuation/promoter/annual metrics.
 
-    Called on screener load so newly selected columns populate without a full
-    watchlist refresh.
+    Intended for explicit user action or refresh — not routine screen loads.
     """
     need_valuation = any(col in VALUATION_FIELDS for col in column_keys)
     need_promoter = any(col in PROMOTER_FIELDS for col in column_keys)
@@ -374,29 +502,32 @@ def ensure_screen_metrics(
     if not codes:
         return
 
+    lookup_keys = _collect_lookup_keys(members)
     missing: list[str] = []
     missing_p: list[str] = []
 
     if need_valuation:
-        valuations = session.scalars(select(ValuationSnapshot)).all()
-        latest = _index_latest_valuations(list(valuations))
+        latest = _load_latest_valuations_scoped(session, lookup_keys)
         missing = [
             code
             for code in codes
-            if _valuation_needs_refresh(latest.get(("BSE_CODE", code)))
+            if _valuation_needs_refresh(
+                latest.get(("BSE_CODE", code)),
+                column_keys=column_keys,
+            )
         ]
 
     if need_promoter:
-        promoters = session.scalars(select(PromoterSnapshot)).all()
-        latest_p = _index_latest_promoter(list(promoters))
+        latest_p = _load_latest_promoter_scoped(session, lookup_keys)
         missing_p = [
             code
             for code in codes
-            if _promoter_needs_refresh(latest_p.get(("BSE_CODE", code)))
+            if _promoter_needs_refresh(
+                latest_p.get(("BSE_CODE", code)),
+                column_keys=column_keys,
+            )
         ]
 
-    # Valuation + promoter in parallel via their own worker pools; run sequentially
-    # here only to keep Session writes single-threaded.
     if missing:
         try:
             from pms_platform.fundamentals.providers.valuation import (
@@ -436,17 +567,11 @@ def ensure_screen_metrics(
                 pass
 
     if need_annual:
-        annual_rows = session.scalars(select(AnnualFundamentalsSnapshot)).all()
-        latest_a = _index_latest_annual(list(annual_rows))
+        latest_a = _load_latest_annual_scoped(session, lookup_keys)
         missing_a = [
             code
             for code in codes
-            if latest_a.get(("BSE_CODE", code)) is None
-            or (
-                latest_a[("BSE_CODE", code)].current_ratio is None
-                and latest_a[("BSE_CODE", code)].roce is None
-                and latest_a[("BSE_CODE", code)].roe is None
-            )
+            if _annual_needs_refresh(latest_a.get(("BSE_CODE", code)))
         ]
         if missing_a:
             try:
@@ -456,28 +581,23 @@ def ensure_screen_metrics(
 
                 refresh_annual_fundamentals(
                     session,
-                    missing_a[:8],
+                    missing_a,
                     years_back=1,
-                    request_delay_sec=0.3,
+                    request_delay_sec=0.15,
                 )
                 session.flush()
             except Exception:
                 pass
 
 
-def build_watchlist_screen(
+def assemble_screen_rows(
     session: Session,
     watchlist_id: int,
     *,
-    columns: str | None = None,
-    sort: str | None = None,
+    column_keys: tuple[str, ...],
     computation_version: str = COMPUTATION_VERSION,
 ) -> list[ScreenRow]:
-    """Build screener rows for a watchlist with optional column filter and sort."""
-    wl.get_watchlist(session, watchlist_id)
-    column_keys = parse_columns(columns)
-    sort_column, sort_direction = parse_sort(sort)
-
+    """Join snapshot tables into screener rows (read-only, no BSE fetches)."""
     members = list(
         session.scalars(
             select(WatchlistMember)
@@ -487,23 +607,15 @@ def build_watchlist_screen(
         ).all()
     )
 
-    ensure_screen_metrics(session, members, column_keys)
-
-    snapshots = session.scalars(
-        select(FundamentalSnapshot).where(
-            FundamentalSnapshot.computation_version == computation_version
-        )
-    ).all()
-    latest_by_key = _index_latest_snapshots(list(snapshots))
-
-    valuations = session.scalars(select(ValuationSnapshot)).all()
-    latest_valuation_by_key = _index_latest_valuations(list(valuations))
-
-    promoter_rows = session.scalars(select(PromoterSnapshot)).all()
-    promoter_by_key = _index_latest_promoter(list(promoter_rows))
-
-    annual_rows = session.scalars(select(AnnualFundamentalsSnapshot)).all()
-    annual_by_key = _index_latest_annual(list(annual_rows))
+    lookup_keys = _collect_lookup_keys(members)
+    latest_by_key = _load_latest_snapshots_scoped(
+        session,
+        lookup_keys,
+        computation_version=computation_version,
+    )
+    latest_valuation_by_key = _load_latest_valuations_scoped(session, lookup_keys)
+    promoter_by_key = _load_latest_promoter_scoped(session, lookup_keys)
+    annual_by_key = _load_latest_annual_scoped(session, lookup_keys)
 
     rows: list[ScreenRow] = []
     for member in members:
@@ -531,7 +643,39 @@ def build_watchlist_screen(
                 metrics=_metric_values(snapshot, valuation, promoter, annual, column_keys),
             )
         )
+    return rows
 
+
+def build_watchlist_screen(
+    session: Session,
+    watchlist_id: int,
+    *,
+    columns: str | None = None,
+    sort: str | None = None,
+    computation_version: str = COMPUTATION_VERSION,
+) -> list[ScreenRow]:
+    """Build screener rows — prefers materialized cache, else snapshot join."""
+    from pms_platform.watchlists.metrics_cache import load_cached_screen_rows
+
+    wl.get_watchlist(session, watchlist_id)
+    column_keys = parse_columns(columns)
+    sort_column, sort_direction = parse_sort(sort)
+
+    cached = load_cached_screen_rows(
+        session,
+        watchlist_id,
+        column_keys=column_keys,
+        computation_version=computation_version,
+    )
+    if cached is not None:
+        return sort_screen_rows(cached, column=sort_column, direction=sort_direction)
+
+    rows = assemble_screen_rows(
+        session,
+        watchlist_id,
+        column_keys=column_keys,
+        computation_version=computation_version,
+    )
     return sort_screen_rows(rows, column=sort_column, direction=sort_direction)
 
 

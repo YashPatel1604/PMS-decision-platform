@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "@/lib/api";
+import { api, type AuthUser } from "@/lib/api";
 
 const links = [
   { href: "/", label: "Dashboard" },
@@ -20,7 +20,15 @@ const links = [
   { href: "/data", label: "Data" },
 ];
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  user,
+  onLogout,
+}: {
+  children: React.ReactNode;
+  user?: AuthUser | null;
+  onLogout?: () => void;
+}) {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
 
@@ -86,6 +94,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               {refreshMutation.isPending ? "Refreshing…" : "Refresh data"}
             </button>
+            {user ? (
+              <div className="flex items-center gap-2 border-l border-stone-200 pl-2">
+                <span className="text-sm text-stone-600">{user.display_name}</span>
+                {onLogout ? (
+                  <button
+                    type="button"
+                    onClick={() => onLogout()}
+                    className="rounded-lg px-3 py-2 text-sm font-medium text-stone-600 hover:bg-stone-100"
+                  >
+                    Log out
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
         {message ? (

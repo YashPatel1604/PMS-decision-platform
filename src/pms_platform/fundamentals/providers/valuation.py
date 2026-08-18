@@ -172,6 +172,7 @@ def refresh_valuation_snapshots(
             ValuationSnapshot.identifier.in_(bse_codes),
             ValuationSnapshot.market_cap_cr.is_(None),
             ValuationSnapshot.pe_ratio.is_(None),
+            ValuationSnapshot.last_price.is_(None),
         )
     ).all()
     for row in hollow:

@@ -51,9 +51,6 @@ def build_watchlist_health(session: Session, watchlist_id: int) -> WatchlistHeal
     resolved = unresolved = stale_res = 0
     with_fund = missing_fund = stale_fund = 0
 
-    screen_rows = scr.build_watchlist_screen(session, watchlist_id)
-    screen_by_member = {row.member_id: row for row in screen_rows}
-
     for member in members:
         if member.resolution_status == "RESOLVED" and not res.is_resolution_stale(member):
             resolved += 1
@@ -61,10 +58,10 @@ def build_watchlist_health(session: Session, watchlist_id: int) -> WatchlistHeal
             unresolved += 1
         if res.is_resolution_stale(member):
             stale_res += 1
-        screen = screen_by_member.get(member.member_id)
-        if screen and screen.has_fundamentals:
+        has_fund, is_stale = scr.member_fundamentals_status(session, member)
+        if has_fund:
             with_fund += 1
-            if screen.fundamentals_stale:
+            if is_stale:
                 stale_fund += 1
         else:
             missing_fund += 1

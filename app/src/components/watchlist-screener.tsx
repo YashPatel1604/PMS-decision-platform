@@ -176,7 +176,7 @@ export function WatchlistScreener({ watchlistId }: { watchlistId: number }) {
         ) : null}
         {missingCount > 0 ? (
           <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-700">
-            {missingCount} no fundamentals
+            {missingCount} no fundamentals — run Refresh all or wait for weekly job
           </span>
         ) : null}
         <button
@@ -197,6 +197,9 @@ export function WatchlistScreener({ watchlistId }: { watchlistId: number }) {
           Export CSV
         </button>
       </div>
+      <p className="text-xs text-stone-500">
+        Screener reads saved data from the database. Use Refresh all or the weekly scheduled job to update metrics.
+      </p>
 
       {pickerOpen ? (
         <div className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm">

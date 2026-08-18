@@ -26,5 +26,14 @@ class Settings(BaseSettings):
     fundamentals_provider: str = "manual"
     log_level: str = "INFO"
 
+    # Auth (invite-only). Production VM: AUTH_DISABLED=0 + strong AUTH_SECRET.
+    # Local solo Docker may set AUTH_DISABLED=1 until users exist.
+    auth_disabled: bool = False
+    auth_secret: str = ""
+    auth_session_max_age_seconds: int = 60 * 60 * 24 * 14  # 14 days
+    auth_cookie_secure: bool = False
+    # Comma-separated extra CORS origins (Tailscale UI URL, etc.)
+    cors_origins: str = ""
+
 
 settings = Settings()

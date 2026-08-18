@@ -42,6 +42,10 @@ services:
       UPLOAD_DIR: /data/uploads
       YAHOO_FINANCE_BASE_URL: ${YAHOO_FINANCE_BASE_URL:-https://query1.finance.yahoo.com}
       FUNDAMENTALS_PROVIDER: ${FUNDAMENTALS_PROVIDER:-manual}
+      AUTH_DISABLED: ${AUTH_DISABLED:-1}
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-0}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
     volumes:
       - type: bind
         source: ${RESEARCH_DIR:?Set RESEARCH_DIR in .env to your Research folder}

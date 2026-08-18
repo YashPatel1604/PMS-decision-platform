@@ -6,8 +6,15 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from pms_platform.config import settings
 from pms_platform.db.base import Base
 from pms_platform.models import ImportBatch, Security
+
+
+@pytest.fixture(autouse=True)
+def _default_auth_disabled_for_legacy_api_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep existing smoke tests working without cookies unless a test opts in."""
+    monkeypatch.setattr(settings, "auth_disabled", True)
 
 
 @pytest.fixture
