@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -158,7 +158,20 @@ export function WatchlistsView() {
   const [activeTab, setActiveTab] = useState<"members" | "screener" | "health">("members");
   const [newListName, setNewListName] = useState("");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [includeYahoo, setIncludeYahoo] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [showPaste, setShowPaste] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    setIncludeYahoo(false);
+  }, [debouncedSearch]);
 
   const listsQuery = useQuery({
     queryKey: ["watchlists"],
@@ -181,9 +194,9 @@ export function WatchlistsView() {
   });
 
   const searchQuery = useQuery({
-    queryKey: ["watchlist-search", search],
-    queryFn: () => api.searchWatchlistSecurities(search),
-    enabled: search.trim().length >= 2,
+    queryKey: ["watchlist-search", debouncedSearch, includeYahoo],
+    queryFn: () => api.searchWatchlistSecurities(debouncedSearch, 20, includeYahoo),
+    enabled: debouncedSearch.trim().length >= 2,
   });
 
   const invalidate = async () => {
@@ -227,6 +240,18 @@ export function WatchlistsView() {
     onSuccess: async () => {
       setSearch("");
       await notify("Stock added to watchlist");
+    },
+    onError: (err: Error) => setMessage(err.message),
+  });
+
+  const bulkMutation = useMutation({
+    mutationFn: () => api.addWatchlistMembersBulk(activeWatchlist!.watchlist_id, pasteText),
+    onSuccess: async (result) => {
+      setPasteText("");
+      setShowPaste(false);
+      await notify(
+        `Added ${result.added} (${result.pending} pending resolve), skipped ${result.skipped}`,
+      );
     },
     onError: (err: Error) => setMessage(err.message),
   });
@@ -398,7 +423,7 @@ export function WatchlistsView() {
                   disabled={refreshMutation.isPending}
                   className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900 hover:bg-emerald-100"
                 >
-                  {refreshMutation.isPending ? "Refreshing…" : "Refresh all"}
+                  {refreshMutation.isPending ? "Refreshing…" : "Refresh symbols & alerts"}
                 </button>
                 {activeTab === "members" ? (
                   <>
@@ -467,13 +492,26 @@ export function WatchlistsView() {
                   type="search"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search master + Yahoo (min 2 chars)"
+                  placeholder="Search security master (min 2 chars)"
                   className="mt-2 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm outline-none ring-emerald-600/30 focus:ring-2"
                 />
-                {search.trim().length >= 2 ? (
+                {debouncedSearch.trim().length >= 2 ? (
                   <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-100">
-                    {hits.length === 0 ? (
-                      <li className="px-3 py-2 text-sm text-stone-500">No matches</li>
+                    {searchQuery.isFetching ? (
+                      <li className="px-3 py-2 text-sm text-stone-500">Searching…</li>
+                    ) : hits.length === 0 ? (
+                      <li className="px-3 py-2 text-sm text-stone-500">
+                        No master matches.
+                        {!includeYahoo ? (
+                          <button
+                            type="button"
+                            onClick={() => setIncludeYahoo(true)}
+                            className="ml-2 text-emerald-800 underline"
+                          >
+                            Search Yahoo
+                          </button>
+                        ) : null}
+                      </li>
                     ) : (
                       hits.map((hit, index) => (
                         <li
@@ -500,6 +538,36 @@ export function WatchlistsView() {
                       ))
                     )}
                   </ul>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setShowPaste((open) => !open)}
+                  className="mt-3 text-xs font-medium text-stone-600 underline"
+                >
+                  {showPaste ? "Hide paste" : "Paste names"}
+                </button>
+                {showPaste ? (
+                  <div className="mt-2 space-y-2">
+                    <textarea
+                      value={pasteText}
+                      onChange={(e) => setPasteText(e.target.value)}
+                      rows={5}
+                      placeholder={"One name or NSE symbol per line\nCaplin Point\nHERITGFOOD"}
+                      className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm outline-none ring-emerald-600/30 focus:ring-2"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => bulkMutation.mutate()}
+                      disabled={bulkMutation.isPending || pasteText.trim().length === 0}
+                      className="rounded-md bg-emerald-800 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+                    >
+                      {bulkMutation.isPending ? "Adding…" : "Add pasted names"}
+                    </button>
+                    <p className="text-xs text-stone-500">
+                      Master hits resolve immediately. Unknown names stay pending until
+                      Re-resolve stale.
+                    </p>
+                  </div>
                 ) : null}
               </div>
 

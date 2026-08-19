@@ -1004,9 +1004,9 @@ export const api = {
     }),
   deleteWatchlist: (watchlistId: number) =>
     request<void>(`/watchlists/${watchlistId}?confirm=true`, { method: "DELETE" }),
-  searchWatchlistSecurities: (q: string, limit = 20) =>
+  searchWatchlistSecurities: (q: string, limit = 20, yahoo = false) =>
     request<WatchlistSearchHit[]>(
-      `/watchlists/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+      `/watchlists/search?q=${encodeURIComponent(q)}&limit=${limit}&yahoo=${yahoo ? "true" : "false"}`,
     ),
   listWatchlistMembers: (watchlistId: number) =>
     request<WatchlistMember[]>(`/watchlists/${watchlistId}/members`),
@@ -1025,6 +1025,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  addWatchlistMembersBulk: (watchlistId: number, text: string) =>
+    request<{ added: number; skipped: number; pending: number }>(
+      `/watchlists/${watchlistId}/members/bulk`,
+      { method: "POST", body: JSON.stringify({ text }) },
+    ),
   updateWatchlistMember: (
     watchlistId: number,
     memberId: number,
@@ -1105,7 +1110,7 @@ export const api = {
       `/watchlists/${watchlistId}/alerts/${alertId}/acknowledge`,
       { method: "POST" },
     ),
-  refreshWatchlist: (watchlistId: number, includeFundamentals = true) =>
+  refreshWatchlist: (watchlistId: number, includeFundamentals = false) =>
     request<WatchlistRefreshResult>(
       `/watchlists/${watchlistId}/refresh?include_fundamentals=${includeFundamentals ? "true" : "false"}`,
       { method: "POST" },

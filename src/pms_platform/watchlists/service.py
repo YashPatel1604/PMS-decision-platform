@@ -221,9 +221,13 @@ def search_securities(session: Session, query: str, *, limit: int = 20) -> list[
 
 
 def search_securities_combined(
-    session: Session, query: str, *, limit: int = 20
+    session: Session,
+    query: str,
+    *,
+    limit: int = 20,
+    include_yahoo: bool = False,
 ) -> list[CombinedSearchHit]:
-    """Search security master first, then Yahoo for names not in master."""
+    """Search security master first. Yahoo is opt-in so typeahead stays local."""
     q = query.strip()
     if not q:
         return []
@@ -241,14 +245,11 @@ def search_securities_combined(
         )
         for row in master
     ]
-    if len(hits) >= limit:
+    if not include_yahoo or len(hits) >= limit:
         return hits[:limit]
 
     seen = {h.portfolio_name.casefold() for h in hits}
-    seen_symbols = {
-        s for h in hits for s in (h.nse_symbol, h.bse_code) if s
-    }
-    from pms_platform.market_data.bse_scrip_universe import resolve_bse_code
+    seen_symbols = {s for h in hits for s in (h.nse_symbol, h.bse_code) if s}
     from pms_platform.market_data.yahoo_finance import YahooFinanceClient
 
     try:
@@ -259,14 +260,14 @@ def search_securities_combined(
     for item in yahoo_hits:
         if item.name.casefold() in seen or item.symbol in seen_symbols:
             continue
-        bse = item.symbol if item.exchange == "BSE" else resolve_bse_code(company_name=item.name)
+        # ponytail: skip BSE universe download on typeahead; add/resolve fills codes.
         hits.append(
             CombinedSearchHit(
                 source="YAHOO",
                 security_id=None,
                 portfolio_name=item.name,
                 nse_symbol=item.symbol if item.exchange == "NSE" else None,
-                bse_code=bse,
+                bse_code=item.symbol if item.exchange == "BSE" else None,
                 isin=None,
                 sector=None,
                 industry=None,
@@ -460,6 +461,100 @@ def _apply_resolved_to_member(member: WatchlistMember, resolved: ResolvedMember)
     member.resolution_source = resolved.resolution_source
     member.resolution_note = resolved.resolution_note
     member.resolved_at = datetime.now(timezone.utc)
+
+
+def parse_pasted_names(text: str) -> list[str]:
+    """Split a paste blob on newlines/commas; first-seen order, blanks dropped."""
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for chunk in text.replace(",", "\n").splitlines():
+        name = chunk.strip()
+        if not name:
+            continue
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(name)
+    return ordered
+
+
+@dataclass(frozen=True)
+class BulkAddResult:
+    added: int
+    skipped: int
+    pending: int
+
+
+def add_members_by_names(
+    session: Session, watchlist_id: int, names: list[str]
+) -> BulkAddResult:
+    """Add pasted names. Master hits resolve now; others stay PENDING (no Yahoo)."""
+    get_watchlist(session, watchlist_id)
+    added = skipped = pending = 0
+    for index, name in enumerate(names):
+        if member_count(session, watchlist_id) >= MAX_MEMBERS_PER_WATCHLIST:
+            skipped += len(names) - index
+            break
+        security = _lookup_master_name(session, name)
+        try:
+            if security is not None:
+                add_member(
+                    session,
+                    watchlist_id,
+                    MemberInput(security_id=security.security_id, display_name=name),
+                )
+                added += 1
+                continue
+            _add_pending_member(session, watchlist_id, name)
+            added += 1
+            pending += 1
+        except DuplicateMemberError:
+            skipped += 1
+    session.flush()
+    return BulkAddResult(added=added, skipped=skipped, pending=pending)
+
+
+def _lookup_master_name(session: Session, name: str) -> Security | None:
+    key = name.strip()
+    if not key:
+        return None
+    row = session.scalar(select(Security).where(Security.portfolio_name == key))
+    if row is not None:
+        return row
+    upper = key.upper()
+    return session.scalar(
+        select(Security).where(
+            or_(
+                Security.current_nse_symbol == upper,
+                Security.historical_nse_symbol == upper,
+            )
+        )
+    )
+
+
+def _add_pending_member(session: Session, watchlist_id: int, name: str) -> WatchlistMember:
+    resolved = ResolvedMember(
+        security_id=None,
+        display_name=name,
+        nse_symbol=None,
+        bse_code=None,
+        isin=None,
+        resolution_status="PENDING",
+        resolution_source=None,
+        resolution_note="Bulk paste; use Re-resolve stale for BSE/Yahoo",
+    )
+    _assert_not_duplicate(session, watchlist_id, resolved)
+    row = WatchlistMember(
+        watchlist_id=watchlist_id,
+        display_name=name,
+        resolution_status="PENDING",
+        resolution_note=resolved.resolution_note,
+        resolved_at=datetime.now(timezone.utc),
+    )
+    session.add(row)
+    session.flush()
+    return row
 
 
 def add_member(session: Session, watchlist_id: int, data: MemberInput) -> WatchlistMember:

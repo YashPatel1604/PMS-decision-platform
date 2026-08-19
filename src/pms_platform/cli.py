@@ -635,6 +635,50 @@ def create_user_cmd(
         session.close()
 
 
+def seed_watchlist_cmd(
+    *,
+    path: Path | None,
+    name: str | None,
+    force: bool,
+) -> int:
+    """Seed the default (or named) watchlist from Research Fair Value Excel."""
+    from pms_platform.watchlists.seed import (
+        research_fair_value_watchlist_path,
+        seed_watchlist,
+    )
+    from pms_platform.watchlists.service import WatchlistError
+
+    source = path or research_fair_value_watchlist_path()
+    if source is None:
+        print(
+            "Watchlist Excel not found. Pass --file or keep "
+            "Research/Portfolio/Stocks_FairValue_Watchlist.xlsx on this device.",
+            file=sys.stderr,
+        )
+        return 1
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        result = seed_watchlist(session, path=source, name=name, force=force)
+        session.commit()
+        print(
+            f"Seeded watchlist '{result.watchlist_name}' "
+            f"(id={result.watchlist_id}): added {result.added}, "
+            f"skipped {result.skipped}, names {result.names}"
+        )
+        return 0
+    except WatchlistError as exc:
+        session.rollback()
+        print(str(exc), file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        print(f"seed-watchlist failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
 def sync_insider_disclosures_cmd(days: int = 90) -> int:
     """Backfill BSE insider filings day-by-day into insider_disclosure_days."""
     from pms_platform.market_data.insider_store import sync_insider_days
@@ -814,6 +858,32 @@ def main() -> None:
         help="Password (omit to prompt interactively)",
     )
 
+    seed_watchlist_parser = subparsers.add_parser(
+        "seed-watchlist",
+        help="Seed a watchlist from Research Stocks_FairValue_Watchlist.xlsx",
+    )
+    seed_watchlist_parser.add_argument(
+        "--from-research",
+        action="store_true",
+        help="Read Research/Portfolio/Stocks_FairValue_Watchlist.xlsx (default if --file is omitted)",
+    )
+    seed_watchlist_parser.add_argument(
+        "--file",
+        type=Path,
+        default=None,
+        help="Excel path (default: Research/Portfolio/Stocks_FairValue_Watchlist.xlsx)",
+    )
+    seed_watchlist_parser.add_argument(
+        "--name",
+        default=None,
+        help="Watchlist to create or fill (default: existing default, else 'Fair Value')",
+    )
+    seed_watchlist_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Add missing names when the target watchlist already has members",
+    )
+
     insider_parser = subparsers.add_parser(
         "sync-insider-disclosures",
         help="Fetch BSE insider filings day-by-day and store them (BSE search is capped at 25 rows)",
@@ -896,6 +966,10 @@ def main() -> None:
                 role=args.role,
                 password=args.password,
             )
+        )
+    if args.command == "seed-watchlist":
+        raise SystemExit(
+            seed_watchlist_cmd(path=args.file, name=args.name, force=args.force)
         )
     if args.command == "sync-insider-disclosures":
         raise SystemExit(sync_insider_disclosures_cmd(days=args.days))

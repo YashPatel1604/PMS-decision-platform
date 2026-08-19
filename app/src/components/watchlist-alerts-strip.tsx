@@ -62,7 +62,7 @@ export function WatchlistAlertsStrip({ watchlistId }: { watchlistId: number }) {
 
   const alertsQuery = useQuery({
     queryKey: ["watchlist-alerts", watchlistId],
-    queryFn: () => api.listWatchlistAlerts(watchlistId, { refresh: true }),
+    queryFn: () => api.listWatchlistAlerts(watchlistId, { refresh: false }),
     enabled: watchlistId > 0,
   });
 
@@ -98,6 +98,7 @@ export function WatchlistAlertsStrip({ watchlistId }: { watchlistId: number }) {
           <p className="text-sm font-semibold text-stone-900">Promoter & insider alerts</p>
           <p className="text-xs text-stone-500">
             SAST (Reg 29) and Insider Trading 2015 filtered to this watchlist.
+            Use Refresh alerts to poll BSE.
           </p>
         </div>
         <button

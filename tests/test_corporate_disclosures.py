@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -13,6 +13,7 @@ from pms_platform.market_data.bse_corporate_disclosures import (
 )
 from pms_platform.market_data.insider_store import sync_insider_days
 from pms_platform.models.insider_disclosure_day import InsiderDisclosureDay
+from pms_platform.watchlists import service as wl
 
 
 def test_normalize_sast_row_resolves_isin() -> None:
@@ -137,6 +138,104 @@ def test_insider_store_fetches_one_day_at_a_time(session) -> None:
         )
     assert fetched_again == 1
     assert calls == [(date(2026, 8, 18), date(2026, 8, 18))]
+
+
+def test_insider_store_merges_watchlist_scrips_when_day_capped(session) -> None:
+    watchlist = wl.create_watchlist(session, name="Core")
+    wl.add_member(
+        session,
+        watchlist.watchlist_id,
+        wl.MemberInput(display_name="HDFC Bank", bse_code="500570"),
+    )
+    session.commit()
+
+    def fake(from_date: date, to_date: date, scrip_code: str = "") -> list[dict]:
+        if scrip_code == "500570":
+            return [
+                {
+                    "Fld_ID": 888001,
+                    "Fld_ScripCode": 500570,
+                    "Companyname": "HDFC Bank",
+                    "Fld_PromoterName": "Someone",
+                    "Fld_PersonCatgName": "Promoter",
+                    "Fld_TransactionType": "Acquisition",
+                    "Fld_SecurityNo": 50,
+                    "Fld_StampDate": "2026-08-18T00:00:00",
+                }
+            ]
+        return _fake_bse_insider(from_date, to_date)
+
+    with patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake):
+        sync_insider_days(
+            session,
+            date(2026, 8, 18),
+            date(2026, 8, 18),
+            today=date(2026, 8, 18),
+        )
+        session.commit()
+
+    stored = session.get(InsiderDisclosureDay, date(2026, 8, 18))
+    assert stored is not None
+    assert stored.row_count == 26
+    assert stored.truncated is False
+    codes = {str(row.get("Fld_ScripCode")) for row in stored.rows}
+    assert "500570" in codes
+    assert "500325" in codes
+
+
+def test_insider_store_backfills_historical_truncated_day(session) -> None:
+    session.add(
+        InsiderDisclosureDay(
+            disclosure_date=date(2026, 8, 11),
+            rows=_insider_raw(date(2026, 8, 11), 25),
+            row_count=25,
+            truncated=True,
+            fetched_at=datetime(2026, 8, 11, tzinfo=timezone.utc),
+        )
+    )
+    watchlist = wl.create_watchlist(session, name="Core")
+    wl.add_member(
+        session,
+        watchlist.watchlist_id,
+        wl.MemberInput(display_name="HDFC Bank", bse_code="500570"),
+    )
+    session.commit()
+
+    def fake(from_date: date, to_date: date, scrip_code: str = "") -> list[dict]:
+        if scrip_code == "500570":
+            return [
+                {
+                    "Fld_ID": 111001,
+                    "Fld_ScripCode": 500570,
+                    "Companyname": "HDFC Bank",
+                    "Fld_StampDate": "2026-08-11T00:00:00",
+                }
+            ]
+        return _insider_raw(from_date, 25)
+
+    with patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake):
+        fetched = sync_insider_days(
+            session,
+            date(2026, 8, 11),
+            date(2026, 8, 11),
+            today=date(2026, 8, 18),
+        )
+        session.commit()
+
+    assert fetched == 1
+    stored = session.get(InsiderDisclosureDay, date(2026, 8, 11))
+    assert stored is not None
+    assert stored.row_count == 26
+    assert stored.truncated is False
+
+    with patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake):
+        fetched_again = sync_insider_days(
+            session,
+            date(2026, 8, 11),
+            date(2026, 8, 11),
+            today=date(2026, 8, 18),
+        )
+    assert fetched_again == 0
 
 
 def test_insider_page_keeps_older_days_from_store(session) -> None:

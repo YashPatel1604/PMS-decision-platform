@@ -137,7 +137,7 @@ _PORTFOLIO_SPECS: tuple[ResearchAssetSpec, ...] = (
         key="fair_value_watchlist",
         label="Stocks_FairValue_Watchlist.xlsx",
         role=ResearchAssetRole.NOT_INGESTED,
-        description="Fair-value watchlist research — not auto-imported.",
+        description="Fair-value watchlist research — seed with `pms-platform seed-watchlist`.",
         relative_path="Stocks_FairValue_Watchlist.xlsx",
     ),
     ResearchAssetSpec(

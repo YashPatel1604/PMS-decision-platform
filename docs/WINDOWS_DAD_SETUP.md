@@ -150,11 +150,19 @@ cd $HOME\Apps\PMS-decision-platform
 .\scripts\windows\refresh-watchlist-fundamentals.ps1
 ```
 
-Register all three tasks once:
+Register all three tasks once (run this on Dad’s PC; it cannot be installed from another machine):
 
 ```powershell
 .\scripts\windows\install-watchlist-schedule.ps1
 ```
+
+**One-time Fair Value seed** (names from Research `Stocks_FairValue_Watchlist.xlsx`):
+
+```powershell
+docker compose exec api pms-platform seed-watchlist
+```
+
+If that watchlist already has members, add `--force` to fill in missing names.
 
 Manual full refresh (fundamentals + quotes + alerts):
 

@@ -82,6 +82,16 @@ class WatchlistMemberCreateRequest(BaseModel):
     notes: str | None = None
 
 
+class WatchlistBulkMembersRequest(BaseModel):
+    text: str = Field(min_length=1)
+
+
+class WatchlistBulkMembersResponse(BaseModel):
+    added: int
+    skipped: int
+    pending: int
+
+
 class WatchlistMemberUpdateRequest(BaseModel):
     display_name: str | None = None
     nse_symbol: str | None = None
@@ -375,9 +385,10 @@ def create_watchlist(
 def search_securities(
     q: str = Query(min_length=1),
     limit: int = Query(default=20, ge=1, le=50),
+    yahoo: bool = Query(default=False),
     session: Session = Depends(get_db),
 ) -> list[SecuritySearchHitResponse]:
-    hits = wl.search_securities_combined(session, q, limit=limit)
+    hits = wl.search_securities_combined(session, q, limit=limit, include_yahoo=yahoo)
     return [
         SecuritySearchHitResponse(
             source=row.source,
@@ -647,6 +658,33 @@ def add_member(
         session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _member_response(row)
+
+
+@router.post(
+    "/{watchlist_id}/members/bulk",
+    response_model=WatchlistBulkMembersResponse,
+    status_code=201,
+)
+def add_members_bulk(
+    watchlist_id: int,
+    body: WatchlistBulkMembersRequest,
+    session: Session = Depends(get_db),
+) -> WatchlistBulkMembersResponse:
+    names = wl.parse_pasted_names(body.text)
+    if not names:
+        raise HTTPException(status_code=400, detail="No names to add")
+    try:
+        result = wl.add_members_by_names(session, watchlist_id, names)
+        session.commit()
+    except wl.WatchlistNotFoundError as exc:
+        session.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except wl.WatchlistError as exc:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return WatchlistBulkMembersResponse(
+        added=result.added, skipped=result.skipped, pending=result.pending
+    )
 
 
 @router.patch(

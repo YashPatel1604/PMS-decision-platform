@@ -183,12 +183,20 @@ def fetch_sast_rows(from_date: date, to_date: date) -> list[dict[str, Any]]:
     )
 
 
-def fetch_insider_rows(from_date: date, to_date: date) -> list[dict[str, Any]]:
-    """Insider Trading 2015 disclosures submitted by company."""
+def fetch_insider_rows(
+    from_date: date,
+    to_date: date,
+    scrip_code: str = "",
+) -> list[dict[str, Any]]:
+    """Insider Trading 2015 disclosures submitted by company.
+
+    Market-wide search (empty ``scrip_code``) is capped at 25 rows. Passing a
+    BSE scrip code returns that company's filings without the market-wide cap.
+    """
     return _fetch_table(
         _INSIDER_URL,
         {
-            "scripCode": "",
+            "scripCode": str(scrip_code or "").strip(),
             "Regulation": "",
             "fromDT": _fmt_iso(from_date),
             "ToDate": _fmt_iso(to_date),

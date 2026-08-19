@@ -83,3 +83,30 @@ def test_search_securities(session, sample_security) -> None:
     hits = wl.search_securities(session, "test")
     assert len(hits) == 1
     assert hits[0].portfolio_name == "TestCo"
+
+
+def test_combined_search_skips_yahoo_by_default(session, sample_security) -> None:
+    from unittest.mock import patch
+
+    with patch("pms_platform.market_data.yahoo_finance.YahooFinanceClient") as client:
+        hits = wl.search_securities_combined(session, "test")
+        client.assert_not_called()
+    assert len(hits) == 1
+    assert hits[0].source == "MASTER"
+
+
+def test_parse_and_bulk_add_pending(session, sample_security) -> None:
+    watchlist = wl.create_watchlist(session, name="Paste")
+    names = wl.parse_pasted_names("TestCo\nUnknown Co\nTestCo,  HERITGFOOD")
+    assert names == ["TestCo", "Unknown Co", "HERITGFOOD"]
+    result = wl.add_members_by_names(session, watchlist.watchlist_id, names)
+    session.commit()
+    assert result.added == 3
+    assert result.pending == 2
+    assert result.skipped == 0
+    members = wl.list_members(session, watchlist.watchlist_id)
+    by_name = {m.display_name: m for m in members}
+    assert by_name["TestCo"].security_id == "SEC999"
+    assert by_name["Unknown Co"].resolution_status == "PENDING"
+    again = wl.add_members_by_names(session, watchlist.watchlist_id, ["TestCo"])
+    assert again.skipped == 1

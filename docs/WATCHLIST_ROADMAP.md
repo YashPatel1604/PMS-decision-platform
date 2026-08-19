@@ -18,7 +18,7 @@ Track implementation progress. Check boxes as each item ships to `main`.
 - [x] **P1.8** UI: add/remove members, empty states, confirm delete
 - [x] **P1.9** Nav link in app shell
 - [x] **P1.10** Unit tests: CRUD, duplicate 409, cascade delete, default rules
-- [ ] **P1.11** Optional CLI seed from Research Excel (`seed-watchlist`)
+- [x] **P1.11** Optional CLI seed from Research Excel (`seed-watchlist`)
 
 **Exit criteria:** Dad creates 3 watchlists, adds/removes stocks, survives Docker restart.
 
@@ -128,7 +128,7 @@ Track implementation progress. Check boxes as each item ships to `main`.
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| 1 | **Mostly done** | CRUD + UI shipped; Excel seed CLI pending |
+| 1 | **Done** | CRUD + UI + Excel seed CLI (`seed-watchlist`) |
 | 2 | **Done** | Master → BSE → Yahoo pipeline, resolve API + UI |
 | 3 | **Done** | CSV import, providers, computed snapshots, CLI |
 | 4 | **Done** | Screener tab, column picker, sort, export, stale badges |
@@ -136,4 +136,4 @@ Track implementation progress. Check boxes as each item ships to `main`.
 | 6 | **Done** | Unified refresh API, CLI, Windows script, mutex |
 | 7 | **Done** | Export/import, health dashboard, golden tests, XBRL stub |
 
-Last updated: 2026-08-10
+Last updated: 2026-08-18
