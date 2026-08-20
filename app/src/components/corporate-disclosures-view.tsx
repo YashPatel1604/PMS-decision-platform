@@ -28,7 +28,7 @@ const KIND_COPY: Record<
     description:
       "BSE Regulation 29 system-driven disclosures (acquirer/seller holdings changes from depositories).",
     sourceNote:
-      "Green days include our firms. Orange days have other market filings only. Grey has none. Source: BSE corporates/regulation_29. Default min mcap ₹2,000 Cr.",
+      "Green days include our firms. Orange days have other market filings only. Grey has none. Source: BSE corporates/regulation_29. Table is paged at 25 rows.",
     emptyDay: "No SAST disclosures reported for",
     hasDealsTitle: (d) => `SAST disclosures on ${d}`,
     noDealsTitle: "No SAST disclosures this day",
@@ -40,12 +40,14 @@ const KIND_COPY: Record<
     description:
       "BSE Insider Trading Regulations 2015 disclosures submitted by the company (Reg 7(2)).",
     sourceNote:
-      "Green days include our firms. Orange days have other market filings only. Grey has none. BSE insider API only. Daily sync backfills all scrips ≥ min mcap. Default min mcap ₹2,000 Cr; arbitrage pairs hidden.",
+      "Green = our firms. Orange = other filings. Grey = none. BSE has no market pagination (25-row cap); capped days are completed by per-scrip fetch of all active equities. Table is paged at 25 rows.",
     emptyDay: "No insider disclosures reported for",
     hasDealsTitle: (d) => `Insider disclosures on ${d}`,
     noDealsTitle: "No insider disclosures this day",
   },
 };
+
+const PAGE_SIZE = 25;
 
 function formatQty(value: number | string | null | undefined): string {
   if (value == null) return "—";
@@ -122,9 +124,10 @@ export function InsiderTradingView() {
 function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
   const copy = KIND_COPY[kind];
   const [query, setQuery] = useState("");
-  const [minMarketCapCr, setMinMarketCapCr] = useState("2000");
+  const [minMarketCapCr, setMinMarketCapCr] = useState("");
   const [maxMarketCapCr, setMaxMarketCapCr] = useState("");
   const [hideArb, setHideArb] = useState(true);
+  const [page, setPage] = useState(1);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [viewMonth, setViewMonth] = useState<string | null>(null);
   const [refreshFromBse, setRefreshFromBse] = useState(false);
@@ -207,6 +210,14 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
       return haystack.includes(q);
     });
   }, [disclosuresQuery.data?.rows, query, minCap, maxCap, hideArb, kind]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [selectedDate, query, minCap, maxCap, hideArb, kind]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   if (disclosuresQuery.isLoading && !disclosuresQuery.data) {
     return <p className="text-stone-600">{copy.loading}</p>;
@@ -310,6 +321,9 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
             ) : null}
             <p className="text-sm text-stone-500">
               Showing {filtered.length} of {data.row_count}
+              {filtered.length > PAGE_SIZE
+                ? ` · page ${safePage}/${pageCount}`
+                : ""}
               {minCap != null ? ` · mcap ≥ ${minCap.toLocaleString("en-IN")} Cr` : ""}
               {maxCap != null ? ` · mcap ≤ ${maxCap.toLocaleString("en-IN")} Cr` : ""}
               {" · "}
@@ -339,31 +353,56 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
           No disclosures match the current filters.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
-          <table className="min-w-full text-sm">
-            <thead className="bg-stone-50 text-left text-xs font-semibold uppercase tracking-[0.08em] text-stone-500">
-              <tr>
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Company</th>
-                <th className="px-4 py-3 text-right">Mcap (₹ Cr)</th>
-                <th className="px-4 py-3">Person</th>
-                <th className="px-4 py-3">Category</th>
-                <th className="px-4 py-3">Txn</th>
-                <th className="px-4 py-3 text-right">Qty</th>
-                <th className="px-4 py-3 text-right">Value</th>
-                <th className="px-4 py-3 text-right">% pre→post</th>
-                <th className="px-4 py-3">Portfolio</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((row, index) => (
-                <DisclosureRow
-                  key={`${row.disclosure_date}-${row.bse_code}-${row.person_name}-${row.transaction_type}-${index}`}
-                  row={row}
-                />
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-3">
+          <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
+            <table className="min-w-full text-sm">
+              <thead className="bg-stone-50 text-left text-xs font-semibold uppercase tracking-[0.08em] text-stone-500">
+                <tr>
+                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Company</th>
+                  <th className="px-4 py-3 text-right">Mcap (₹ Cr)</th>
+                  <th className="px-4 py-3">Person</th>
+                  <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Txn</th>
+                  <th className="px-4 py-3 text-right">Qty</th>
+                  <th className="px-4 py-3 text-right">Value</th>
+                  <th className="px-4 py-3 text-right">% pre→post</th>
+                  <th className="px-4 py-3">Portfolio</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.map((row, index) => (
+                  <DisclosureRow
+                    key={`${row.disclosure_date}-${row.bse_code}-${row.person_name}-${row.transaction_type}-${index}`}
+                    row={row}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {pageCount > 1 ? (
+            <div className="flex items-center justify-end gap-3 text-sm text-stone-600">
+              <button
+                type="button"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="rounded-lg border border-stone-200 bg-white px-3 py-1.5 disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <span>
+                Page {safePage} of {pageCount}
+              </span>
+              <button
+                type="button"
+                disabled={safePage >= pageCount}
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                className="rounded-lg border border-stone-200 bg-white px-3 py-1.5 disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
     </div>

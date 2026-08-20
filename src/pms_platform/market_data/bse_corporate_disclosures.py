@@ -14,16 +14,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pms_platform.market_data.bse_disclosed_deals import fetch_bse_market_caps
-from pms_platform.market_data.bse_scrip_universe import bse_codes_at_least_mcap
+from pms_platform.market_data.bse_scrip_universe import all_active_bse_codes
 from pms_platform.market_data.bse_scrip_universe import resolve_bse_code
 from pms_platform.models import InvestmentEpisode, Security
 from pms_platform.models.enums import EpisodeStatus
 from pms_platform.models.watchlist import WatchlistMember
 
 DisclosureKind = Literal["sast", "insider"]
-
-# Matches Insider UI default min mcap filter — scrip backfill uses BSE ListOfScripData Mktcap.
-DEFAULT_INSIDER_MIN_MCAP_CR = Decimal("2000")
 
 _IST = ZoneInfo("Asia/Kolkata")
 _BSE_API = "https://api.bseindia.com/BseIndiaAPI/api"
@@ -223,8 +220,8 @@ def _bse_scrip_from_field(value: object) -> str | None:
 
 
 def insider_backfill_bse_codes(session: Session) -> frozenset[str]:
-    """Portfolio/watchlist plus every active BSE scrip at or above ₹2,000 Cr."""
-    codes: set[str] = set()
+    """Every active BSE equity scrip, plus portfolio/watchlist codes."""
+    codes = set(all_active_bse_codes())
     for raw in session.scalars(
         select(WatchlistMember.bse_code).where(WatchlistMember.bse_code.is_not(None))
     ):
@@ -235,7 +232,6 @@ def insider_backfill_bse_codes(session: Session) -> frozenset[str]:
         code = _bse_scrip_from_field(raw)
         if code:
             codes.add(code)
-    codes.update(bse_codes_at_least_mcap(DEFAULT_INSIDER_MIN_MCAP_CR))
     return frozenset(codes)
 
 

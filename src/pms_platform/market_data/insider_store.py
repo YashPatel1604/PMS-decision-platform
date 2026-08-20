@@ -1,11 +1,8 @@
 """Persist BSE insider filings day-by-day.
 
-BSE ``getCorp_Regulation_ng`` market-wide search (empty scripCode) returns at
-most 25 rows. Querying one calendar day at a time is the website's own search
-path; we store each day so history survives after it falls off that window.
-
-Recent days are re-fetched on sync. Portfolio, watchlist, and large-cap
-(default ≥ ₹2,000 Cr) scrips are fetched once per window and merged by Fld_ID.
+BSE market-wide search returns at most 25 rows (no pagination). When a day hits
+that cap we fetch every active BSE equity scrip and merge by Fld_ID so the day
+is complete. Under-cap days are already complete from the market call.
 """
 
 from __future__ import annotations
@@ -23,10 +20,11 @@ from pms_platform.market_data.bse_corporate_disclosures import (
 )
 from pms_platform.models.insider_disclosure_day import InsiderDisclosureDay
 
-# ponytail: BSE search page size. Upgrade if they ever expose pagination.
+# ponytail: BSE search page size; no API pagination exists.
 _BSE_SEARCH_CAP = 25
 _RECENT_REFRESH_DAYS = 14
-_FETCH_WORKERS = 4
+# ponytail: capped days need ~5k scrip calls; raise if BSE rate-limits.
+_FETCH_WORKERS = 8
 
 
 def _scrip_code(row: dict[str, Any]) -> str:
@@ -147,14 +145,14 @@ def sync_insider_days(
             day = futures[future]
             fetched[day] = future.result()
 
+    # Only capped days need the full scrip sweep — under-cap market results are complete.
     scrip_codes: set[str] = set()
     if coverage:
         for day in pending:
-            present = {
-                _scrip_code(row)
-                for row in fetched.get(day, [])
-                if _scrip_code(row)
-            }
+            rows = fetched.get(day, [])
+            if len(rows) < _BSE_SEARCH_CAP:
+                continue
+            present = {_scrip_code(row) for row in rows if _scrip_code(row)}
             stored = existing.get(day)
             if stored and stored.rows:
                 present |= {_scrip_code(row) for row in stored.rows if _scrip_code(row)}
@@ -166,9 +164,11 @@ def sync_insider_days(
         market = fetched.get(day, [])
         extra = extras_by_day.get(day, [])
         prior = list((existing.get(day).rows if existing.get(day) else None) or [])
-        # Always keep prior extras: market-only refresh must not wipe large-cap rows.
         merged = _merge_insider_rows(market, extra, prior)
-        truncated = len(market) >= _BSE_SEARCH_CAP and not extra
+        if coverage and len(market) >= _BSE_SEARCH_CAP:
+            truncated = False
+        else:
+            truncated = len(market) >= _BSE_SEARCH_CAP
         _store_day(session, day, merged, now=now, truncated=truncated)
     session.flush()
     return len(pending)

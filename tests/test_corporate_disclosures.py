@@ -355,7 +355,7 @@ def test_insider_store_fetches_portfolio_scrip_when_market_under_cap(
                 }
             ]
         if from_date == day:
-            return _insider_raw(day, 10)
+            return _insider_raw(day, 25)
         return []
 
     with (
@@ -371,14 +371,41 @@ def test_insider_store_fetches_portfolio_scrip_when_market_under_cap(
     assert any(code == "532668" for _, _, code in calls if code)
     stored = session.get(InsiderDisclosureDay, day)
     assert stored is not None
-    assert stored.row_count == 11
+    assert stored.row_count == 26
     assert stored.truncated is False
     codes = {_scrip_code(row) for row in stored.rows}
     assert "532668" in codes
 
 
-def test_insider_store_fetches_large_cap_scrip_when_market_under_cap(session) -> None:
-    """Large-cap names (e.g. Corona) must appear even when absent from top-25 market."""
+def test_insider_store_skips_scrip_sweep_when_market_under_cap(session) -> None:
+    day = date(2026, 8, 19)
+    calls: list[str] = []
+
+    def fake(from_date: date, to_date: date, scrip_code: str = "") -> list[dict]:
+        calls.append(scrip_code)
+        if scrip_code:
+            raise AssertionError("scrip fetch should not run under cap")
+        return _insider_raw(day, 10)
+
+    with (
+        patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake),
+        patch(
+            "pms_platform.market_data.insider_store.insider_backfill_bse_codes",
+            return_value=frozenset({"532668", "544644"}),
+        ),
+    ):
+        sync_insider_days(session, day, day, today=date(2026, 8, 20))
+        session.commit()
+
+    assert calls == [""]
+    stored = session.get(InsiderDisclosureDay, day)
+    assert stored is not None
+    assert stored.row_count == 10
+    assert stored.truncated is False
+
+
+def test_insider_store_fetches_large_cap_scrip_when_day_capped(session) -> None:
+    """Large-cap names (e.g. Corona) must appear when market hits the 25-row cap."""
     day = date(2026, 8, 19)
 
     def fake(from_date: date, to_date: date, scrip_code: str = "") -> list[dict]:
@@ -394,7 +421,7 @@ def test_insider_store_fetches_large_cap_scrip_when_market_under_cap(session) ->
                 }
             ]
         if from_date == to_date == day:
-            return _insider_raw(day, 10)
+            return _insider_raw(day, 25)
         return []
 
     with (

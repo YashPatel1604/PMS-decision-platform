@@ -16,6 +16,7 @@ _isin_to_code: dict[str, str] = {}
 _name_to_code: dict[str, str] = {}
 _nse_to_code: dict[str, str] = {}
 _mktcap_by_code: dict[str, Decimal] = {}
+_all_codes: set[str] = set()
 
 
 def _norm_name(value: object) -> str:
@@ -40,7 +41,7 @@ def _bse_headers() -> dict[str, str]:
 
 def refresh_bse_scrip_universe(*, force: bool = False) -> None:
     """Load Active Equity scrips from BSE into in-memory ISIN/name maps."""
-    global _cache_loaded_at, _isin_to_code, _name_to_code, _nse_to_code, _mktcap_by_code
+    global _cache_loaded_at, _isin_to_code, _name_to_code, _nse_to_code, _mktcap_by_code, _all_codes
     now = time.time()
     if not force and _isin_to_code and now - _cache_loaded_at < _CACHE_TTL_SEC:
         return
@@ -64,12 +65,14 @@ def refresh_bse_scrip_universe(*, force: bool = False) -> None:
     name_map: dict[str, str] = {}
     nse_map: dict[str, str] = {}
     mktcap_map: dict[str, Decimal] = {}
+    codes: set[str] = set()
     for row in payload:
         if not isinstance(row, dict):
             continue
         code = str(row.get("SCRIP_CD") or "").strip()
         if not code:
             continue
+        codes.add(code)
         raw_cap = row.get("Mktcap")
         if raw_cap is not None:
             try:
@@ -95,15 +98,14 @@ def refresh_bse_scrip_universe(*, force: bool = False) -> None:
     _name_to_code = name_map
     _nse_to_code = nse_map
     _mktcap_by_code = mktcap_map
+    _all_codes = codes
     _cache_loaded_at = now
 
 
-def bse_codes_at_least_mcap(min_mcap_cr: Decimal) -> frozenset[str]:
-    """Active BSE equity scrip codes with full mcap >= min_mcap_cr (₹ Cr)."""
+def all_active_bse_codes() -> frozenset[str]:
+    """Every active BSE equity scrip code."""
     refresh_bse_scrip_universe()
-    return frozenset(
-        code for code, cap in _mktcap_by_code.items() if cap >= min_mcap_cr
-    )
+    return frozenset(_all_codes)
 
 
 def resolve_bse_code(
