@@ -34,7 +34,11 @@ def _add_price(session, import_batch, security_id, trade_date, close):
     )
 
 
-def test_portfolio_period_return_uses_same_window(session, import_batch, sample_security) -> None:
+def test_portfolio_period_return_uses_same_window(session, import_batch, sample_security, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "pms_platform.analytics.portfolio_calendar_returns.linked_portfolio_return_pct",
+        lambda *_a, **_k: None,
+    )
     other = sample_security
     add_transaction(
         session,

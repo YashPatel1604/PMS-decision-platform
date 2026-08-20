@@ -7,6 +7,7 @@ from pms_platform.api.auth_middleware import AuthMiddleware
 from pms_platform.api.routes import (
     auth,
     backtests,
+    client_portfolio,
     dashboard,
     episodes,
     health,
@@ -14,6 +15,7 @@ from pms_platform.api.routes import (
     imports,
     market_data,
     masters,
+    pivot_strategy,
     watchlists,
 )
 from pms_platform.config import settings
@@ -46,4 +48,10 @@ app.include_router(holdings.router, prefix="/holdings", tags=["holdings"])
 app.include_router(imports.router, prefix="/imports", tags=["imports"])
 app.include_router(masters.router, prefix="/masters", tags=["masters"])
 app.include_router(market_data.router, prefix="/market-data", tags=["market-data"])
+app.include_router(pivot_strategy.router, prefix="/strategy/pivot", tags=["pivot-strategy"])
+app.include_router(
+    client_portfolio.router,
+    prefix="/strategy/client-portfolio",
+    tags=["client-portfolio"],
+)
 app.include_router(watchlists.router, prefix="/watchlists", tags=["watchlists"])

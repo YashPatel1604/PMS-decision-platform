@@ -9,6 +9,8 @@ from typing import Any
 
 import httpx
 
+from pms_platform.market_data.bse_http import bse_headers as _bse_headers
+
 _BSE_LIST_URL = "https://api.bseindia.com/BseIndiaAPI/api/ListOfScripData/w"
 _CACHE_TTL_SEC = 24 * 60 * 60
 _cache_loaded_at = 0.0
@@ -25,18 +27,6 @@ def _norm_name(value: object) -> str:
     text = re.sub(r"\blimited\b", "ltd", text)
     text = re.sub(r"[^a-z0-9 ]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()
-
-
-def _bse_headers() -> dict[str, str]:
-    return {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://www.bseindia.com/",
-    }
 
 
 def refresh_bse_scrip_universe(*, force: bool = False) -> None:

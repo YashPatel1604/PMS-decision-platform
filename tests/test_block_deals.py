@@ -8,12 +8,12 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
-from pms_platform.market_data.block_deals import (
-    BlockDealRow,
-    BlockDealsFetchError,
-    fetch_todays_block_deals,
+from pms_platform.market_data.bse_disclosed_deals import (
+    DisclosedDealRow as BlockDealRow,
+    DisclosedDealsFetchError as BlockDealsFetchError,
+    fetch_disclosed_deals,
     flag_arbitrage_deals,
-    normalize_block_deals_frame,
+    normalize_disclosed_deals_frame,
 )
 
 
@@ -41,8 +41,8 @@ def _row(
 
 
 def test_normalize_empty_frame() -> None:
-    assert normalize_block_deals_frame(pd.DataFrame()) == []
-    assert normalize_block_deals_frame(None) == []
+    assert normalize_disclosed_deals_frame(pd.DataFrame(), kind="block") == []
+    assert normalize_disclosed_deals_frame(None, kind="block") == []
 
 
 def test_normalize_standard_columns() -> None:
@@ -59,7 +59,7 @@ def test_normalize_standard_columns() -> None:
             }
         ]
     )
-    deals = normalize_block_deals_frame(frame)
+    deals = normalize_disclosed_deals_frame(frame, kind="block")
     assert len(deals) == 1
     deal = deals[0]
     assert deal.bse_code == "500325"
@@ -75,7 +75,7 @@ def test_normalize_standard_columns() -> None:
 def test_normalize_missing_required_columns_raises() -> None:
     frame = pd.DataFrame([{"Foo": 1, "Bar": 2}])
     with pytest.raises(BlockDealsFetchError):
-        normalize_block_deals_frame(frame)
+        normalize_disclosed_deals_frame(frame, kind="block")
 
 
 def test_arbitrage_same_firm_buy_and_sell() -> None:
@@ -155,7 +155,7 @@ def test_normalize_purchase_code_p() -> None:
             },
         ]
     )
-    deals = normalize_block_deals_frame(frame)
+    deals = normalize_disclosed_deals_frame(frame, kind="block")
     assert [d.deal_type for d in deals] == ["BUY", "SELL"]
     assert deals[0].deal_date == date(2026, 8, 5)
 
@@ -192,7 +192,7 @@ def test_fetch_todays_block_deals_with_mock_frame() -> None:
             },
         ]
     )
-    latest = fetch_todays_block_deals(
+    latest = fetch_disclosed_deals("block", 
         session=None,
         fetch_frame=lambda: frame,
     )
@@ -201,7 +201,7 @@ def test_fetch_todays_block_deals_with_mock_frame() -> None:
     assert latest.arbitrage_deal_count == 2
     assert latest.available_dates == (date(2026, 8, 6), date(2026, 8, 5))
 
-    prior = fetch_todays_block_deals(
+    prior = fetch_disclosed_deals("block", 
         session=None,
         fetch_frame=lambda: frame,
         as_of_date=date(2026, 8, 5),

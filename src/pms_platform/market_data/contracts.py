@@ -79,8 +79,6 @@ ADJUSTMENT_BASES: frozenset[str] = frozenset(
 
 REQUIRED_BENCHMARKS: tuple[str, ...] = ("BSE_SMALLCAP",)
 
-OPTIONAL_BENCHMARKS: tuple[str, ...] = ()
-
 # Securities requiring explicit successor confirmation before price chaining.
 UNCONFIRMED_SUCCESSOR_PORTFOLIO_NAMES: frozenset[str] = frozenset({"Geometric", "Llyod Electric"})
 

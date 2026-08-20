@@ -66,9 +66,11 @@ def heritage_security(session, import_batch: ImportBatch) -> Security:
     return row
 
 
+@patch("pms_platform.watchlists.resolution.resolve_bse_code", return_value=None)
 @patch("pms_platform.watchlists.alerts.fetch_disclosures_for_codes")
 def test_poll_creates_alert_for_watchlist_member(
     mock_fetch,
+    _mock_bse,
     session,
     heritage_security,
 ) -> None:
@@ -91,8 +93,9 @@ def test_poll_creates_alert_for_watchlist_member(
     assert alerts[0].kind == "sast"
 
 
+@patch("pms_platform.watchlists.resolution.resolve_bse_code", return_value=None)
 @patch("pms_platform.watchlists.alerts.fetch_disclosures_for_codes")
-def test_poll_scoped_to_watchlist_bse_codes(mock_fetch, session, heritage_security) -> None:
+def test_poll_scoped_to_watchlist_bse_codes(mock_fetch, _mock_bse, session, heritage_security) -> None:
     mock_fetch.side_effect = [
         [_other_sast_row()],
         [],
@@ -108,8 +111,9 @@ def test_poll_scoped_to_watchlist_bse_codes(mock_fetch, session, heritage_securi
     assert session.scalar(select(func.count()).select_from(WatchlistAlert)) == 0
 
 
+@patch("pms_platform.watchlists.resolution.resolve_bse_code", return_value=None)
 @patch("pms_platform.watchlists.alerts.fetch_disclosures_for_codes")
-def test_poll_is_idempotent(mock_fetch, session, heritage_security) -> None:
+def test_poll_is_idempotent(mock_fetch, _mock_bse, session, heritage_security) -> None:
     mock_fetch.side_effect = [
         [_heritage_sast_row()],
         [],
@@ -131,8 +135,9 @@ def test_poll_is_idempotent(mock_fetch, session, heritage_security) -> None:
     assert session.scalar(select(func.count()).select_from(WatchlistAlert)) == 1
 
 
+@patch("pms_platform.watchlists.resolution.resolve_bse_code", return_value=None)
 @patch("pms_platform.watchlists.alerts.fetch_disclosures_for_codes")
-def test_acknowledge_alert(mock_fetch, session, heritage_security) -> None:
+def test_acknowledge_alert(mock_fetch, _mock_bse, session, heritage_security) -> None:
     mock_fetch.side_effect = [[_heritage_sast_row()], []]
     watchlist = wl.create_watchlist(session, name="Ack")
     wl.add_member(session, watchlist.watchlist_id, wl.MemberInput(portfolio_name="Heritage"))

@@ -9,11 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pms_platform.config import settings
-from pms_platform.fundamentals.catalog import COMPUTATION_VERSION, validated_fundamentals_provider
+from pms_platform.fundamentals.catalog import COMPUTATION_VERSION
 from pms_platform.fundamentals.compute import compute_snapshots_for_identifier, upsert_snapshot
 from pms_platform.fundamentals.import_csv import FundamentalsImportResult, import_quarterly_fundamentals
-from pms_platform.fundamentals.providers.base import FundamentalsProvider, ProviderImportResult
-from pms_platform.fundamentals.providers.manual_csv import ManualCsvProvider, ScreenerExportProvider
+from pms_platform.fundamentals.providers.base import ProviderImportResult
 from pms_platform.fundamentals.providers.annual_xbrl import refresh_annual_fundamentals
 from pms_platform.fundamentals.providers.promoter import refresh_promoter_snapshots
 from pms_platform.fundamentals.providers.valuation import refresh_valuation_snapshots
@@ -33,18 +32,6 @@ class FundamentalsSyncResult:
     bse_result: ProviderImportResult | None
     snapshots_written: int
     identifiers_processed: int
-
-
-def get_provider(name: str | None = None) -> FundamentalsProvider:
-    """Return the configured fundamentals provider."""
-    provider_name = validated_fundamentals_provider(name)
-    if provider_name == "screener":
-        return ScreenerExportProvider()
-    if provider_name == "yahoo":
-        return YahooFundamentalsProvider()
-    if provider_name == "xbrl":
-        return XbrlFundamentalsProvider()
-    return ManualCsvProvider()
 
 
 def import_fundamentals_csv(

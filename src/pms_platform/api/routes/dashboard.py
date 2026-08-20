@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import date
 from decimal import Decimal
 
@@ -11,10 +11,12 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from pms_platform.analytics.episode_performance import first_buy_to_sell_return_pct
 from pms_platform.analytics.successor_chain import resolve_price_security_id
 from pms_platform.api.routes.episodes import _exit_outcome, get_db
 from pms_platform.market_data.lookup import lookup_daily_price
 from pms_platform.models import (
+    DecisionEvent,
     EpisodePerformance,
     PostExitHorizonPerformance,
     PostExitPerformance,
@@ -50,6 +52,7 @@ class ExitInsightRow(BaseModel):
     ideal_exit_note: str | None
     missed_upside_vs_peak_pct: float | None
     total_return_pct: float | None
+    first_buy_to_sell_return_pct: float | None = None
     portfolio_return_pct: float | None
     smallcap_return_pct: float | None
     excess_vs_portfolio: float | None
@@ -163,6 +166,16 @@ def list_exit_insights(session: Session = Depends(get_db)) -> list[ExitInsightRo
         select(EpisodePerformance).order_by(EpisodePerformance.exit_date.desc())
     ).all()
 
+    events_by_episode: dict[int, list[DecisionEvent]] = defaultdict(list)
+    episode_ids = [perf.episode_id for perf in performances]
+    if episode_ids:
+        for event in session.scalars(
+            select(DecisionEvent)
+            .where(DecisionEvent.episode_id.in_(episode_ids))
+            .order_by(DecisionEvent.event_date, DecisionEvent.decision_event_id)
+        ).all():
+            events_by_episode[event.episode_id].append(event)
+
     rows: list[ExitInsightRow] = []
     for perf in performances:
         security = securities.get(perf.security_id)
@@ -190,6 +203,9 @@ def list_exit_insights(session: Session = Depends(get_db)) -> list[ExitInsightRo
             if assessment and assessment.assessment_flags
             else []
         )
+        buy_to_sell = first_buy_to_sell_return_pct(
+            events_by_episode.get(perf.episode_id, [])
+        )
         rows.append(
             ExitInsightRow(
                 episode_id=perf.episode_id,
@@ -210,6 +226,7 @@ def list_exit_insights(session: Session = Depends(get_db)) -> list[ExitInsightRo
                 ideal_exit_note=ideal_note,
                 missed_upside_vs_peak_pct=_float(perf.missed_upside_vs_peak_pct),
                 total_return_pct=_float(perf.total_return_pct),
+                first_buy_to_sell_return_pct=_float(buy_to_sell),
                 portfolio_return_pct=_float(perf.portfolio_return_pct),
                 smallcap_return_pct=_float(perf.smallcap_return_pct),
                 excess_vs_portfolio=_float(perf.excess_vs_portfolio),

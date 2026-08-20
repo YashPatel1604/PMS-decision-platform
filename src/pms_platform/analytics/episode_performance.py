@@ -28,6 +28,7 @@ from pms_platform.models.enums import EpisodeStatus
 
 CALCULATION_VERSION = "m4-v10"
 _HUNDRED = Decimal("100")
+_ONE = Decimal("1")
 _ZERO = Decimal("0")
 
 
@@ -69,6 +70,81 @@ def _average_trade_prices(
     avg_buy = buy_value / buy_qty if buy_qty > 0 else None
     avg_sell = sell_value / sell_qty if sell_qty > 0 else None
     return avg_buy, avg_sell
+
+
+def _first_buy_price(events: list[DecisionEvent]) -> Decimal | None:
+    """Earliest INITIATE/ADD trade price."""
+    first: DecisionEvent | None = None
+    for event in events:
+        if event.decision_type not in {"INITIATE", "ADD"}:
+            continue
+        if event.price is None or event.price <= 0:
+            continue
+        if abs(int(event.quantity_change or 0)) <= 0:
+            continue
+        if first is None or (event.event_date, event.decision_event_id or 0) < (
+            first.event_date,
+            first.decision_event_id or 0,
+        ):
+            first = event
+    return first.price if first is not None else None
+
+
+def _last_sell_price(events: list[DecisionEvent]) -> Decimal | None:
+    """Latest REDUCE/EXIT trade price."""
+    last: DecisionEvent | None = None
+    for event in events:
+        if event.decision_type not in {"REDUCE", "EXIT"}:
+            continue
+        if event.price is None or event.price <= 0:
+            continue
+        if abs(int(event.quantity_change or 0)) <= 0:
+            continue
+        if last is None or (event.event_date, event.decision_event_id or 0) > (
+            last.event_date,
+            last.decision_event_id or 0,
+        ):
+            last = event
+    return last.price if last is not None else None
+
+
+@dataclass(frozen=True)
+class FirstBuySellMarks:
+    first_buy_price: Decimal | None
+    last_sell_price: Decimal | None
+    avg_sell_price: Decimal | None
+    sell_mark_price: Decimal | None
+    first_buy_to_sell_return_pct: Decimal | None
+
+
+def first_buy_sell_marks(events: list[DecisionEvent]) -> FirstBuySellMarks:
+    """First buy, avg/last sell, and return using sell mark (last if last > avg)."""
+    first_buy = _first_buy_price(events)
+    _avg_buy, avg_sell = _average_trade_prices(events)
+    last_sell = _last_sell_price(events)
+    if first_buy is None or first_buy <= 0 or avg_sell is None:
+        return FirstBuySellMarks(
+            first_buy_price=first_buy,
+            last_sell_price=last_sell,
+            avg_sell_price=avg_sell,
+            sell_mark_price=None,
+            first_buy_to_sell_return_pct=None,
+        )
+    mark = last_sell if last_sell is not None and last_sell > avg_sell else avg_sell
+    return FirstBuySellMarks(
+        first_buy_price=first_buy,
+        last_sell_price=last_sell,
+        avg_sell_price=avg_sell,
+        sell_mark_price=mark,
+        first_buy_to_sell_return_pct=((mark / first_buy) - _ONE) * _HUNDRED,
+    )
+
+
+def first_buy_to_sell_return_pct(
+    events: list[DecisionEvent],
+) -> Decimal | None:
+    """Return from first buy to sell mark (last sell if last > avg, else avg)."""
+    return first_buy_sell_marks(events).first_buy_to_sell_return_pct
 
 
 def _summarize_cash_flows(flows: list) -> tuple[Decimal, Decimal, Decimal, Decimal]:

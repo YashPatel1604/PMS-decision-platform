@@ -13,6 +13,7 @@ from pms_platform.models.fundamental_snapshot import FundamentalSnapshot
 from pms_platform.models.import_batch import ImportBatch
 from pms_platform.models.insider_disclosure_day import InsiderDisclosureDay
 from pms_platform.models.liquid_transaction import LiquidTransaction
+from pms_platform.models.nse_bhav import BhavImportRun, NseBhavBar, PivotPortfolioSymbol, PivotVolExp
 from pms_platform.models.post_exit_horizon_performance import (
     PostExitHorizonPerformance,
 )
@@ -44,6 +45,10 @@ __all__ = [
     "InsiderDisclosureDay",
     "InvestmentEpisode",
     "LiquidTransaction",
+    "BhavImportRun",
+    "NseBhavBar",
+    "PivotPortfolioSymbol",
+    "PivotVolExp",
     "PortfolioSnapshotRecord",
     "PostExitPerformance",
     "PostExitHorizonPerformance",

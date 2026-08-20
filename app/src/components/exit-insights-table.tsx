@@ -136,6 +136,13 @@ export function ExitInsightsTable({ rows }: { rows: ExitInsightRow[] }) {
                     <span className="text-stone-500">Total return </span>
                     <FormattedValue value={row.total_return_pct} kind="pct" />
                   </p>
+                  <p
+                    className="mt-1 text-xs"
+                    title="First buy → sell mark (last sell if above avg sell, else avg sell)"
+                  >
+                    <span className="text-stone-500">1st buy → sell </span>
+                    <FormattedValue value={row.first_buy_to_sell_return_pct} kind="pct" />
+                  </p>
                 </td>
                 <td className="px-4 py-3">
                   <PostExitComparison horizons={row.post_exit_horizons} />

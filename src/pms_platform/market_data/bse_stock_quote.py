@@ -10,6 +10,8 @@ from typing import Any
 
 import httpx
 
+from pms_platform.market_data.bse_http import bse_headers as _bse_headers
+
 _STOCK_TRADING_URL = "https://api.bseindia.com/BseIndiaAPI/api/StockTrading/w"
 _COM_HEADER_URL = "https://api.bseindia.com/BseIndiaAPI/api/ComHeader/w"
 _SCRIP_HEADER_URL = "https://api.bseindia.com/BseIndiaAPI/api/getScripHeaderData/w"
@@ -51,20 +53,6 @@ def _to_dec(raw: object) -> Decimal | None:
         return Decimal(text)
     except (InvalidOperation, ValueError):
         return None
-
-
-def _bse_headers() -> dict[str, str]:
-    return {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://www.bseindia.com/",
-        "Origin": "https://www.bseindia.com",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
 
 
 def _get_json(client: httpx.Client, url: str, params: dict[str, Any], timeout: float) -> Any | None:

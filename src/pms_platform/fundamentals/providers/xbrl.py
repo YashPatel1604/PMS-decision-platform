@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from pms_platform.fundamentals.catalog import CONTRACT_VERSION
 from pms_platform.fundamentals.providers.base import FundamentalsProvider, ProviderImportResult
 from pms_platform.ingestion.common import make_source_key
+from pms_platform.market_data.bse_http import bse_headers as _bse_client_headers
 from pms_platform.market_data.bse_financial_results import (
     BseFinancialResultsFetchError,
     BseResultsSnapshot,
@@ -33,19 +34,6 @@ _HISTORY_QUARTERS = 16
 _HISTORY_YEARS_BACK = 4
 _INTEGRATED_QUARTERS = 4
 _FETCH_WORKERS = 4
-
-
-def _bse_client_headers() -> dict[str, str]:
-    return {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://www.bseindia.com/",
-        "Origin": "https://www.bseindia.com",
-    }
 
 
 class XbrlFundamentalsProvider(FundamentalsProvider):

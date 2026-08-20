@@ -37,10 +37,10 @@ def test_watchlist_orm_tables_create_on_fresh_database() -> None:
 
 
 def test_watchlist_migrations_are_chained_to_head() -> None:
-    """Upgrade path: watchlist migrations link d0 -> … -> h4 head."""
+    """Upgrade path: watchlist migrations link d0 → … → current head."""
     script = ScriptDirectory.from_config(Config("alembic.ini"))
     head = script.get_current_head()
-    assert head == "h4c5d6e7f8a9"
+    assert head == "q3f4a5b6c7d8"
 
     watchlist_chain = [
         "d0e1f2a3b4c5",

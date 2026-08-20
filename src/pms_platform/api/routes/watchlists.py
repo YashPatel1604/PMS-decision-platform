@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from pms_platform.db.base import get_session_factory
-from pms_platform.fundamentals.catalog import ACTIVE_FUNDAMENTALS_PROVIDERS, validated_fundamentals_provider
+from pms_platform.api.deps import get_db
+from pms_platform.fundamentals.catalog import FUNDAMENTALS_PROVIDERS, validated_fundamentals_provider
 from pms_platform.models.watchlist import Watchlist, WatchlistAlert, WatchlistMember
 from pms_platform.watchlists import alerts as wa
 from pms_platform.watchlists import export_import as wi
@@ -21,14 +20,6 @@ from pms_platform.watchlists import screen as scr
 from pms_platform.watchlists import service as wl
 
 router = APIRouter()
-
-
-def get_db() -> Generator[Session, None, None]:
-    session = get_session_factory()()
-    try:
-        yield session
-    finally:
-        session.close()
 
 
 class WatchlistResponse(BaseModel):
@@ -409,7 +400,7 @@ def search_securities(
 def watchlist_settings() -> WatchlistSettingsResponse:
     return WatchlistSettingsResponse(
         fundamentals_provider=validated_fundamentals_provider(),
-        available_providers=sorted(ACTIVE_FUNDAMENTALS_PROVIDERS),
+        available_providers=sorted(FUNDAMENTALS_PROVIDERS),
     )
 
 

@@ -100,6 +100,11 @@ export function EpisodeDetailView({ episodeId }: { episodeId: number }) {
     { label: "P&L (₹)", value: formatPnL(episode.total_profit_loss) },
     { label: "Outcome", value: outcomeLabel(episode.exit_outcome) },
     {
+      label: "First buy price (₹)",
+      value: formatPrice(episode.first_buy_price),
+      sublabel: "INITIATE / first ADD trade price",
+    },
+    {
       label: "Avg buy price (₹) · reference only",
       value: formatPrice(episode.average_buy_price),
       sublabel: "Not used for loss triggers; those use the first buy price",
@@ -108,6 +113,21 @@ export function EpisodeDetailView({ episodeId }: { episodeId: number }) {
       label: "Avg sell price (₹)",
       value: formatPrice(episode.average_sell_price),
       sublabel: "Volume-weighted average of sells",
+    },
+    {
+      label: "Last sell price (₹)",
+      value: formatPrice(episode.last_sell_price),
+      sublabel: "Latest REDUCE / EXIT trade price",
+    },
+    {
+      label: "Sell mark price (₹)",
+      value: formatPrice(episode.sell_mark_price),
+      sublabel: "Last sell if above avg sell, else avg sell",
+    },
+    {
+      label: "1st buy → sell (%)",
+      value: formatPct(episode.first_buy_to_sell_return_pct),
+      sublabel: "First buy to sell mark",
     },
     { label: "Total return (%)", value: formatPct(episode.total_return_pct) },
     { label: "XIRR (% p.a.)", value: formatXirr(episode.stock_xirr) },

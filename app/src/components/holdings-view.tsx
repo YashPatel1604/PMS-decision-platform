@@ -188,11 +188,11 @@ export function HoldingsView() {
     }
   }, [holdingsQuery.data?.as_of_date, asOf]);
 
-  // If API capped as-of to the last Excel book date, sync the date picker.
+  // If API capped as-of to the holdings ceiling (book or bhav), sync the date picker.
   useEffect(() => {
-    const book = holdingsQuery.data?.as_of_date;
-    if (book && asOf && book < asOf) {
-      setAsOf(book);
+    const capped = holdingsQuery.data?.as_of_date;
+    if (capped && asOf && capped < asOf) {
+      setAsOf(capped);
     }
   }, [holdingsQuery.data?.as_of_date, asOf]);
 
@@ -298,9 +298,9 @@ export function HoldingsView() {
           </p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">Holdings analyze</h1>
           <p className="mt-3 text-base leading-7 text-stone-600">
-            Values come from Research Excel only (latest History book{" "}
-            {formatDate(bookDate)}). Yahoo live quotes do not affect this page. Select a row for
-            industry peers and an optional Yahoo/BSE peer chart.
+            Values: History book when that day exists; otherwise Model×bhav from
+            PMS_ClientPortfolio (as-of {formatDate(bookDate)}). Qty follows Model when
+            present. Yahoo live quotes do not affect this page.
           </p>
         </div>
         <div className="flex flex-col gap-3">
@@ -343,7 +343,7 @@ export function HoldingsView() {
               />
             </label>
             <label className="flex flex-col gap-1 text-sm text-stone-600">
-              To (Excel book)
+              To (as-of)
               <input
                 type="date"
                 value={asOf}
@@ -436,6 +436,7 @@ export function HoldingsView() {
                 <tr>
                   <th className="px-3 py-3 font-semibold">Stock</th>
                   <th className="px-3 py-3 font-semibold">Period</th>
+                  <th className="px-3 py-3 text-right font-semibold">Wt %</th>
                   <th className="px-3 py-3 text-right font-semibold">Stock %</th>
                   <th className="px-3 py-3 text-right font-semibold">Port %</th>
                   <th className="px-3 py-3 text-right font-semibold">vs Port</th>
@@ -471,6 +472,9 @@ export function HoldingsView() {
                           {formatDate(row.period_start_date)} → {formatDate(row.as_of_date)}
                         </p>
                         <p className="text-xs text-stone-500">{formatDays(row.period_days)}</p>
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums">
+                        {formatPct(row.position_weight_pct)}
                       </td>
                       <td
                         className={`px-3 py-3 text-right font-medium tabular-nums ${toneClass(
@@ -532,8 +536,23 @@ export function HoldingsView() {
                   <p className={`font-semibold tabular-nums ${toneClass(valueTone(selected.stock_return_pct))}`}>
                     {formatPct(selected.stock_return_pct)}
                   </p>
+                  <p className="mt-1 text-xs text-stone-500">
+                    1st buy{" "}
+                    <span className="tabular-nums text-stone-700">
+                      {formatPrice(selected.first_buy_price)}
+                    </span>
+                  </p>
                   <p className="text-xs text-stone-500">
-                    {formatPrice(selected.from_price)} → {formatPrice(selected.as_of_price)}
+                    Avg buy{" "}
+                    <span className="tabular-nums text-stone-700">
+                      {formatPrice(selected.average_buy_price)}
+                    </span>
+                  </p>
+                  <p className="text-xs text-stone-500">
+                    Current{" "}
+                    <span className="tabular-nums text-stone-700">
+                      {formatPrice(selected.as_of_price)}
+                    </span>
                   </p>
                 </div>
                 <div>
@@ -699,8 +718,9 @@ export function HoldingsView() {
               ) : null}
 
               <p className="text-xs text-stone-500">
-                Unrealized {formatPct(selected.unrealized_pnl_pct)} (
-                {formatPnL(selected.unrealized_pnl)}) · qty {selected.quantity}
+                Portfolio weight {formatPct(selected.position_weight_pct)} · Unrealized{" "}
+                {formatPct(selected.unrealized_pnl_pct)} ({formatPnL(selected.unrealized_pnl)}) ·
+                qty {selected.quantity}
               </p>
             </>
           )}

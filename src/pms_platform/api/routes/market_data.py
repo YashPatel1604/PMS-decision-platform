@@ -9,14 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from pms_platform.api.routes.episodes import get_db
-from pms_platform.market_data.block_deals import (
-    BlockDealsFetchError,
-    fetch_todays_block_deals,
-)
-from pms_platform.market_data.bulk_deals import (
-    BulkDealsFetchError,
-    fetch_todays_bulk_deals,
+from pms_platform.api.deps import get_db
+from pms_platform.market_data.bse_disclosed_deals import (
+    DisclosedDealsFetchError,
+    fetch_disclosed_deals,
 )
 from pms_platform.market_data.live_quotes import refresh_live_quotes
 from pms_platform.market_data.yahoo_finance import YahooFinanceClient
@@ -159,10 +155,10 @@ def today_block_deals(
 ) -> TodayBlockDealsResponse:
     """Fetch disclosed BSE block deals for a session date (default: latest)."""
     try:
-        result = fetch_todays_block_deals(
-            session, as_of_date=date_value, calendar_month=month
+        result = fetch_disclosed_deals(
+            "block", session, as_of_date=date_value, calendar_month=month
         )
-    except BlockDealsFetchError as exc:
+    except DisclosedDealsFetchError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -181,10 +177,10 @@ def today_bulk_deals(
 ) -> TodayBlockDealsResponse:
     """Fetch disclosed BSE bulk deals for a session date (default: latest)."""
     try:
-        result = fetch_todays_bulk_deals(
-            session, as_of_date=date_value, calendar_month=month
+        result = fetch_disclosed_deals(
+            "bulk", session, as_of_date=date_value, calendar_month=month
         )
-    except BulkDealsFetchError as exc:
+    except DisclosedDealsFetchError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

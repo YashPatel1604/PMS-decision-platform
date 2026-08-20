@@ -90,6 +90,22 @@ def test_open_holding_from_date_window(
         "pms_platform.analytics.open_holdings.lookup_research_portfolio_value",
         lambda _as_of: None,
     )
+    monkeypatch.setattr(
+        "pms_platform.analytics.open_holdings.load_client_portfolio_book",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "pms_platform.episodes.model_reconcile.load_client_portfolio_book",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "pms_platform.analytics.open_holdings.latest_research_book_date",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "pms_platform.analytics.open_holdings.latest_bhav_trade_date",
+        lambda _session: None,
+    )
     add_transaction(
         session,
         import_batch,
@@ -122,11 +138,12 @@ def test_open_holding_from_date_window(
     assert result.portfolio_value_source == "RECONSTRUCTED"
     assert row.period_start_date == date(2020, 3, 31)
     assert row.from_price == Decimal("110")
-    # 143/110 - 1 = 30%
-    assert row.stock_return_pct == Decimal("30")
+    # 1st buy ₹100 → as-of ₹143 (not period-start ₹110)
+    assert row.first_buy_price == Decimal("100")
+    assert row.stock_return_pct == Decimal("43")
     # benchmark 1155/1050 - 1 = 10%
     assert row.benchmarks[0].total_return_pct == Decimal("10")
-    assert row.benchmarks[0].excess_vs_stock_pp == Decimal("20")
+    assert row.benchmarks[0].excess_vs_stock_pp == Decimal("33")
 
 
 def test_open_holding_missing_price_is_insufficient(
@@ -151,3 +168,100 @@ def test_open_holding_missing_price_is_insufficient(
     assert result.holdings[0].data_quality_status == "INSUFFICIENT"
     assert result.holdings[0].stock_return_pct is None
     assert result.holdings[0].benchmarks[0].data_status == "INSUFFICIENT"
+
+
+def test_open_holding_uses_bhav_when_newer_than_book(
+    session, import_batch, sample_security, monkeypatch
+) -> None:
+    from pms_platform.models.nse_bhav import NseBhavBar
+
+    monkeypatch.setattr(
+        "pms_platform.analytics.open_holdings.latest_research_book_date",
+        lambda: date(2020, 6, 30),
+    )
+    monkeypatch.setattr(
+        "pms_platform.analytics.open_holdings.lookup_research_portfolio_value",
+        lambda _as_of: None,
+    )
+    monkeypatch.setattr(
+        "pms_platform.analytics.open_holdings.load_client_portfolio_book",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "pms_platform.episodes.model_reconcile.load_client_portfolio_book",
+        lambda: None,
+    )
+    sample_security.current_nse_symbol = "TESTCO"
+    add_transaction(
+        session,
+        import_batch,
+        sample_security.security_id,
+        date(2020, 1, 2),
+        EventType.BUY,
+        10,
+        1,
+        Decimal("100"),
+    )
+    _add_price(session, import_batch, sample_security.security_id, date(2020, 1, 2), "100")
+    _add_price(session, import_batch, sample_security.security_id, date(2020, 6, 30), "130")
+    session.add(
+        NseBhavBar(
+            trade_date=date(2020, 7, 15),
+            symbol="TESTCO",
+            series="EQ",
+            isin=None,
+            instrument_name="Test",
+            open=Decimal("140"),
+            high=Decimal("150"),
+            low=Decimal("135"),
+            close=Decimal("145"),
+            prev_close=Decimal("130"),
+            volume=1000,
+            turnover=Decimal("145000"),
+            source_key="test|TESTCO|EQ|2020-07-15",
+        )
+    )
+    session.flush()
+    build_episodes(session)
+    session.flush()
+
+    # Request past book date — ceiling should lift to bhav day.
+    result = analyze_open_holdings(session, as_of_date=date(2020, 7, 15))
+    assert result.as_of_date == date(2020, 7, 15)
+    row = result.holdings[0]
+    assert row.as_of_price == Decimal("145")
+    assert row.market_value == Decimal("1450")
+    assert result.portfolio_value_source == "BHAV_REVALUED"
+
+
+def test_open_holding_stock_return_uses_first_buy_not_avg(
+    session, import_batch, sample_security, monkeypatch
+) -> None:
+    """Adds raise avg buy; Stock % stays first-buy → current."""
+    for target in (
+        "pms_platform.analytics.open_holdings.lookup_research_portfolio_value",
+        "pms_platform.analytics.open_holdings.load_client_portfolio_book",
+        "pms_platform.episodes.model_reconcile.load_client_portfolio_book",
+        "pms_platform.analytics.open_holdings.latest_research_book_date",
+        "pms_platform.analytics.open_holdings.latest_bhav_trade_date",
+    ):
+        monkeypatch.setattr(target, lambda *_a, **_k: None)
+
+    sid = sample_security.security_id
+    add_transaction(
+        session, import_batch, sid, date(2020, 1, 2), EventType.BUY, 10, 1, Decimal("100")
+    )
+    add_transaction(
+        session, import_batch, sid, date(2020, 3, 2), EventType.BUY, 10, 2, Decimal("200")
+    )
+    _add_price(session, import_batch, sid, date(2020, 1, 2), "100")
+    _add_price(session, import_batch, sid, date(2020, 6, 30), "150")
+    session.flush()
+    build_episodes(session)
+    session.flush()
+
+    row = analyze_open_holdings(session, as_of_date=date(2020, 6, 30)).holdings[0]
+    assert row.first_buy_price == Decimal("100")
+    assert row.average_buy_price == Decimal("150")
+    # 150/100 - 1 = 50% (avg buy → current would be 0%)
+    assert row.stock_return_pct == Decimal("50")

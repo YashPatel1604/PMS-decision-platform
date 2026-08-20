@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Generator
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -16,12 +15,14 @@ from pms_platform.analytics.benchmark import (
     compute_benchmark_period_return,
     primary_benchmark_code,
 )
+from pms_platform.analytics.episode_performance import first_buy_sell_marks
 from pms_platform.analytics.portfolio_value import compute_portfolio_period_return
 from pms_platform.analytics.successor_chain import resolve_price_security_id
-from pms_platform.db.base import get_session_factory
+from pms_platform.api.deps import get_db
 from pms_platform.market_data.lookup import lookup_daily_price
 from pms_platform.models import (
     DailyPrice,
+    DecisionEvent,
     EpisodePerformance,
     PostExitHorizonPerformance,
     PostExitPerformance,
@@ -39,15 +40,6 @@ def _exit_outcome(profit_loss: float) -> str:
     if profit_loss < 0:
         return "LOSS_STOCK"
     return "BREAKEVEN"
-
-
-def get_db() -> Generator[Session, None, None]:
-    """Provide a database session for API handlers."""
-    session = get_session_factory()()
-    try:
-        yield session
-    finally:
-        session.close()
 
 
 class EqualWeightReinvestmentResponse(BaseModel):
@@ -107,6 +99,10 @@ class EpisodePerformanceResponse(BaseModel):
     exit_outcome: str
     average_buy_price: float | None
     average_sell_price: float | None
+    first_buy_price: float | None = None
+    last_sell_price: float | None = None
+    sell_mark_price: float | None = None
+    first_buy_to_sell_return_pct: float | None = None
     total_return_pct: float | None
     stock_xirr: float | None
     portfolio_return_pct: float | None
@@ -171,6 +167,7 @@ def _performance_response(
     post_exit: PostExitPerformance | None = None,
     horizons: list[PostExitHorizonPerformance] | None = None,
     major_loss_window: MajorLossWindowResponse | None = None,
+    events: list[DecisionEvent] | None = None,
 ) -> EpisodePerformanceResponse:
     profit_loss = float(row.total_profit_loss)
     stock_after = (
@@ -188,6 +185,7 @@ def _performance_response(
         if post_exit and post_exit.smallcap_return_after_exit is not None
         else None
     )
+    marks = first_buy_sell_marks(events or [])
     return EpisodePerformanceResponse(
         episode_id=row.episode_id,
         security_id=row.security_id,
@@ -203,6 +201,20 @@ def _performance_response(
         ),
         average_sell_price=(
             float(row.average_sell_price) if row.average_sell_price is not None else None
+        ),
+        first_buy_price=(
+            float(marks.first_buy_price) if marks.first_buy_price is not None else None
+        ),
+        last_sell_price=(
+            float(marks.last_sell_price) if marks.last_sell_price is not None else None
+        ),
+        sell_mark_price=(
+            float(marks.sell_mark_price) if marks.sell_mark_price is not None else None
+        ),
+        first_buy_to_sell_return_pct=(
+            float(marks.first_buy_to_sell_return_pct)
+            if marks.first_buy_to_sell_return_pct is not None
+            else None
         ),
         total_return_pct=float(row.total_return_pct) if row.total_return_pct else None,
         stock_xirr=float(row.stock_xirr) if row.stock_xirr else None,
@@ -524,6 +536,15 @@ def list_episode_performance(
             EpisodePerformance.security_id,
         )
     ).all()
+    events_by_episode: dict[int, list[DecisionEvent]] = {}
+    episode_ids = [row.episode_id for row in rows]
+    if episode_ids:
+        for event in session.scalars(
+            select(DecisionEvent)
+            .where(DecisionEvent.episode_id.in_(episode_ids))
+            .order_by(DecisionEvent.event_date, DecisionEvent.decision_event_id)
+        ).all():
+            events_by_episode.setdefault(event.episode_id, []).append(event)
     return [
         _performance_response(
             row,
@@ -533,6 +554,7 @@ def list_episode_performance(
             assessments.get(row.episode_id),
             post_exit_by_episode.get(row.episode_id),
             horizons_by_episode.get(row.episode_id),
+            events=events_by_episode.get(row.episode_id),
         )
         for row in rows
     ]
@@ -561,6 +583,13 @@ def get_episode_performance(
             PostExitHorizonPerformance.episode_id == episode_id
         )
     ).all()
+    events = list(
+        session.scalars(
+            select(DecisionEvent)
+            .where(DecisionEvent.episode_id == episode_id)
+            .order_by(DecisionEvent.event_date, DecisionEvent.decision_event_id)
+        ).all()
+    )
     return _performance_response(
         row,
         security.portfolio_name if security else row.security_id,
@@ -568,6 +597,7 @@ def get_episode_performance(
         post_exit,
         list(horizons),
         _major_loss_window(session, row),
+        events=events,
     )
 
 

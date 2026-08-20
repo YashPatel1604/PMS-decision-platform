@@ -67,6 +67,7 @@ export type ExitInsightRow = {
   ideal_exit_note: string | null;
   missed_upside_vs_peak_pct: number | null;
   total_return_pct: number | null;
+  first_buy_to_sell_return_pct: number | null;
   exit_outcome: string;
   first_below_cost_date: string | null;
   days_held_after_first_loss: number | null;
@@ -103,6 +104,10 @@ export type EpisodePerformance = {
   exit_outcome: string;
   average_buy_price: number | null;
   average_sell_price: number | null;
+  first_buy_price: number | null;
+  last_sell_price: number | null;
+  sell_mark_price: number | null;
+  first_buy_to_sell_return_pct: number | null;
   total_return_pct: number | null;
   stock_xirr: number | null;
   portfolio_return_pct: number | null;
@@ -526,6 +531,171 @@ export type UploadBatch = {
 };
 
 export type UploadKind = "transactions" | "security_master" | "portfolio_snapshots";
+
+export type BhavRun = {
+  run_id: number;
+  trade_date: string | null;
+  status: string;
+  source_filename: string;
+  source_checksum: string;
+  row_count_all: number;
+  row_count_eq: number;
+  validation_report: {
+    ok?: boolean;
+    errors?: string[];
+    warnings?: string[];
+    row_count_eq?: number;
+    row_count_all?: number;
+  };
+  reconcile_report: {
+    ok?: boolean;
+    errors?: string[];
+    warnings?: string[];
+    checks?: Record<string, number>;
+  };
+  error_message: string | null;
+};
+
+export type PivotLevel = {
+  symbol: string;
+  series: string;
+  as_of: string;
+  prior_date: string | null;
+  prior_high: number | null;
+  prior_low: number | null;
+  prior_close: number | null;
+  last_close: number | null;
+  pp: number | null;
+  r1: number | null;
+  r2: number | null;
+  r3: number | null;
+  r4: number | null;
+  s1: number | null;
+  s2: number | null;
+  s3: number | null;
+  s4: number | null;
+  s4_03: number | null;
+  s3_03: number | null;
+  s2_03: number | null;
+  s1_03: number | null;
+  r1_03: number | null;
+  r2_03: number | null;
+  r3_03: number | null;
+  r4_03: number | null;
+  missing: boolean;
+  dist_to_pp_pct: number | null;
+};
+
+export type PivotBar = {
+  trade_date: string;
+  symbol: string;
+  series: string;
+  isin: string | null;
+  instrument_name: string | null;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  prev_close: number | null;
+  volume: number;
+  turnover: number | null;
+  pivot?: PivotLevel | null;
+  portfolio_flag?: string | null;
+  vol_exp?: number | null;
+  vol_15min?: number | null;
+  top50?: number | null;
+  band_51_300?: number | null;
+};
+
+export type PivotDashboard = {
+  as_of: string | null;
+  available_dates: string[];
+  session_dates: string[];
+  last_run: {
+    run_id: number;
+    trade_date: string | null;
+    status: string;
+    source_filename: string;
+    row_count_all: number;
+    row_count_eq: number;
+    validation_report: BhavRun["validation_report"];
+    reconcile_report: BhavRun["reconcile_report"];
+    committed_at: string | null;
+  } | null;
+  daily: PivotBar[];
+  last20: PivotBar[];
+  ranks: {
+    symbol: string;
+    avg_volume: number;
+    sum_turnover: number;
+    rank: number;
+    avg_volume_plus_10pct: number;
+  }[];
+  portfolio: {
+    symbol: string;
+    dummy: boolean;
+    portfolio_a: boolean;
+    uptrend: boolean;
+    support_note: string | null;
+    buy_note: string | null;
+    sma_50: string | null;
+    sma_100: string | null;
+    sma_200: string | null;
+    notes: string | null;
+    pivot: PivotLevel | null;
+  }[];
+  holding_symbols: string[];
+  gainers: {
+    symbol: string;
+    series: string;
+    close: number;
+    prev_close: number | null;
+    pct_change: number | null;
+    volume: number;
+    turnover: number | null;
+  }[];
+};
+
+export type ClientPortfolioHolding = {
+  symbol: string;
+  qty: number;
+  stocks_qty?: number | null;
+  qty_mismatch: boolean;
+  excel_price?: number | null;
+  excel_value?: number | null;
+  excel_percent?: number | null;
+  index_label?: string | null;
+  series?: string | null;
+  close?: number | null;
+  bhav_value?: number | null;
+  be_only: boolean;
+  missing_bhav: boolean;
+  pivot?: PivotLevel | null;
+  vol_exp?: number | null;
+  vol_15min?: number | null;
+  top50?: number | null;
+  band_51_300?: number | null;
+};
+
+export type ClientPortfolioDashboard = {
+  as_of: string | null;
+  available_dates: string[];
+  source_file: string | null;
+  excel_mtime: string | null;
+  excel_total_value: number | null;
+  bhav_revalued_total: number | null;
+  holdings: ClientPortfolioHolding[];
+  missing_symbols: string[];
+  model_symbols: string[];
+  last_run?: {
+    run_id: number;
+    trade_date: string | null;
+    status: string;
+    source_filename: string;
+  } | null;
+  error: string | null;
+  formulas?: Record<string, string>;
+};
 
 export type MasterKind = "security" | "transactions" | "sell_since";
 
@@ -1149,4 +1319,54 @@ export const api = {
         create_name: options?.createName,
       }),
     }),
+
+  getPivotDashboard: (asOf?: string | null) => {
+    const params = new URLSearchParams();
+    if (asOf) params.set("as_of", asOf);
+    const query = params.toString();
+    return request<PivotDashboard>(`/strategy/pivot/dashboard${query ? `?${query}` : ""}`);
+  },
+  getClientPortfolioDashboard: (asOf?: string | null) => {
+    const params = new URLSearchParams();
+    if (asOf) params.set("as_of", asOf);
+    const query = params.toString();
+    return request<ClientPortfolioDashboard>(
+      `/strategy/client-portfolio/dashboard${query ? `?${query}` : ""}`,
+    );
+  },
+  uploadBhav: async (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    const response = await fetch(`${API_BASE}/strategy/pivot/bhav/upload`, {
+      method: "POST",
+      body,
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new ApiError(text || response.statusText, response.status);
+    }
+    return response.json() as Promise<BhavRun>;
+  },
+  validateBhav: (runId: number) =>
+    request<BhavRun>(`/strategy/pivot/bhav/${runId}/validate`, { method: "POST" }),
+  commitBhav: (runId: number) =>
+    request<BhavRun>(`/strategy/pivot/bhav/${runId}/commit`, { method: "POST" }),
+  addPivotFirm: (symbol: string) =>
+    request<{ symbol: string; upserted: number }>("/strategy/pivot/portfolio/symbols", {
+      method: "POST",
+      body: JSON.stringify({ symbol: symbol.trim().toUpperCase() }),
+    }),
+  removePivotFirm: (symbol: string) =>
+    request<{ deleted: string }>(
+      `/strategy/pivot/portfolio/symbols/${encodeURIComponent(symbol.trim().toUpperCase())}`,
+      { method: "DELETE" },
+    ),
+  searchPivotSymbols: (q: string, limit = 20) => {
+    const params = new URLSearchParams({ q: q.trim().toUpperCase(), limit: String(limit) });
+    return request<{ query: string; symbols: string[] }>(
+      `/strategy/pivot/symbols/search?${params}`,
+    );
+  },
 };

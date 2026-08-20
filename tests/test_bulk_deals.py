@@ -7,9 +7,9 @@ from decimal import Decimal
 
 import pandas as pd
 
-from pms_platform.market_data.bulk_deals import (
-    fetch_todays_bulk_deals,
-    normalize_bulk_deals_frame,
+from pms_platform.market_data.bse_disclosed_deals import (
+    fetch_disclosed_deals,
+    normalize_disclosed_deals_frame,
 )
 
 
@@ -36,7 +36,7 @@ def test_normalize_bulk_purchase_sell_codes() -> None:
             },
         ]
     )
-    deals = normalize_bulk_deals_frame(frame)
+    deals = normalize_disclosed_deals_frame(frame, kind="bulk")
     assert len(deals) == 2
     assert [d.deal_type for d in deals] == ["BUY", "SELL"]
     assert deals[0].deal_date == date(2026, 7, 1)
@@ -111,13 +111,13 @@ def test_fetch_todays_bulk_deals_with_mock_frame() -> None:
             },
         ]
     )
-    latest = fetch_todays_bulk_deals(session=None, fetch_frame=lambda: frame)
+    latest = fetch_disclosed_deals("bulk", session=None, fetch_frame=lambda: frame)
     assert latest.as_of_date == date(2026, 7, 28)
     assert latest.deal_count == 1
     assert latest.kind == "bulk"
     assert latest.available_dates == (date(2026, 7, 28), date(2026, 7, 1))
 
-    prior = fetch_todays_bulk_deals(
+    prior = fetch_disclosed_deals("bulk", 
         session=None,
         fetch_frame=lambda: frame,
         as_of_date=date(2026, 7, 1),
@@ -152,6 +152,6 @@ def test_portfolio_dates_only_include_our_firms(session, sample_security) -> Non
             },
         ]
     )
-    result = fetch_todays_bulk_deals(session=session, fetch_frame=lambda: frame)
+    result = fetch_disclosed_deals("bulk", session=session, fetch_frame=lambda: frame)
     assert result.available_dates == (date(2026, 7, 28), date(2026, 7, 1))
     assert result.portfolio_dates == (date(2026, 7, 28),)

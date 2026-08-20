@@ -259,17 +259,18 @@ def _result_response(result: OpenHoldingsResult) -> OpenHoldingsResponse:
 
 
 def _resolve_period(
+    session: Session,
     episode: InvestmentEpisode,
     as_of: date | None,
     from_date: date | None,
 ) -> tuple[date, date]:
-    from pms_platform.analytics.research_portfolio_value import latest_research_book_date
+    from pms_platform.analytics.open_holdings import latest_holdings_as_of
 
-    book_as_of = latest_research_book_date()
+    ceiling = latest_holdings_as_of(session)
     if as_of is None:
-        end = book_as_of or date.today()
-    elif book_as_of is not None and as_of > book_as_of:
-        end = book_as_of
+        end = ceiling or date.today()
+    elif ceiling is not None and as_of > ceiling:
+        end = ceiling
     else:
         end = as_of
     start = from_date if from_date is not None else episode.entry_date
@@ -286,11 +287,11 @@ def list_open_holdings(
     benchmarks: str | None = Query(default=None),
     refresh_live: bool = Query(
         default=False,
-        description="Ignored: Current Holdings are Excel/book only (no Yahoo).",
+        description="Ignored: Holdings use Research books + committed bhav (no Yahoo).",
     ),
     session: Session = Depends(get_db),
 ) -> OpenHoldingsResponse:
-    """List open holdings valued through the latest Excel book date (capped)."""
+    """List open holdings valued through latest History book or bhav day."""
     del refresh_live
     try:
         result = analyze_open_holdings(
@@ -349,7 +350,7 @@ def industry_compare(
     episode = session.get(InvestmentEpisode, episode_id)
     if episode is None:
         raise HTTPException(status_code=404, detail="Open holding not found")
-    start, end = _resolve_period(episode, as_of, from_date)
+    start, end = _resolve_period(session, episode, as_of, from_date)
     result = compute_industry_equal_weight(
         session,
         security_id=episode.security_id,
@@ -414,7 +415,7 @@ def compare_series(
     episode = session.get(InvestmentEpisode, episode_id)
     if episode is None:
         raise HTTPException(status_code=404, detail="Open holding not found")
-    start, end = _resolve_period(episode, as_of, from_date)
+    start, end = _resolve_period(session, episode, as_of, from_date)
     result = build_compare_series(
         session,
         episode_id=episode_id,

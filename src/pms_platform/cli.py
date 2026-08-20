@@ -700,6 +700,102 @@ def sync_insider_disclosures_cmd(days: int = 90) -> int:
         session.close()
 
 
+def seed_pivot_from_research_cmd(
+    workbook: Path | None = None,
+    *,
+    include_history: bool = True,
+) -> int:
+    """Seed pivot portfolio (+ optional bhav history) from Research workbook."""
+    from pms_platform.market_data.pivot_seed import seed_pivot_from_research
+
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        result = seed_pivot_from_research(
+            session, workbook=workbook, include_history=include_history
+        )
+        session.commit()
+        print(
+            f"Pivot seed: {result['portfolio_symbols']} portfolio symbols, "
+            f"{result['days_committed']} bhav days committed, "
+            f"{result.get('vol_exp_symbols', 0)} Vol Exp rows"
+        )
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        print(f"seed-pivot-from-research failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
+def harvest_portfolio_changes_cmd(
+    *,
+    apply: bool = False,
+    workbook: Path | None = None,
+) -> int:
+    """Harvest Portfolio_*.xlsx Change notes into the transactions master."""
+    from pms_platform.ingestion.portfolio_change_harvest import apply_harvest
+
+    workbooks = [workbook] if workbook is not None else None
+    result = apply_harvest(dry_run=not apply, workbooks=workbooks)
+    present_fp = {t.fingerprint for t in result.already_present}
+    missing = [t for t in result.candidates if t.fingerprint not in present_fp]
+
+    print(f"Master: {result.master_path}")
+    print(
+        f"Candidates={len(result.candidates)} "
+        f"already={len(result.already_present)} "
+        f"missing={len(missing)}"
+    )
+    for trade in missing:
+        print(
+            f"  + {trade.event_date.isoformat()} {trade.portfolio_name} "
+            f"{trade.event_type} {trade.quantity}@{trade.price} "
+            f"← {trade.workbook_name}/{trade.sheet_name}"
+        )
+    if result.skipped:
+        print(f"Skipped notes: {len(result.skipped)}")
+        for line in result.skipped[:20]:
+            print(f"  · {line}")
+        if len(result.skipped) > 20:
+            print(f"  … {len(result.skipped) - 20} more")
+    if not apply:
+        print("Dry run only. Pass --apply to append missing rows.")
+        return 0
+    print(f"Appended={len(result.appended)}")
+    if result.backup_path:
+        print(f"Backup: {result.backup_path}")
+    if result.synced_raw:
+        print(f"Synced raw: {result.synced_raw}")
+    print("Reimport transactions (OneDrive refresh / import-all) to rebuild episodes.")
+    return 0
+
+
+def sync_bhav_day_cmd(file: Path) -> int:
+    """Stage + validate + commit one NSE CM bhav file through the verification loop."""
+    from pms_platform.market_data.nse_bhav_store import sync_bhav_file
+
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        run = sync_bhav_file(session, Path(file))
+        session.commit()
+        print(
+            f"Bhav run {run.run_id}: status={run.status} "
+            f"date={run.trade_date} rows={run.row_count_all} eq={run.row_count_eq}"
+        )
+        if run.error_message:
+            print(run.error_message, file=sys.stderr)
+        return 0 if run.status == "committed" else 1
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        print(f"sync-bhav-day failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
 def main() -> None:
     """Parse CLI arguments and dispatch commands."""
     parser = argparse.ArgumentParser(description="PMS Decision Platform")
@@ -895,6 +991,49 @@ def main() -> None:
         help="How many calendar days to backfill ending today (default 90)",
     )
 
+    seed_pivot_parser = subparsers.add_parser(
+        "seed-pivot-from-research",
+        help="Seed pivot portfolio (+ optional history) from Research PivotPoints workbook",
+    )
+    seed_pivot_parser.add_argument(
+        "--file",
+        type=Path,
+        default=None,
+        help="Workbook path (default: Research/PivotPointsStrategy_*.xlsx)",
+    )
+    seed_pivot_parser.add_argument(
+        "--portfolio-only",
+        action="store_true",
+        help="Only seed Portfolio sheet symbols (skip Daily/Last20Days ingest)",
+    )
+
+    harvest_parser = subparsers.add_parser(
+        "harvest-portfolio-changes",
+        help="Harvest Portfolio_*.xlsx Change notes into transactions master",
+    )
+    harvest_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Append missing Buy/Sell rows (default: dry-run)",
+    )
+    harvest_parser.add_argument(
+        "--workbook",
+        type=Path,
+        default=None,
+        help="Single Portfolio_YYYY.xlsx (default: all Research Portfolio_*.xlsx)",
+    )
+
+    sync_bhav_parser = subparsers.add_parser(
+        "sync-bhav-day",
+        help="Upload one NSE CM UDiFF bhav CSV/XLSX through validate→commit→reconcile",
+    )
+    sync_bhav_parser.add_argument(
+        "--file",
+        type=Path,
+        required=True,
+        help="Daily bhav CSV or XLSX path",
+    )
+
     args = parser.parse_args()
     if args.command == "import-all":
         raise SystemExit(import_all(args.export_dir))
@@ -973,6 +1112,22 @@ def main() -> None:
         )
     if args.command == "sync-insider-disclosures":
         raise SystemExit(sync_insider_disclosures_cmd(days=args.days))
+    if args.command == "seed-pivot-from-research":
+        raise SystemExit(
+            seed_pivot_from_research_cmd(
+                workbook=args.file,
+                include_history=not args.portfolio_only,
+            )
+        )
+    if args.command == "harvest-portfolio-changes":
+        raise SystemExit(
+            harvest_portfolio_changes_cmd(
+                apply=args.apply,
+                workbook=args.workbook,
+            )
+        )
+    if args.command == "sync-bhav-day":
+        raise SystemExit(sync_bhav_day_cmd(file=args.file))
 
 
 if __name__ == "__main__":

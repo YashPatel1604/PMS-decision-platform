@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pms_platform.market_data.bse_disclosed_deals import fetch_bse_market_caps
+from pms_platform.market_data.bse_http import bse_headers
 from pms_platform.market_data.bse_scrip_universe import all_active_bse_codes
 from pms_platform.market_data.bse_scrip_universe import resolve_bse_code
 from pms_platform.models import InvestmentEpisode, Security
@@ -132,23 +133,11 @@ def _clean_text(value: object) -> str:
     return text
 
 
-def _bse_headers(referer: str) -> dict[str, str]:
-    return {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-        "Referer": referer,
-    }
-
-
 def _fetch_table(url: str, params: dict[str, str], *, referer: str) -> list[dict[str, Any]]:
     import httpx
 
     with httpx.Client(
-        headers=_bse_headers(referer), timeout=90.0, follow_redirects=True
+        headers=bse_headers(referer=referer), timeout=90.0, follow_redirects=True
     ) as client:
         try:
             client.get("https://www.bseindia.com/")

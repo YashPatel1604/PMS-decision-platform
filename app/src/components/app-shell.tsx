@@ -1,24 +1,177 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useId, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api, type AuthUser } from "@/lib/api";
 
-const links = [
-  { href: "/", label: "Dashboard" },
-  { href: "/holdings", label: "Holdings" },
-  { href: "/block-deals", label: "Block Deals" },
-  { href: "/bulk-deals", label: "Bulk Deals" },
-  { href: "/sast", label: "SAST" },
-  { href: "/insider-trading", label: "Insider Trading" },
-  { href: "/watchlists", label: "Watchlists", badgeKey: "watchlists" as const },
-  { href: "/episodes", label: "Episodes" },
-  { href: "/strategy/continuous-loss", label: "1-Year Loss Strategy" },
-  { href: "/masters", label: "Masters" },
-  { href: "/data", label: "Data" },
+type NavLink = {
+  href: string;
+  label: string;
+  badgeKey?: "watchlists";
+};
+
+type NavGroup = {
+  label: string;
+  links: NavLink[];
+};
+
+const dashboardLink: NavLink = { href: "/", label: "Dashboard" };
+
+const navGroups: NavGroup[] = [
+  {
+    label: "Portfolio",
+    links: [
+      { href: "/holdings", label: "Holdings" },
+      { href: "/episodes", label: "Episodes" },
+      { href: "/watchlists", label: "Watchlists", badgeKey: "watchlists" },
+    ],
+  },
+  {
+    label: "Market",
+    links: [
+      { href: "/block-deals", label: "Block Deals" },
+      { href: "/bulk-deals", label: "Bulk Deals" },
+      { href: "/sast", label: "SAST" },
+      { href: "/insider-trading", label: "Insider Trading" },
+    ],
+  },
+  {
+    label: "Client",
+    links: [
+      { href: "/strategy/pivot-point", label: "Pivot Point" },
+      { href: "/strategy/client-portfolio", label: "Client Portfolio" },
+    ],
+  },
+  {
+    label: "Strategy",
+    links: [{ href: "/strategy/continuous-loss", label: "1-Year Loss" }],
+  },
+  {
+    label: "Admin",
+    links: [
+      { href: "/masters", label: "Masters" },
+      { href: "/data", label: "Data" },
+    ],
+  },
 ];
+
+function pathMatches(pathname: string, href: string): boolean {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      aria-hidden
+      className={`h-3.5 w-3.5 shrink-0 text-stone-400 transition-transform ${open ? "rotate-180" : ""}`}
+    >
+      <path
+        fillRule="evenodd"
+        d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 10.94l3.71-3.71a.75.75 0 1 1 1.06 1.06l-4.24 4.24a.75.75 0 0 1-1.06 0L5.21 8.29a.75.75 0 0 1 .02-1.08Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function NavDropdown({
+  group,
+  open,
+  onToggle,
+  onClose,
+  unacknowledgedAlerts,
+}: {
+  group: NavGroup;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  unacknowledgedAlerts: number;
+}) {
+  const pathname = usePathname();
+  const menuId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const groupActive = group.links.some((link) => pathMatches(pathname, link.href));
+  const groupBadge = group.links.reduce((sum, link) => {
+    if (link.badgeKey === "watchlists" && unacknowledgedAlerts > 0) {
+      return sum + unacknowledgedAlerts;
+    }
+    return sum;
+  }, 0);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) onClose();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-controls={menuId}
+        onClick={onToggle}
+        className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition hover:bg-stone-100 hover:text-stone-900 ${
+          groupActive || open ? "bg-stone-100 text-stone-900" : "text-stone-600"
+        }`}
+      >
+        {group.label}
+        {groupBadge > 0 ? (
+          <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+            {groupBadge > 99 ? "99+" : groupBadge}
+          </span>
+        ) : null}
+        <Chevron open={open} />
+      </button>
+      {open ? (
+        <div
+          id={menuId}
+          role="menu"
+          className="absolute left-0 z-50 mt-1 min-w-[11rem] rounded-lg border border-stone-200 bg-white py-1 shadow-lg"
+        >
+          {group.links.map((link) => {
+            const active = pathMatches(pathname, link.href);
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                role="menuitem"
+                onClick={onClose}
+                className={`flex items-center justify-between gap-3 px-3 py-2 text-sm transition hover:bg-stone-50 ${
+                  active ? "bg-emerald-50 font-semibold text-emerald-900" : "text-stone-700"
+                }`}
+              >
+                <span>{link.label}</span>
+                {link.badgeKey === "watchlists" && unacknowledgedAlerts > 0 ? (
+                  <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    {unacknowledgedAlerts > 99 ? "99+" : unacknowledgedAlerts}
+                  </span>
+                ) : null}
+              </Link>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function AppShell({
   children,
@@ -29,8 +182,10 @@ export function AppShell({
   user?: AuthUser | null;
   onLogout?: () => void;
 }) {
+  const pathname = usePathname();
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
 
   const alertsSummaryQuery = useQuery({
     queryKey: ["watchlist-alerts-summary"],
@@ -39,6 +194,10 @@ export function AppShell({
   });
 
   const unacknowledgedAlerts = alertsSummaryQuery.data?.unacknowledged ?? 0;
+
+  useEffect(() => {
+    setOpenGroup(null);
+  }, [pathname]);
 
   const refreshMutation = useMutation({
     mutationFn: () => api.refreshFromOnedrive(),
@@ -66,20 +225,28 @@ export function AppShell({
             <h1 className="text-lg font-semibold">Historical Decision Lab</h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <nav className="flex flex-wrap gap-2">
-              {links.map((link) => (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className="relative rounded-lg px-3 py-2 text-sm font-medium text-stone-600 transition hover:bg-stone-100 hover:text-stone-900"
-                >
-                  {link.label}
-                  {link.badgeKey === "watchlists" && unacknowledgedAlerts > 0 ? (
-                    <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                      {unacknowledgedAlerts > 99 ? "99+" : unacknowledgedAlerts}
-                    </span>
-                  ) : null}
-                </Link>
+            <nav className="flex flex-wrap items-center gap-1">
+              <Link
+                href={dashboardLink.href}
+                className={`rounded-lg px-2.5 py-1.5 text-sm font-medium transition hover:bg-stone-100 hover:text-stone-900 ${
+                  pathMatches(pathname, dashboardLink.href)
+                    ? "bg-stone-100 text-stone-900"
+                    : "text-stone-600"
+                }`}
+              >
+                {dashboardLink.label}
+              </Link>
+              {navGroups.map((group) => (
+                <NavDropdown
+                  key={group.label}
+                  group={group}
+                  open={openGroup === group.label}
+                  onToggle={() =>
+                    setOpenGroup((current) => (current === group.label ? null : group.label))
+                  }
+                  onClose={() => setOpenGroup(null)}
+                  unacknowledgedAlerts={unacknowledgedAlerts}
+                />
               ))}
             </nav>
             <button

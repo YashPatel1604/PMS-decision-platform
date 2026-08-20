@@ -26,7 +26,6 @@ QUARTERLY_FUNDAMENTALS_COLUMNS: tuple[str, ...] = (
 )
 
 FUNDAMENTALS_PROVIDERS: frozenset[str] = frozenset({"manual", "screener", "yahoo", "xbrl"})
-ACTIVE_FUNDAMENTALS_PROVIDERS: frozenset[str] = frozenset({"manual", "screener", "yahoo", "xbrl"})
 
 
 def validated_fundamentals_provider(raw: str | None = None) -> str:
@@ -34,7 +33,7 @@ def validated_fundamentals_provider(raw: str | None = None) -> str:
     from pms_platform.config import settings
 
     name = (raw or settings.fundamentals_provider).strip().lower()
-    if name in ACTIVE_FUNDAMENTALS_PROVIDERS:
+    if name in FUNDAMENTALS_PROVIDERS:
         return name
     return "manual"
 

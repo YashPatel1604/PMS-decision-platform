@@ -5,11 +5,31 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from scipy.optimize import brentq
-
 _DAYS_PER_YEAR = Decimal("365")
-_MIN_RATE = Decimal("-0.9999")
-_MAX_RATE = Decimal("10")
+_MIN_RATE = -0.9999
+_MAX_RATE = 10.0
+
+
+def _brentq(fn, lo: float, hi: float, *, tol: float = 1e-12, max_iter: int = 100) -> float:
+    """Bracketed root find (Brent-style bisection fallback)."""
+    flo, fhi = fn(lo), fn(hi)
+    if flo == 0.0:
+        return lo
+    if fhi == 0.0:
+        return hi
+    if flo * fhi > 0.0:
+        raise ValueError("root not bracketed")
+    a, b, fa, fb = lo, hi, flo, fhi
+    for _ in range(max_iter):
+        mid = 0.5 * (a + b)
+        fmid = fn(mid)
+        if abs(fmid) < tol or abs(b - a) < tol:
+            return mid
+        if fa * fmid <= 0.0:
+            b, fb = mid, fmid
+        else:
+            a, fa = mid, fmid
+    return 0.5 * (a + b)
 
 
 def compute_xirr(cash_flows: list[tuple[date, Decimal]]) -> Decimal | None:
@@ -38,7 +58,7 @@ def compute_xirr(cash_flows: list[tuple[date, Decimal]]) -> Decimal | None:
         )
 
     try:
-        solved = brentq(npv, float(_MIN_RATE), float(_MAX_RATE))
+        solved = _brentq(npv, _MIN_RATE, _MAX_RATE)
     except ValueError:
         return None
 

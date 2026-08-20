@@ -13,6 +13,7 @@ from xml.etree import ElementTree as ET
 import httpx
 
 from pms_platform.market_data.bse_financial_results import BseQuarterlyResult, fiscal_label
+from pms_platform.market_data.bse_http import bse_headers
 
 _BSE_API = "https://api.bseindia.com/BseIndiaAPI/api"
 _XBRL_DETAILS_URL = f"{_BSE_API}/GetCorXbrlDetails_ng/w"
@@ -37,15 +38,7 @@ class BseXbrlFiling:
 
 
 def _bse_headers() -> dict[str, str]:
-    return {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://www.bseindia.com/corporates/xbrl.aspx",
-    }
+    return bse_headers(referer="https://www.bseindia.com/corporates/xbrl.aspx")
 
 
 def _local_tag(tag: str) -> str:

@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from pms_platform.market_data.bse_financial_results import BseQuarterlyResult, fiscal_label
+from pms_platform.market_data.bse_http import bse_headers
 
 _BSE_API = "https://api.bseindia.com/BseIndiaAPI/api"
 _FINANCE_RESULT_URL = f"{_BSE_API}/Corp_FinanceResult_ng_new/w"
@@ -44,17 +45,7 @@ class BseIntegratedFinanceFetchError(RuntimeError):
 
 
 def _bse_headers() -> dict[str, str]:
-    return {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Origin": "https://www.bseindia.com",
-        "Referer": "https://www.bseindia.com/corporates/results.aspx",
-    }
+    return bse_headers(referer="https://www.bseindia.com/corporates/results.aspx")
 
 
 def _parse_decimal(text: str) -> Decimal | None:

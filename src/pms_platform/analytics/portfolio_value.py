@@ -43,8 +43,12 @@ def equity_portfolio_market_value(
     """Value all equity holdings using adjusted closes on or before a date.
 
     Quantities are scaled by later SPLIT/BONUS factors so they stay consistent
-    with vendor split-adjusted closes.
+    with vendor split-adjusted closes. When an exact-date NSE bhav close exists
+    for the security's ticker, that raw CMP is used instead (current share basis).
     """
+    from pms_platform.market_data.nse_bhav_store import lookup_bhav_close
+    from pms_platform.models import Security
+
     quantities = compute_quantities_as_of(session, as_of_date)
     if not quantities:
         return _ZERO
@@ -52,9 +56,30 @@ def equity_portfolio_market_value(
     factors = cumulative_split_bonus_factors_after(
         session, as_of_date, security_ids=set(quantities)
     )
+    securities = {
+        row.security_id: row
+        for row in session.scalars(
+            select(Security).where(Security.security_id.in_(set(quantities)))
+        ).all()
+    }
     total = _ZERO
     priced_holdings = 0
     for security_id, quantity in quantities.items():
+        security = securities.get(security_id)
+        bhav_close: Decimal | None = None
+        if security is not None:
+            for raw in (security.current_nse_symbol, security.historical_nse_symbol):
+                text = str(raw or "").strip().upper()
+                if not text or text in {"NAN", "NONE", "NULL"}:
+                    continue
+                hit = lookup_bhav_close(session, text, as_of_date)
+                if hit is not None:
+                    bhav_close = hit[0]
+                    break
+        if bhav_close is not None:
+            total += bhav_close * Decimal(quantity)
+            priced_holdings += 1
+            continue
         observation = lookup_daily_price(
             session, security_id, as_of_date, allow_live=allow_live
         )

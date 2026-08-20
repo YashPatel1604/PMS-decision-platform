@@ -493,7 +493,3 @@ class YahooFinanceClient:
             end_price=end_pt[1],
             total_return_pct=total,
         )
-
-
-# Back-compat alias used by older imports/tests during transition.
-IndianStockMarketClient = YahooFinanceClient

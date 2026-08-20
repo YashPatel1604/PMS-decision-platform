@@ -20,10 +20,12 @@ from pms_platform.analytics.research_portfolio_value import clear_research_portf
 from pms_platform.analytics.service import run_full_episode_analysis
 from pms_platform.config import settings
 from pms_platform.episodes.builder import build_episodes
+from pms_platform.episodes.model_reconcile import reconcile_open_episodes_to_client_model
 from pms_platform.ingestion.securities import import_security_master
 from pms_platform.ingestion.snapshots import clear_portfolio_snapshots, import_portfolio_snapshots
 from pms_platform.ingestion.transactions import import_transaction_master
 from pms_platform.ingestion.validators import ValidationSeverity, validate_imported_data
+from pms_platform.market_data.client_portfolio_parse import clear_client_portfolio_cache
 from pms_platform.market_data.contracts import CanonicalPaths
 from pms_platform.market_data.importer import import_market_data
 from pms_platform.masters.paths import MasterKind, final_master_dir, resolve_master_path
@@ -230,9 +232,18 @@ def reimport_from_raw(session: Session, *, raw_dir: Path | None = None) -> Reimp
         )
 
     episodes, decisions = build_episodes(session)
+    model_closed = reconcile_open_episodes_to_client_model(session)
     snap = import_portfolio_snapshots(session, snapshot_dir)
     session.commit()
     clear_research_portfolio_value_cache()
+    clear_client_portfolio_cache()
+
+    notes = ["Reimport complete"]
+    if model_closed:
+        names = ", ".join(row.portfolio_name for row in model_closed[:8])
+        notes.append(
+            f"Closed {len(model_closed)} episode(s) absent from Client Portfolio Model: {names}"
+        )
 
     return ReimportResult(
         securities_inserted=sec.inserted,
@@ -243,7 +254,7 @@ def reimport_from_raw(session: Session, *, raw_dir: Path | None = None) -> Reimp
         snapshots_inserted=snap.inserted,
         snapshots_unresolved=snap.unresolved_names,
         validation_errors=0,
-        notes=["Reimport complete"],
+        notes=notes,
     )
 
 

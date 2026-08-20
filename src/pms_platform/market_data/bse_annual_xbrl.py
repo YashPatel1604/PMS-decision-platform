@@ -11,6 +11,8 @@ from xml.etree import ElementTree as ET
 
 import httpx
 
+from pms_platform.market_data.bse_http import bse_headers
+
 _BSE_XBRL_DETAILS_URL = "https://api.bseindia.com/BseIndiaAPI/api/GetCorXbrlDetails_ng/w"
 _ANNUAL_FLAG = 1
 _INR_TO_CRORE = Decimal("10000000")
@@ -49,15 +51,7 @@ class BseAnnualFundamentals:
 
 
 def _bse_headers() -> dict[str, str]:
-    return {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://www.bseindia.com/corporates/xbrl.aspx",
-    }
+    return bse_headers(referer="https://www.bseindia.com/corporates/xbrl.aspx")
 
 
 def _local_tag(tag: str) -> str:

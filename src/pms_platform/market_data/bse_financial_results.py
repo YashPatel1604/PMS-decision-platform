@@ -12,6 +12,8 @@ from typing import Any
 
 import httpx
 
+from pms_platform.market_data.bse_http import bse_headers as _bse_headers
+
 _BSE_API = "https://api.bseindia.com/BseIndiaAPI/api"
 _RESULTS_URL = f"{_BSE_API}/TabResults_PAR/w"
 _MAX_RETRIES = 3
@@ -66,18 +68,6 @@ class BseResultsSnapshot:
     bse_code: str
     currency_unit: str
     quarters: tuple[BseQuarterlyResult, ...]
-
-
-def _bse_headers() -> dict[str, str]:
-    return {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://www.bseindia.com/",
-    }
 
 
 def _parse_decimal(value: object) -> Decimal | None:
