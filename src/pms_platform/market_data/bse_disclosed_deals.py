@@ -194,6 +194,7 @@ class DisclosedDealsResult:
     fetched_at: datetime
     deals: list[DisclosedDealRow]
     available_dates: tuple[date, ...] = ()
+    portfolio_dates: tuple[date, ...] = ()
     kind: DealKind = "block"
 
     @property
@@ -685,8 +686,17 @@ def fetch_disclosed_deals(
     except Exception as exc:
         raise DisclosedDealsFetchError(f"Failed to parse {kind} deals: {exc}") from exc
 
+    if session is not None:
+        all_deals = enrich_with_portfolio(all_deals, session)
+
     available = tuple(
         sorted({d.deal_date for d in all_deals if d.deal_date is not None}, reverse=True)
+    )
+    portfolio_dates = tuple(
+        sorted(
+            {d.deal_date for d in all_deals if d.deal_date is not None and d.in_portfolio},
+            reverse=True,
+        )
     )
     if as_of_date is not None:
         target = as_of_date
@@ -696,9 +706,6 @@ def fetch_disclosed_deals(
         target = today
 
     deals = [d for d in all_deals if d.deal_date == target]
-
-    if session is not None:
-        deals = enrich_with_portfolio(deals, session)
     deals = flag_arbitrage_deals(deals)
     if fetch_frame is None:
         deals = enrich_with_market_caps(deals)
@@ -717,5 +724,6 @@ def fetch_disclosed_deals(
         fetched_at=datetime.now(timezone.utc),
         deals=deals,
         available_dates=available,
+        portfolio_dates=portfolio_dates,
         kind=kind,
     )

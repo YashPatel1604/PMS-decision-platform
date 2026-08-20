@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import time
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -14,6 +15,7 @@ _cache_loaded_at = 0.0
 _isin_to_code: dict[str, str] = {}
 _name_to_code: dict[str, str] = {}
 _nse_to_code: dict[str, str] = {}
+_mktcap_by_code: dict[str, Decimal] = {}
 
 
 def _norm_name(value: object) -> str:
@@ -38,7 +40,7 @@ def _bse_headers() -> dict[str, str]:
 
 def refresh_bse_scrip_universe(*, force: bool = False) -> None:
     """Load Active Equity scrips from BSE into in-memory ISIN/name maps."""
-    global _cache_loaded_at, _isin_to_code, _name_to_code, _nse_to_code
+    global _cache_loaded_at, _isin_to_code, _name_to_code, _nse_to_code, _mktcap_by_code
     now = time.time()
     if not force and _isin_to_code and now - _cache_loaded_at < _CACHE_TTL_SEC:
         return
@@ -61,12 +63,21 @@ def refresh_bse_scrip_universe(*, force: bool = False) -> None:
     isin_map: dict[str, str] = {}
     name_map: dict[str, str] = {}
     nse_map: dict[str, str] = {}
+    mktcap_map: dict[str, Decimal] = {}
     for row in payload:
         if not isinstance(row, dict):
             continue
         code = str(row.get("SCRIP_CD") or "").strip()
         if not code:
             continue
+        raw_cap = row.get("Mktcap")
+        if raw_cap is not None:
+            try:
+                cap = Decimal(str(raw_cap).strip().replace(",", ""))
+                if cap > 0:
+                    mktcap_map[code] = cap
+            except (InvalidOperation, ValueError):
+                pass
         isin = str(row.get("ISIN_NUMBER") or "").strip().upper()
         if isin:
             isin_map[isin] = code
@@ -83,7 +94,16 @@ def refresh_bse_scrip_universe(*, force: bool = False) -> None:
     _isin_to_code = isin_map
     _name_to_code = name_map
     _nse_to_code = nse_map
+    _mktcap_by_code = mktcap_map
     _cache_loaded_at = now
+
+
+def bse_codes_at_least_mcap(min_mcap_cr: Decimal) -> frozenset[str]:
+    """Active BSE equity scrip codes with full mcap >= min_mcap_cr (₹ Cr)."""
+    refresh_bse_scrip_universe()
+    return frozenset(
+        code for code, cap in _mktcap_by_code.items() if cap >= min_mcap_cr
+    )
 
 
 def resolve_bse_code(
@@ -92,6 +112,7 @@ def resolve_bse_code(
     isin: object = None,
     company_name: object = None,
     nse_symbol: object = None,
+    allow_soft_name: bool = True,
 ) -> str | None:
     """Resolve a BSE scrip code from an explicit code, ISIN, NSE symbol, or company name."""
     direct = str(bse_code or "").strip()
@@ -113,7 +134,7 @@ def resolve_bse_code(
     if name_key and name_key in _name_to_code:
         return _name_to_code[name_key]
     # Soft match: longest name that is contained in either direction.
-    if name_key:
+    if allow_soft_name and name_key:
         best: tuple[int, str] | None = None
         for listed_name, code in _name_to_code.items():
             if name_key in listed_name or listed_name in name_key:

@@ -110,6 +110,7 @@ class TodayBlockDealsResponse(BaseModel):
     arbitrage_deal_count: int
     non_arbitrage_deal_count: int
     available_dates: list[date]
+    portfolio_dates: list[date] = []
     deals: list[BlockDealResponse]
 
 
@@ -124,6 +125,7 @@ def _block_deals_response(result: object) -> TodayBlockDealsResponse:
         arbitrage_deal_count=result.arbitrage_deal_count,
         non_arbitrage_deal_count=result.non_arbitrage_deal_count,
         available_dates=list(result.available_dates),
+        portfolio_dates=list(result.portfolio_dates),
         deals=[
             BlockDealResponse(
                 deal_date=d.deal_date,
@@ -208,6 +210,7 @@ class CorporateDisclosureResponse(BaseModel):
     portfolio_name: str | None = None
     in_portfolio: bool = False
     is_open: bool = False
+    is_arbitrage: bool = False
 
 
 class TodayCorporateDisclosuresResponse(BaseModel):
@@ -216,6 +219,7 @@ class TodayCorporateDisclosuresResponse(BaseModel):
     fetched_at: datetime
     row_count: int
     available_dates: list[date]
+    portfolio_dates: list[date] = []
     rows: list[CorporateDisclosureResponse]
 
 
@@ -231,6 +235,7 @@ def _corporate_disclosures_response(result: object) -> TodayCorporateDisclosures
         fetched_at=result.fetched_at,
         row_count=result.row_count,
         available_dates=list(result.available_dates),
+        portfolio_dates=list(result.portfolio_dates),
         rows=[
             CorporateDisclosureResponse(
                 kind=r.kind,
@@ -251,6 +256,7 @@ def _corporate_disclosures_response(result: object) -> TodayCorporateDisclosures
                 portfolio_name=r.portfolio_name,
                 in_portfolio=r.in_portfolio,
                 is_open=r.is_open,
+                is_arbitrage=r.is_arbitrage,
             )
             for r in result.rows
         ],
@@ -292,6 +298,10 @@ def today_insider_trading(
         description="Calendar month YYYY-MM used to grey days without insider disclosures",
         pattern=r"^\d{4}-\d{2}$",
     ),
+    refresh: bool = Query(
+        default=False,
+        description="When true, pull recent days from BSE before responding (slow; default reads DB cache)",
+    ),
     session: Session = Depends(get_db),
 ) -> TodayCorporateDisclosuresResponse:
     """BSE Insider Trading 2015 disclosures submitted by company."""
@@ -302,7 +312,11 @@ def today_insider_trading(
 
     try:
         result = fetch_corporate_disclosures(
-            "insider", session, as_of_date=date_value, calendar_month=month
+            "insider",
+            session,
+            as_of_date=date_value,
+            calendar_month=month,
+            refresh_insider=refresh,
         )
     except CorporateDisclosuresFetchError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

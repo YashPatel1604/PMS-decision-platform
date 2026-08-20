@@ -124,3 +124,34 @@ def test_fetch_todays_bulk_deals_with_mock_frame() -> None:
     )
     assert prior.deal_count == 1
     assert prior.deals[0].bse_code == "500112"
+    assert latest.portfolio_dates == ()
+
+
+def test_portfolio_dates_only_include_our_firms(session, sample_security) -> None:
+    sample_security.bse_code = "500325"
+    session.flush()
+    frame = pd.DataFrame(
+        [
+            {
+                "Deal Date": "28/07/2026",
+                "Security Code": "500325",
+                "Company": "RELIANCE",
+                "Client Name": "Alpha",
+                "Deal Type": "P",
+                "Quantity": 100000,
+                "Price": 1400,
+            },
+            {
+                "Deal Date": "01/07/2026",
+                "Security Code": "500112",
+                "Company": "SBIN",
+                "Client Name": "Beta",
+                "Deal Type": "S",
+                "Quantity": 50000,
+                "Price": 800,
+            },
+        ]
+    )
+    result = fetch_todays_bulk_deals(session=session, fetch_frame=lambda: frame)
+    assert result.available_dates == (date(2026, 7, 28), date(2026, 7, 1))
+    assert result.portfolio_dates == (date(2026, 7, 28),)

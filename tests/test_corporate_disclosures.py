@@ -11,7 +11,7 @@ from pms_platform.market_data.bse_corporate_disclosures import (
     normalize_insider_row,
     normalize_sast_row,
 )
-from pms_platform.market_data.insider_store import sync_insider_days
+from pms_platform.market_data.insider_store import _scrip_code, sync_insider_days
 from pms_platform.models.insider_disclosure_day import InsiderDisclosureDay
 from pms_platform.watchlists import service as wl
 
@@ -61,17 +61,22 @@ def test_normalize_insider_row() -> None:
         "Fld_StampDate": "2026-08-06T00:00:00",
         "ModeOfAquisation": "Market Purchase",
     }
-    with patch(
-        "pms_platform.market_data.bse_corporate_disclosures.resolve_bse_code",
-        return_value="544444",
-    ):
-        row = normalize_insider_row(raw)
+    row = normalize_insider_row(raw)
     assert row is not None
     assert row.kind == "insider"
     assert row.bse_code == "544444"
     assert row.disclosure_date == date(2026, 8, 6)
     assert row.value == Decimal("4966584.00")
     assert row.mode == "Market Purchase"
+
+
+def test_normalize_insider_row_requires_bse_scrip_code() -> None:
+    raw = {
+        "Companyname": "Corona Remedies Ltd",
+        "Fld_PromoterName": "Someone",
+        "Fld_StampDate": "2026-08-19T00:00:00",
+    }
+    assert normalize_insider_row(raw) is None
 
 
 def _insider_raw(day: date, count: int) -> list[dict]:
@@ -101,14 +106,33 @@ def _fake_bse_insider(from_date: date, to_date: date) -> list[dict]:
     return []
 
 
-def test_insider_store_fetches_one_day_at_a_time(session) -> None:
-    calls: list[tuple[date, date]] = []
+def _range_days(start: date, end: date) -> list[date]:
+    from datetime import timedelta
 
-    def fake(from_date: date, to_date: date) -> list[dict]:
-        calls.append((from_date, to_date))
+    days: list[date] = []
+    cursor = start
+    while cursor <= end:
+        days.append(cursor)
+        cursor += timedelta(days=1)
+    return days
+
+
+def test_insider_store_fetches_one_day_at_a_time(session) -> None:
+    calls: list[tuple[date, date, str]] = []
+
+    def fake(from_date: date, to_date: date, scrip_code: str = "") -> list[dict]:
+        calls.append((from_date, to_date, scrip_code))
+        if scrip_code:
+            return []
         return _fake_bse_insider(from_date, to_date)
 
-    with patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake):
+    with (
+        patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake),
+        patch(
+            "pms_platform.market_data.insider_store.insider_backfill_bse_codes",
+            return_value=frozenset(),
+        ),
+    ):
         fetched = sync_insider_days(
             session,
             date(2026, 8, 11),
@@ -118,7 +142,7 @@ def test_insider_store_fetches_one_day_at_a_time(session) -> None:
         session.commit()
 
     assert fetched == 8
-    assert all(start == end for start, end in calls)
+    assert all(start == end and not code for start, end, code in calls)
     older = session.get(InsiderDisclosureDay, date(2026, 8, 11))
     assert older is not None
     assert older.row_count == 3
@@ -129,15 +153,21 @@ def test_insider_store_fetches_one_day_at_a_time(session) -> None:
     assert today_row.truncated is True
 
     calls.clear()
-    with patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake):
+    with (
+        patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake),
+        patch(
+            "pms_platform.market_data.insider_store.insider_backfill_bse_codes",
+            return_value=frozenset(),
+        ),
+    ):
         fetched_again = sync_insider_days(
             session,
             date(2026, 8, 11),
             date(2026, 8, 18),
             today=date(2026, 8, 18),
         )
-    assert fetched_again == 1
-    assert calls == [(date(2026, 8, 18), date(2026, 8, 18))]
+    assert fetched_again == 8
+    assert calls == [(day, day, "") for day in _range_days(date(2026, 8, 11), date(2026, 8, 18))]
 
 
 def test_insider_store_merges_watchlist_scrips_when_day_capped(session) -> None:
@@ -165,7 +195,13 @@ def test_insider_store_merges_watchlist_scrips_when_day_capped(session) -> None:
             ]
         return _fake_bse_insider(from_date, to_date)
 
-    with patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake):
+    with (
+        patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake),
+        patch(
+            "pms_platform.market_data.insider_store.insider_backfill_bse_codes",
+            return_value=frozenset({"500570"}),
+        ),
+    ):
         sync_insider_days(
             session,
             date(2026, 8, 18),
@@ -213,12 +249,18 @@ def test_insider_store_backfills_historical_truncated_day(session) -> None:
             ]
         return _insider_raw(from_date, 25)
 
-    with patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake):
+    with (
+        patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake),
+        patch(
+            "pms_platform.market_data.insider_store.insider_backfill_bse_codes",
+            return_value=frozenset({"500570"}),
+        ),
+    ):
         fetched = sync_insider_days(
             session,
             date(2026, 8, 11),
             date(2026, 8, 11),
-            today=date(2026, 8, 18),
+            today=date(2026, 8, 30),
         )
         session.commit()
 
@@ -228,14 +270,243 @@ def test_insider_store_backfills_historical_truncated_day(session) -> None:
     assert stored.row_count == 26
     assert stored.truncated is False
 
-    with patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake):
-        fetched_again = sync_insider_days(
-            session,
-            date(2026, 8, 11),
-            date(2026, 8, 11),
-            today=date(2026, 8, 18),
-        )
+    with (
+        patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake),
+        patch(
+            "pms_platform.market_data.insider_store.insider_backfill_bse_codes",
+            return_value=frozenset({"500570"}),
+        ),
+    ):
+            fetched_again = sync_insider_days(
+                session,
+                date(2026, 8, 11),
+                date(2026, 8, 11),
+                today=date(2026, 8, 30),
+            )
     assert fetched_again == 0
+
+
+def test_insider_store_refreshes_stale_recent_snapshot(session) -> None:
+    """Early BSE snapshot (10 rows) must not freeze once more filings land."""
+    day = date(2026, 8, 19)
+    session.add(
+        InsiderDisclosureDay(
+            disclosure_date=day,
+            rows=_insider_raw(day, 10),
+            row_count=10,
+            truncated=False,
+            fetched_at=datetime(2026, 8, 19, 6, tzinfo=timezone.utc),
+        )
+    )
+    session.commit()
+
+    def fake(from_date: date, to_date: date, scrip_code: str = "") -> list[dict]:
+        if from_date == day and not scrip_code:
+            return _insider_raw(day, 25)
+        return []
+
+    with (
+        patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake),
+        patch(
+            "pms_platform.market_data.insider_store.insider_backfill_bse_codes",
+            return_value=frozenset(),
+        ),
+    ):
+        fetched = sync_insider_days(
+            session,
+            day,
+            day,
+            today=date(2026, 8, 20),
+        )
+        session.commit()
+
+    assert fetched == 1
+    stored = session.get(InsiderDisclosureDay, day)
+    assert stored is not None
+    assert stored.row_count == 25
+    assert stored.truncated is True
+
+
+def test_insider_store_fetches_portfolio_scrip_when_market_under_cap(
+    session, sample_security
+) -> None:
+    """Aurionpro case: market snapshot had 10 rows; portfolio filing only via per-scrip."""
+    sample_security.bse_code = "532668"
+    sample_security.portfolio_name = "Aurionpro"
+    session.add(sample_security)
+    session.commit()
+
+    day = date(2026, 8, 19)
+    calls: list[tuple[date, date, str]] = []
+
+    def fake(from_date: date, to_date: date, scrip_code: str = "") -> list[dict]:
+        calls.append((from_date, to_date, scrip_code))
+        if scrip_code == "532668":
+            return [
+                {
+                    "Fld_ID": 532668001,
+                    "Fld_ScripCode": 532668,
+                    "Companyname": "Aurionpro Solutions Ltd",
+                    "Fld_PromoterName": "ASHISH RAI",
+                    "Fld_PersonCatgName": "KMP",
+                    "Fld_TransactionType": "Acquisition",
+                    "Fld_SecurityNo": 5000,
+                    "Fld_StampDate": "2026-08-19T00:00:00",
+                }
+            ]
+        if from_date == day:
+            return _insider_raw(day, 10)
+        return []
+
+    with (
+        patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake),
+        patch(
+            "pms_platform.market_data.insider_store.insider_backfill_bse_codes",
+            return_value=frozenset({"532668"}),
+        ),
+    ):
+        sync_insider_days(session, day, day, today=date(2026, 8, 20))
+        session.commit()
+
+    assert any(code == "532668" for _, _, code in calls if code)
+    stored = session.get(InsiderDisclosureDay, day)
+    assert stored is not None
+    assert stored.row_count == 11
+    assert stored.truncated is False
+    codes = {_scrip_code(row) for row in stored.rows}
+    assert "532668" in codes
+
+
+def test_insider_store_fetches_large_cap_scrip_when_market_under_cap(session) -> None:
+    """Large-cap names (e.g. Corona) must appear even when absent from top-25 market."""
+    day = date(2026, 8, 19)
+
+    def fake(from_date: date, to_date: date, scrip_code: str = "") -> list[dict]:
+        if scrip_code == "544644":
+            return [
+                {
+                    "Fld_ID": 544644001,
+                    "Fld_ScripCode": 544644,
+                    "Companyname": "Corona Remedies Ltd",
+                    "Fld_PromoterName": "Apurvsinh Kirtisinh Parmar",
+                    "Fld_TransactionType": "Acquisition",
+                    "Fld_StampDate": "2026-08-19T00:00:00",
+                }
+            ]
+        if from_date == to_date == day:
+            return _insider_raw(day, 10)
+        return []
+
+    with (
+        patch(
+            "pms_platform.market_data.insider_store.fetch_insider_rows",
+            side_effect=fake,
+        ),
+        patch(
+            "pms_platform.market_data.insider_store.insider_backfill_bse_codes",
+            return_value=frozenset({"544644"}),
+        ),
+    ):
+        sync_insider_days(session, day, day, today=date(2026, 8, 20))
+        session.commit()
+
+    stored = session.get(InsiderDisclosureDay, day)
+    assert stored is not None
+    names = {str(r.get("Companyname")) for r in stored.rows}
+    assert "Corona Remedies Ltd" in names
+
+
+def test_flag_insider_arbitrage_pairs_buy_and_sell() -> None:
+    from pms_platform.market_data.bse_corporate_disclosures import (
+        CorporateDisclosureRow,
+        flag_insider_arbitrage,
+    )
+
+    rows = [
+        CorporateDisclosureRow(
+            kind="insider",
+            disclosure_date=date(2026, 8, 19),
+            bse_code="500325",
+            company_name="Test",
+            person_name="Alice",
+            category="Promoter",
+            transaction_type="Acquisition",
+            quantity=None,
+            value=None,
+            pct_pre=None,
+            pct_post=None,
+            mode="Market Purchase",
+            regulation="PIT 7(2)",
+        ),
+        CorporateDisclosureRow(
+            kind="insider",
+            disclosure_date=date(2026, 8, 19),
+            bse_code="500325",
+            company_name="Test",
+            person_name="Alice",
+            category="Promoter",
+            transaction_type="Disposal",
+            quantity=None,
+            value=None,
+            pct_pre=None,
+            pct_post=None,
+            mode="Market Sale",
+            regulation="PIT 7(2)",
+        ),
+    ]
+    flagged = flag_insider_arbitrage(rows)
+    assert all(r.is_arbitrage for r in flagged)
+
+
+def test_insider_page_returns_all_stored_names(session, sample_security) -> None:
+    sample_security.bse_code = "532668"
+    sample_security.portfolio_name = "Aurionpro"
+    session.add(sample_security)
+    session.commit()
+
+    day = date(2026, 8, 19)
+    session.add(
+        InsiderDisclosureDay(
+            disclosure_date=day,
+            rows=[
+                {
+                    "Fld_ID": 1,
+                    "Fld_ScripCode": 532668,
+                    "Companyname": "Aurionpro Solutions Ltd",
+                    "Fld_PromoterName": "ASHISH RAI",
+                    "Fld_StampDate": "2026-08-19T00:00:00",
+                },
+                {
+                    "Fld_ID": 2,
+                    "Fld_ScripCode": 544644,
+                    "Companyname": "Corona Remedies Ltd",
+                    "Fld_PromoterName": "Apurvsinh Kirtisinh Parmar",
+                    "Fld_StampDate": "2026-08-19T00:00:00",
+                },
+            ],
+            row_count=2,
+            truncated=False,
+            fetched_at=datetime(2026, 8, 19, tzinfo=timezone.utc),
+        )
+    )
+    session.commit()
+
+    with patch(
+        "pms_platform.market_data.insider_store.sync_insider_days",
+        return_value=0,
+    ):
+        market = fetch_corporate_disclosures(
+            "insider",
+            session,
+            as_of_date=day,
+            enrich_market_cap=False,
+        )
+
+    assert len(market.rows) == 2
+    assert {r.company_name for r in market.rows} == {
+        "Aurionpro Solutions Ltd",
+        "Corona Remedies Ltd",
+    }
 
 
 def test_insider_page_keeps_older_days_from_store(session) -> None:
@@ -243,6 +514,10 @@ def test_insider_page_keeps_older_days_from_store(session) -> None:
         patch(
             "pms_platform.market_data.insider_store.fetch_insider_rows",
             side_effect=_fake_bse_insider,
+        ),
+        patch(
+            "pms_platform.market_data.insider_store.insider_backfill_bse_codes",
+            return_value=frozenset(),
         ),
         patch(
             "pms_platform.market_data.bse_corporate_disclosures._today_ist",
@@ -253,6 +528,14 @@ def test_insider_page_keeps_older_days_from_store(session) -> None:
             return_value="500325",
         ),
     ):
+        fetch_corporate_disclosures(
+            "insider",
+            session,
+            calendar_month="2026-08",
+            enrich_market_cap=False,
+            refresh_insider=True,
+        )
+        session.commit()
         latest = fetch_corporate_disclosures(
             "insider",
             session,

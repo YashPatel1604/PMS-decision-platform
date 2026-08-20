@@ -448,6 +448,13 @@ docker compose -f ~/apps/.../docker-compose.yml exec -T api \
   uv run pms-platform refresh-watchlist-quotes
 ```
 
+**Daily insider store** (example 07:10 IST — keeps portfolio/watchlist filings complete):
+
+```bash
+docker compose -f ~/apps/.../docker-compose.yml exec -T api \
+  uv run pms-platform sync-insider-disclosures --days 14
+```
+
 **Weekly fundamentals** (example Sunday 03:00 IST):
 
 ```bash
@@ -458,6 +465,7 @@ docker compose -f ~/apps/.../docker-compose.yml exec -T api \
 Align with existing Windows scripts in `scripts/windows/` but **host them once on the VM**.
 
 - [ ] Daily quotes cron  
+- [ ] Daily insider sync cron (`sync-insider-disclosures --days 14`)  
 - [ ] Weekly fundamentals cron  
 - [ ] Laptop Task Scheduler jobs removed / disabled
 

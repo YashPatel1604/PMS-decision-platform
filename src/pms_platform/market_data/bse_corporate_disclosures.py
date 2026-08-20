@@ -14,11 +14,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pms_platform.market_data.bse_disclosed_deals import fetch_bse_market_caps
+from pms_platform.market_data.bse_scrip_universe import bse_codes_at_least_mcap
 from pms_platform.market_data.bse_scrip_universe import resolve_bse_code
 from pms_platform.models import InvestmentEpisode, Security
 from pms_platform.models.enums import EpisodeStatus
+from pms_platform.models.watchlist import WatchlistMember
 
 DisclosureKind = Literal["sast", "insider"]
+
+# Matches Insider UI default min mcap filter — scrip backfill uses BSE ListOfScripData Mktcap.
+DEFAULT_INSIDER_MIN_MCAP_CR = Decimal("2000")
 
 _IST = ZoneInfo("Asia/Kolkata")
 _BSE_API = "https://api.bseindia.com/BseIndiaAPI/api"
@@ -48,6 +53,7 @@ class CorporateDisclosureRow:
     portfolio_name: str | None = None
     in_portfolio: bool = False
     is_open: bool = False
+    is_arbitrage: bool = False
     raw_notes: str | None = None
 
 
@@ -60,6 +66,7 @@ class CorporateDisclosuresResult:
     fetched_at: datetime
     rows: list[CorporateDisclosureRow]
     available_dates: tuple[date, ...] = ()
+    portfolio_dates: tuple[date, ...] = ()
 
     @property
     def row_count(self) -> int:
@@ -206,6 +213,68 @@ def fetch_insider_rows(
     )
 
 
+def _bse_scrip_from_field(value: object) -> str | None:
+    text = str(value or "").strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    if not text or text.lower() in {"nan", "none", "null", "0"}:
+        return None
+    return text
+
+
+def insider_backfill_bse_codes(session: Session) -> frozenset[str]:
+    """Portfolio/watchlist plus every active BSE scrip at or above ₹2,000 Cr."""
+    codes: set[str] = set()
+    for raw in session.scalars(
+        select(WatchlistMember.bse_code).where(WatchlistMember.bse_code.is_not(None))
+    ):
+        code = _bse_scrip_from_field(raw)
+        if code:
+            codes.add(code)
+    for raw in session.scalars(select(Security.bse_code).where(Security.bse_code.is_not(None))):
+        code = _bse_scrip_from_field(raw)
+        if code:
+            codes.add(code)
+    codes.update(bse_codes_at_least_mcap(DEFAULT_INSIDER_MIN_MCAP_CR))
+    return frozenset(codes)
+
+
+def _insider_txn_side(transaction_type: str) -> str | None:
+    text = transaction_type.casefold()
+    if any(token in text for token in ("acq", "buy", "purchase")):
+        return "buy"
+    if any(token in text for token in ("disposal", "sell", "sale")):
+        return "sell"
+    return None
+
+
+def flag_insider_arbitrage(
+    rows: list[CorporateDisclosureRow],
+) -> list[CorporateDisclosureRow]:
+    """Same person buy+sell the same scrip on the same day → arbitrage."""
+    from collections import defaultdict
+
+    groups: dict[tuple[date | None, str, str], list[int]] = defaultdict(list)
+    for idx, row in enumerate(rows):
+        if row.kind != "insider":
+            continue
+        person = (row.person_name or "").strip().casefold()
+        code = (row.bse_code or "").strip()
+        if not person or not code:
+            continue
+        groups[(row.disclosure_date, code, person)].append(idx)
+
+    arb_indexes: set[int] = set()
+    for indexes in groups.values():
+        sides = {_insider_txn_side(rows[idx].transaction_type or "") for idx in indexes}
+        if "buy" in sides and "sell" in sides:
+            arb_indexes.update(indexes)
+
+    return [
+        _clone_row(row, is_arbitrage=idx in arb_indexes) for idx, row in enumerate(rows)
+    ]
+
+
 def normalize_sast_row(raw: dict[str, Any]) -> CorporateDisclosureRow | None:
     company = _clean_text(raw.get("ComName"))
     isin = _clean_text(raw.get("ProISIN")).upper() or None
@@ -213,6 +282,7 @@ def normalize_sast_row(raw: dict[str, Any]) -> CorporateDisclosureRow | None:
         bse_code=raw.get("ScripCode") or raw.get("Scripcode1"),
         isin=isin,
         company_name=company,
+        allow_soft_name=False,
     )
     disclosure_date = _parse_date(raw.get("DATETrans")) or _parse_date(
         raw.get("CreatedDate")
@@ -239,11 +309,11 @@ def normalize_sast_row(raw: dict[str, Any]) -> CorporateDisclosureRow | None:
 
 
 def normalize_insider_row(raw: dict[str, Any]) -> CorporateDisclosureRow | None:
+    """Normalize one BSE insider row. Uses Fld_ScripCode only — no NSE/name guesswork."""
     company = _clean_text(raw.get("Companyname"))
-    code = resolve_bse_code(
-        bse_code=raw.get("Fld_ScripCode"),
-        company_name=company,
-    )
+    code = _bse_scrip_from_field(raw.get("Fld_ScripCode"))
+    if not code:
+        return None
     disclosure_date = (
         _parse_date(raw.get("Fld_StampDate"))
         or _parse_date(raw.get("Fld_LetterDate"))
@@ -289,6 +359,7 @@ def _clone_row(row: CorporateDisclosureRow, **kwargs: Any) -> CorporateDisclosur
         portfolio_name=kwargs.get("portfolio_name", row.portfolio_name),
         in_portfolio=kwargs.get("in_portfolio", row.in_portfolio),
         is_open=kwargs.get("is_open", row.is_open),
+        is_arbitrage=kwargs.get("is_arbitrage", row.is_arbitrage),
         raw_notes=kwargs.get("raw_notes", row.raw_notes),
     )
 
@@ -368,6 +439,7 @@ def fetch_corporate_disclosures(
     as_of_date: date | None = None,
     calendar_month: str | None = None,
     enrich_market_cap: bool = True,
+    refresh_insider: bool = False,
 ) -> CorporateDisclosuresResult:
     """Fetch SAST or Insider disclosures for a session date with month availability."""
     today = _today_ist()
@@ -412,8 +484,11 @@ def fetch_corporate_disclosures(
                     sync_insider_days,
                 )
 
-                sync_insider_days(session, start, end, today=today)
-                session.commit()
+                if refresh_insider:
+                    sync_insider_days(
+                        session, start, end, today=today, scrip_backfill=False
+                    )
+                    session.commit()
                 raw_rows = load_insider_raw_rows(session, start, end)
             else:
                 raw_rows = fetch_insider_rows(start, end)
@@ -429,12 +504,28 @@ def fetch_corporate_disclosures(
             f"Failed to fetch BSE {kind} disclosures: {exc}"
         ) from exc
 
+    if session is not None:
+        normalized = enrich_disclosures_with_portfolio(normalized, session)
+
+    if kind == "insider":
+        normalized = flag_insider_arbitrage(normalized)
+
     available = tuple(
         sorted(
             {
                 r.disclosure_date
                 for r in normalized
                 if r.disclosure_date is not None
+            },
+            reverse=True,
+        )
+    )
+    portfolio_dates = tuple(
+        sorted(
+            {
+                r.disclosure_date
+                for r in normalized
+                if r.disclosure_date is not None and r.in_portfolio
             },
             reverse=True,
         )
@@ -447,8 +538,6 @@ def fetch_corporate_disclosures(
         target = today
 
     rows = [r for r in normalized if r.disclosure_date == target]
-    if session is not None:
-        rows = enrich_disclosures_with_portfolio(rows, session)
     if enrich_market_cap:
         rows = enrich_disclosures_with_market_caps(rows)
 
@@ -467,4 +556,5 @@ def fetch_corporate_disclosures(
         fetched_at=datetime.now(timezone.utc),
         rows=rows,
         available_dates=available,
+        portfolio_dates=portfolio_dates,
     )

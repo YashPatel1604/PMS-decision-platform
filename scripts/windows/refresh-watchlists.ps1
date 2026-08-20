@@ -11,6 +11,10 @@ $Root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 Set-Location $Root
 
 if ($SkipFundamentals) {
+    Write-Host "Syncing insider disclosures (last 14 days) ..." -ForegroundColor Cyan
+    docker compose exec -T api uv run pms-platform sync-insider-disclosures --days 14
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
     Write-Host "Syncing watchlists (resolve + alerts only) ..." -ForegroundColor Cyan
     docker compose exec -T api uv run pms-platform sync-watchlists --external-dir /data/external_seed --skip-fundamentals
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

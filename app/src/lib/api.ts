@@ -431,6 +431,7 @@ export type TodayBlockDeals = {
   arbitrage_deal_count: number;
   non_arbitrage_deal_count: number;
   available_dates: string[];
+  portfolio_dates: string[];
   deals: BlockDeal[];
 };
 
@@ -456,6 +457,7 @@ export type CorporateDisclosure = {
   portfolio_name: string | null;
   in_portfolio: boolean;
   is_open: boolean;
+  is_arbitrage: boolean;
 };
 
 export type TodayCorporateDisclosures = {
@@ -464,6 +466,7 @@ export type TodayCorporateDisclosures = {
   fetched_at: string;
   row_count: number;
   available_dates: string[];
+  portfolio_dates: string[];
   rows: CorporateDisclosure[];
 };
 
@@ -914,10 +917,15 @@ export const api = {
       `/market-data/sast/today${query ? `?${query}` : ""}`,
     );
   },
-  getTodayInsiderTrading: (date?: string | null, month?: string | null) => {
+  getTodayInsiderTrading: (
+    date?: string | null,
+    month?: string | null,
+    refresh?: boolean,
+  ) => {
     const params = new URLSearchParams();
     if (date) params.set("date", date);
     if (month) params.set("month", month);
+    if (refresh) params.set("refresh", "true");
     const query = params.toString();
     return request<TodayCorporateDisclosures>(
       `/market-data/insider-trading/today${query ? `?${query}` : ""}`,

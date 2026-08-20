@@ -28,7 +28,7 @@ const KIND_COPY: Record<
     description:
       "BSE Regulation 29 system-driven disclosures (acquirer/seller holdings changes from depositories).",
     sourceNote:
-      "Days without disclosures are greyed out. Source: BSE corporates/regulation_29. Default min mcap ₹2,000 Cr.",
+      "Green days include our firms. Orange days have other market filings only. Grey has none. Source: BSE corporates/regulation_29. Default min mcap ₹2,000 Cr.",
     emptyDay: "No SAST disclosures reported for",
     hasDealsTitle: (d) => `SAST disclosures on ${d}`,
     noDealsTitle: "No SAST disclosures this day",
@@ -40,7 +40,7 @@ const KIND_COPY: Record<
     description:
       "BSE Insider Trading Regulations 2015 disclosures submitted by the company (Reg 7(2)).",
     sourceNote:
-      "Days without filings are grey. History is stored after the first day-by-day BSE search (BSE returns at most 25 rows per query). Default min mcap ₹2,000 Cr.",
+      "Green days include our firms. Orange days have other market filings only. Grey has none. BSE insider API only. Daily sync backfills all scrips ≥ min mcap. Default min mcap ₹2,000 Cr; arbitrage pairs hidden.",
     emptyDay: "No insider disclosures reported for",
     hasDealsTitle: (d) => `Insider disclosures on ${d}`,
     noDealsTitle: "No insider disclosures this day",
@@ -104,9 +104,10 @@ function fetchDisclosures(
   kind: DisclosureKind,
   date: string | null,
   month: string | null,
+  refreshFromBse = false,
 ): Promise<TodayCorporateDisclosures> {
   return kind === "insider"
-    ? api.getTodayInsiderTrading(date, month)
+    ? api.getTodayInsiderTrading(date, month, refreshFromBse)
     : api.getTodaySastDisclosures(date, month);
 }
 
@@ -123,15 +124,28 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
   const [query, setQuery] = useState("");
   const [minMarketCapCr, setMinMarketCapCr] = useState("2000");
   const [maxMarketCapCr, setMaxMarketCapCr] = useState("");
+  const [hideArb, setHideArb] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [viewMonth, setViewMonth] = useState<string | null>(null);
+  const [refreshFromBse, setRefreshFromBse] = useState(false);
 
   const disclosuresQuery = useQuery({
-    queryKey: [`${kind}-disclosures`, selectedDate ?? "latest", viewMonth ?? "auto"],
-    queryFn: () => fetchDisclosures(kind, selectedDate, viewMonth),
+    queryKey: [
+      `${kind}-disclosures`,
+      selectedDate ?? "latest",
+      viewMonth ?? "auto",
+      kind,
+    ],
+    queryFn: () => fetchDisclosures(kind, selectedDate, viewMonth, refreshFromBse),
     refetchOnWindowFocus: false,
     placeholderData: keepPreviousData,
   });
+
+  const handleRefresh = async () => {
+    if (kind === "insider") setRefreshFromBse(true);
+    await disclosuresQuery.refetch();
+    setRefreshFromBse(false);
+  };
 
   useEffect(() => {
     if (!disclosuresQuery.data?.as_of_date || disclosuresQuery.isFetching) return;
@@ -151,6 +165,10 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
     () => new Set(disclosuresQuery.data?.available_dates ?? []),
     [disclosuresQuery.data?.available_dates],
   );
+  const portfolioSet = useMemo(
+    () => new Set(disclosuresQuery.data?.portfolio_dates ?? []),
+    [disclosuresQuery.data?.portfolio_dates],
+  );
 
   const minCap = useMemo(() => {
     const n = Number(minMarketCapCr);
@@ -166,6 +184,7 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
     const rows = disclosuresQuery.data?.rows ?? [];
     const q = query.trim().toLowerCase();
     return rows.filter((row) => {
+      if (kind === "insider" && hideArb && row.is_arbitrage) return false;
       const cap =
         row.market_cap_cr == null || !Number.isFinite(Number(row.market_cap_cr))
           ? null
@@ -187,7 +206,7 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [disclosuresQuery.data?.rows, query, minCap, maxCap]);
+  }, [disclosuresQuery.data?.rows, query, minCap, maxCap, hideArb, kind]);
 
   if (disclosuresQuery.isLoading && !disclosuresQuery.data) {
     return <p className="text-stone-600">{copy.loading}</p>;
@@ -199,7 +218,7 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
         <Header
           title={copy.title}
           description={copy.description}
-          onRefresh={() => void disclosuresQuery.refetch()}
+          onRefresh={() => void handleRefresh()}
           refreshing={disclosuresQuery.isFetching}
         />
         <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-900">
@@ -224,7 +243,7 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
       <Header
         title={copy.title}
         description={copy.description}
-        onRefresh={() => void disclosuresQuery.refetch()}
+        onRefresh={() => void handleRefresh()}
         refreshing={disclosuresQuery.isFetching}
       />
 
@@ -233,6 +252,7 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
           monthKey={calendarMonth}
           selectedDate={activeDate}
           availableDates={availableSet}
+          portfolioDates={portfolioSet}
           loading={disclosuresQuery.isFetching}
           hasDealsTitle={copy.hasDealsTitle}
           noDealsTitle={copy.noDealsTitle}
@@ -277,6 +297,17 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
               />
               <span className="text-stone-500">₹ Cr</span>
             </label>
+            {kind === "insider" ? (
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-700">
+                <input
+                  type="checkbox"
+                  checked={hideArb}
+                  onChange={(e) => setHideArb(e.target.checked)}
+                  className="rounded border-stone-300 text-emerald-700 focus:ring-emerald-600"
+                />
+                <span>Hide arbitrage</span>
+              </label>
+            ) : null}
             <p className="text-sm text-stone-500">
               Showing {filtered.length} of {data.row_count}
               {minCap != null ? ` · mcap ≥ ${minCap.toLocaleString("en-IN")} Cr` : ""}
@@ -343,6 +374,7 @@ function DealCalendar({
   monthKey,
   selectedDate,
   availableDates,
+  portfolioDates,
   loading,
   hasDealsTitle,
   noDealsTitle,
@@ -353,6 +385,7 @@ function DealCalendar({
   monthKey: string;
   selectedDate: string;
   availableDates: Set<string>;
+  portfolioDates: Set<string>;
   loading: boolean;
   hasDealsTitle: (dateLabel: string) => string;
   noDealsTitle: string;
@@ -405,6 +438,7 @@ function DealCalendar({
             return <div key={`pad-${idx}`} className="aspect-square" />;
           }
           const hasDeals = availableDates.has(cell.iso);
+          const ours = portfolioDates.has(cell.iso);
           const selected = cell.iso === selectedDate;
           return (
             <button
@@ -413,21 +447,39 @@ function DealCalendar({
               disabled={!hasDeals}
               onClick={() => onSelectDate(cell.iso!)}
               title={
-                hasDeals ? hasDealsTitle(formatDate(cell.iso)) : noDealsTitle
+                ours
+                  ? `${hasDealsTitle(formatDate(cell.iso))} (our firms)`
+                  : hasDeals
+                    ? `${hasDealsTitle(formatDate(cell.iso))} (market only)`
+                    : noDealsTitle
               }
               className={[
                 "aspect-square rounded-md text-sm tabular-nums transition",
-                selected
+                selected && ours
                   ? "bg-emerald-800 font-semibold text-white"
-                  : hasDeals
-                    ? "bg-emerald-50 font-medium text-emerald-900 hover:bg-emerald-100"
-                    : "cursor-not-allowed text-stone-300",
+                  : selected && hasDeals
+                    ? "bg-orange-700 font-semibold text-white"
+                    : ours
+                      ? "bg-emerald-50 font-medium text-emerald-900 hover:bg-emerald-100"
+                      : hasDeals
+                        ? "bg-orange-50 font-medium text-orange-900 hover:bg-orange-100"
+                        : "cursor-not-allowed text-stone-300",
               ].join(" ")}
             >
               {cell.day}
             </button>
           );
         })}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-stone-500">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="size-2.5 rounded-sm bg-emerald-600" />
+          Our firms
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="size-2.5 rounded-sm bg-orange-400" />
+          Market only
+        </span>
       </div>
     </div>
   );
@@ -500,6 +552,10 @@ function DisclosureRow({ row }: { row: CorporateDisclosure }) {
           >
             {row.portfolio_name}
             {row.is_open ? " · open" : ""}
+          </span>
+        ) : row.is_arbitrage ? (
+          <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900">
+            Arbitrage
           </span>
         ) : (
           <span className="text-stone-400">—</span>

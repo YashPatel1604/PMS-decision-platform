@@ -28,7 +28,7 @@ const KIND_COPY: Record<
     description:
       "Official BSE disclosed block deals by session date. Same client buying and selling the same security on the same day is flagged as arbitrage.",
     sourceNote:
-      "Days without disclosed block deals are greyed out. Source: BSE Bulk / Block Deals (Block Deal type).",
+      "Green days include our firms. Orange days have market deals only. Grey has none. Source: BSE Bulk / Block Deals (Block Deal type).",
     emptyDay: "No block deals reported for",
     hasDealsTitle: (d) => `Block deals on ${d}`,
     noDealsTitle: "No block deals this day",
@@ -40,7 +40,7 @@ const KIND_COPY: Record<
     description:
       "Official BSE disclosed bulk deals by session date. Same client buying and selling the same security on the same day is flagged as arbitrage.",
     sourceNote:
-      "Days without disclosed bulk deals are greyed out. Source: BSE Bulk / Block Deals (Bulk Deal type).",
+      "Green days include our firms. Orange days have market deals only. Grey has none. Source: BSE Bulk / Block Deals (Bulk Deal type).",
     emptyDay: "No bulk deals reported for",
     hasDealsTitle: (d) => `Bulk deals on ${d}`,
     noDealsTitle: "No bulk deals this day",
@@ -135,6 +135,10 @@ function DisclosedDealsView({ kind }: { kind: DealKind }) {
     () => new Set(dealsQuery.data?.available_dates ?? []),
     [dealsQuery.data?.available_dates],
   );
+  const portfolioSet = useMemo(
+    () => new Set(dealsQuery.data?.portfolio_dates ?? []),
+    [dealsQuery.data?.portfolio_dates],
+  );
 
   const minCap = useMemo(() => {
     const n = Number(minMarketCapCr);
@@ -216,6 +220,7 @@ function DisclosedDealsView({ kind }: { kind: DealKind }) {
           monthKey={calendarMonth}
           selectedDate={activeDate}
           availableDates={availableSet}
+          portfolioDates={portfolioSet}
           loading={dealsQuery.isFetching}
           hasDealsTitle={copy.hasDealsTitle}
           noDealsTitle={copy.noDealsTitle}
@@ -335,6 +340,7 @@ function DealCalendar({
   monthKey,
   selectedDate,
   availableDates,
+  portfolioDates,
   loading,
   hasDealsTitle,
   noDealsTitle,
@@ -345,6 +351,7 @@ function DealCalendar({
   monthKey: string;
   selectedDate: string;
   availableDates: Set<string>;
+  portfolioDates: Set<string>;
   loading: boolean;
   hasDealsTitle: (dateLabel: string) => string;
   noDealsTitle: string;
@@ -397,6 +404,7 @@ function DealCalendar({
             return <div key={`pad-${idx}`} className="aspect-square" />;
           }
           const hasDeals = availableDates.has(cell.iso);
+          const ours = portfolioDates.has(cell.iso);
           const selected = cell.iso === selectedDate;
           return (
             <button
@@ -405,23 +413,39 @@ function DealCalendar({
               disabled={!hasDeals}
               onClick={() => onSelectDate(cell.iso!)}
               title={
-                hasDeals
-                  ? hasDealsTitle(formatDate(cell.iso))
-                  : noDealsTitle
+                ours
+                  ? `${hasDealsTitle(formatDate(cell.iso))} (our firms)`
+                  : hasDeals
+                    ? `${hasDealsTitle(formatDate(cell.iso))} (market only)`
+                    : noDealsTitle
               }
               className={[
                 "aspect-square rounded-md text-sm tabular-nums transition",
-                selected
+                selected && ours
                   ? "bg-emerald-800 font-semibold text-white"
-                  : hasDeals
-                    ? "bg-emerald-50 font-medium text-emerald-900 hover:bg-emerald-100"
-                    : "cursor-not-allowed text-stone-300",
+                  : selected && hasDeals
+                    ? "bg-orange-700 font-semibold text-white"
+                    : ours
+                      ? "bg-emerald-50 font-medium text-emerald-900 hover:bg-emerald-100"
+                      : hasDeals
+                        ? "bg-orange-50 font-medium text-orange-900 hover:bg-orange-100"
+                        : "cursor-not-allowed text-stone-300",
               ].join(" ")}
             >
               {cell.day}
             </button>
           );
         })}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-stone-500">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="size-2.5 rounded-sm bg-emerald-600" />
+          Our firms
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="size-2.5 rounded-sm bg-orange-400" />
+          Market only
+        </span>
       </div>
     </div>
   );

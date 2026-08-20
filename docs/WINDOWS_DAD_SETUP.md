@@ -131,7 +131,7 @@ cd $HOME\Apps\PMS-decision-platform
 2. Open the bookmark `http://localhost:3000`.
 3. If the page fails: wait 30 seconds for containers to wake, or run `.\scripts\windows\start.ps1` again.
 
-**Watchlist alerts (daily scheduled task):**
+**Watchlist alerts (daily scheduled task):** includes BSE insider store sync (last 14 days, portfolio + watchlist per-scrip backfill):
 
 ```powershell
 cd $HOME\Apps\PMS-decision-platform
