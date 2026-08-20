@@ -165,7 +165,9 @@ def sync_insider_days(
     for day in pending:
         market = fetched.get(day, [])
         extra = extras_by_day.get(day, [])
-        merged = _merge_insider_rows(market, extra) if extra else market
+        prior = list((existing.get(day).rows if existing.get(day) else None) or [])
+        # Always keep prior extras: market-only refresh must not wipe large-cap rows.
+        merged = _merge_insider_rows(market, extra, prior)
         truncated = len(market) >= _BSE_SEARCH_CAP and not extra
         _store_day(session, day, merged, now=now, truncated=truncated)
     session.flush()

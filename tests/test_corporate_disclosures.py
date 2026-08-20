@@ -416,6 +416,46 @@ def test_insider_store_fetches_large_cap_scrip_when_market_under_cap(session) ->
     assert "Corona Remedies Ltd" in names
 
 
+def test_insider_market_refresh_keeps_prior_large_cap_rows(session) -> None:
+    """Page Refresh (scrip_backfill=False) must not wipe Corona already in the store."""
+    day = date(2026, 8, 19)
+    session.add(
+        InsiderDisclosureDay(
+            disclosure_date=day,
+            rows=_insider_raw(day, 10)
+            + [
+                {
+                    "Fld_ID": 544644001,
+                    "Fld_ScripCode": 544644,
+                    "Companyname": "Corona Remedies Ltd",
+                    "Fld_PromoterName": "Apurvsinh",
+                    "Fld_StampDate": "2026-08-19T00:00:00",
+                }
+            ],
+            row_count=11,
+            truncated=False,
+            fetched_at=datetime(2026, 8, 19, tzinfo=timezone.utc),
+        )
+    )
+    session.commit()
+
+    def fake(from_date: date, to_date: date, scrip_code: str = "") -> list[dict]:
+        assert not scrip_code
+        return _insider_raw(day, 25)
+
+    with patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake):
+        sync_insider_days(
+            session, day, day, today=date(2026, 8, 20), scrip_backfill=False
+        )
+        session.commit()
+
+    stored = session.get(InsiderDisclosureDay, day)
+    assert stored is not None
+    assert stored.row_count == 26
+    names = {str(r.get("Companyname")) for r in stored.rows}
+    assert "Corona Remedies Ltd" in names
+
+
 def test_flag_insider_arbitrage_pairs_buy_and_sell() -> None:
     from pms_platform.market_data.bse_corporate_disclosures import (
         CorporateDisclosureRow,
