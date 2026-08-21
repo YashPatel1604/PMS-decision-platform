@@ -350,6 +350,8 @@ export type OpenHolding = {
   days_below_first_buy: number | null;
   sector: string | null;
   industry: string | null;
+  /** Model!Mcap in ₹ Cr when the name is on the Client Portfolio Model sheet. */
+  mcap: number | null;
   benchmarks: HoldingBenchmark[];
   data_quality_status: string;
   notes: string[];
@@ -440,8 +442,6 @@ export type TodayBlockDeals = {
   deals: BlockDeal[];
 };
 
-export type BulkDeal = BlockDeal;
-export type TodayBulkDeals = TodayBlockDeals;
 
 export type CorporateDisclosure = {
   kind: "sast" | "insider" | string;
@@ -475,14 +475,6 @@ export type TodayCorporateDisclosures = {
   rows: CorporateDisclosure[];
 };
 
-export type PeerCompare = {
-  ticker: string;
-  start_date: string;
-  end_date: string;
-  start_price: number;
-  end_price: number;
-  total_return_pct: number;
-};
 
 export type CompareSeries = {
   episode_id: number;
@@ -978,11 +970,6 @@ export type WatchlistRefreshResult = {
   duration_ms: number;
 };
 
-export type SyncWatchlistsResult = {
-  watchlists_refreshed: number;
-  fundamentals: FundamentalsRefreshStats | null;
-  results: WatchlistRefreshResult[];
-};
 
 export type WatchlistSettings = {
   fundamentals_provider: string;
@@ -1016,12 +1003,6 @@ export type WatchlistsHealth = {
   watchlists: WatchlistHealthRow[];
 };
 
-export type WatchlistImportResult = {
-  watchlist_id: number;
-  watchlist_name: string;
-  members_added: number;
-  members_skipped: number;
-};
 
 export const api = {
   getMe: () => request<MeResponse>("/auth/me"),
@@ -1039,32 +1020,13 @@ export const api = {
   getPostExit: (id: number) => request<PostExitPerformance>(`/episodes/post-exit/${id}`),
   getContinuousLossStrategy: () =>
     request<ContinuousLossStrategy>("/backtests/one-year-continuous-loss"),
-  getOpenHoldings: (
-    asOf?: string | null,
-    benchmarks?: string,
-    refreshLive = false,
-    fromDate?: string | null,
-  ) => {
+  getOpenHoldings: (asOf?: string | null, fromDate?: string | null) => {
     const params = new URLSearchParams();
     if (asOf) params.set("as_of", asOf);
     if (fromDate) params.set("from_date", fromDate);
-    if (benchmarks) params.set("benchmarks", benchmarks);
     params.set("refresh_live", "false");
-    void refreshLive;
     const query = params.toString();
     return request<OpenHoldings>(`/holdings/open?${query}`);
-  },
-  refreshLiveQuotes: (preferBse = true) =>
-    request<LiveQuoteRefresh>(
-      `/market-data/live-quotes/refresh?prefer_bse=${preferBse ? "true" : "false"}`,
-      { method: "POST" },
-    ),
-  getOpenHolding: (id: number, asOf?: string, fromDate?: string | null) => {
-    const params = new URLSearchParams();
-    if (asOf) params.set("as_of", asOf);
-    if (fromDate) params.set("from_date", fromDate);
-    const query = params.toString();
-    return request<OpenHolding>(`/holdings/open/${id}${query ? `?${query}` : ""}`);
   },
   getIndustryCompare: (id: number, asOf?: string, fromDate?: string | null) => {
     const params = new URLSearchParams();
@@ -1108,7 +1070,7 @@ export const api = {
     if (date) params.set("date", date);
     if (month) params.set("month", month);
     const query = params.toString();
-    return request<TodayBulkDeals>(
+    return request<TodayBlockDeals>(
       `/market-data/bulk-deals/today${query ? `?${query}` : ""}`,
     );
   },
@@ -1135,13 +1097,6 @@ export const api = {
       `/market-data/insider-trading/today${query ? `?${query}` : ""}`,
     );
   },
-  comparePeer: (ticker: string, asOf?: string, fromDate?: string | null) => {
-    const params = new URLSearchParams();
-    params.set("ticker", ticker);
-    if (asOf) params.set("as_of", asOf);
-    if (fromDate) params.set("from_date", fromDate);
-    return request<PeerCompare>(`/holdings/compare/peer?${params.toString()}`);
-  },
   uploadExcel: async (kind: UploadKind, file: File) => {
     const body = new FormData();
     body.append("kind", kind);
@@ -1164,7 +1119,6 @@ export const api = {
     request<UploadBatch>(`/imports/${batchId}/commit`, { method: "POST" }),
   refreshFromOnedrive: () =>
     request<OnedriveRefreshResult>("/imports/refresh-from-onedrive", { method: "POST" }),
-  getUploadBatch: (batchId: number) => request<UploadBatch>(`/imports/${batchId}`),
   listMasters: () => request<MasterWorkbook[]>("/masters"),
   getMasterPreview: (
     kind: MasterKind,
@@ -1327,11 +1281,6 @@ export const api = {
       `/watchlists/${watchlistId}/refresh?include_fundamentals=${includeFundamentals ? "true" : "false"}`,
       { method: "POST" },
     ),
-  refreshAllWatchlists: (includeFundamentals = true) =>
-    request<SyncWatchlistsResult>(
-      `/watchlists/refresh-all?include_fundamentals=${includeFundamentals ? "true" : "false"}`,
-      { method: "POST" },
-    ),
   getWatchlistSettings: () => request<WatchlistSettings>("/watchlists/settings"),
   getWatchlistsHealth: () => request<WatchlistsHealth>("/watchlists/health"),
   getWatchlistHealth: (watchlistId: number) =>
@@ -1344,15 +1293,6 @@ export const api = {
     if (!response.ok) throw new Error(`Export failed (${response.status})`);
     return response.blob();
   },
-  importWatchlistJson: (payload: object, options?: { watchlistId?: number; createName?: string }) =>
-    request<WatchlistImportResult>("/watchlists/import", {
-      method: "POST",
-      body: JSON.stringify({
-        payload,
-        watchlist_id: options?.watchlistId,
-        create_name: options?.createName,
-      }),
-    }),
 
   getPivotDashboard: (asOf?: string | null) => {
     const params = new URLSearchParams();

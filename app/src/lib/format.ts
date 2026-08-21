@@ -45,24 +45,11 @@ export function formatPp(value: number | null | undefined, digits = 1): string {
   return `${prefix}${value.toFixed(digits)} pp`;
 }
 
-/** Percentage below a reference (always shown as a shortfall, never with +). */
-export function formatPctBelow(value: number | null | undefined, digits = 1): string {
-  if (value === null || value === undefined) return "—";
-  if (value <= 0) return `${value.toFixed(digits)}%`;
-  return `−${value.toFixed(digits)}%`;
-}
-
 export function formatXirr(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   const pct = value * 100;
   const prefix = pct > 0 ? "+" : "";
   return `${prefix}${pct.toFixed(1)}% p.a.`;
-}
-
-export function formatAnnualizedPct(value: number | null | undefined, digits = 1): string {
-  if (value === null || value === undefined) return "—";
-  const prefix = value > 0 ? "+" : "";
-  return `${prefix}${value.toFixed(digits)}% p.a.`;
 }
 
 export function formatInr(value: number | null | undefined): string {
@@ -142,14 +129,6 @@ export function formatHoldAfterFirstLoss(
         ? "Stayed underwater"
         : "Final underwater stretch";
   return `${patternLabel} · since ${since} · ${calendarYears} (${formatDays(calendarDays)}${trading ? ` · ${trading}` : ""})`;
-}
-
-export function lossHoldPatternLabel(pattern: string | null | undefined): string {
-  if (!pattern) return "—";
-  if (pattern === "RODE_WINNER_DOWN") return "Rode winner down";
-  if (pattern === "STAYED_UNDERWATER") return "Stayed underwater";
-  if (pattern === "RECOVERED_AFTER_LONG_LOSS") return "Below first buy 1+ yr then profit";
-  return pattern.replaceAll("_", " ");
 }
 
 export function outcomeLabel(outcome: string | null | undefined): string {

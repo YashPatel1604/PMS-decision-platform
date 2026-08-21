@@ -24,8 +24,11 @@ from pms_platform.auth.service import create_user
 from pms_platform.config import settings
 from pms_platform.db.base import get_session_factory
 from pms_platform.fundamentals.service import sync_fundamentals
-from pms_platform.watchlists.quotes_refresh import refresh_watchlist_quotes
-from pms_platform.watchlists.refresh import refresh_watchlist_fundamentals, sync_all_watchlists
+from pms_platform.watchlists.refresh import (
+    refresh_watchlist_fundamentals,
+    refresh_watchlist_quotes,
+    sync_all_watchlists,
+)
 from pms_platform.episodes.builder import build_episodes
 from pms_platform.ingestion.exports import (
     export_decision_events_csv,

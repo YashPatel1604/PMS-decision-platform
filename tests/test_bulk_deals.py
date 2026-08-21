@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-import pandas as pd
-
 from pms_platform.market_data.bse_disclosed_deals import (
     fetch_disclosed_deals,
     normalize_disclosed_deals_frame,
@@ -14,28 +12,26 @@ from pms_platform.market_data.bse_disclosed_deals import (
 
 
 def test_normalize_bulk_purchase_sell_codes() -> None:
-    frame = pd.DataFrame(
-        [
-            {
-                "Deal Date": "01/07/2026",
-                "Security Code": "512591",
-                "Company": "PULSRIN",
-                "Client Name": "SHARE INDIA SECURITIES LIMITED",
-                "Deal Type": "P",
-                "Quantity": 2876465,
-                "Price": 0.53,
-            },
-            {
-                "Deal Date": "01/07/2026",
-                "Security Code": "512591",
-                "Company": "PULSRIN",
-                "Client Name": "SHARE INDIA SECURITIES LIMITED",
-                "Deal Type": "S",
-                "Quantity": 3112309,
-                "Price": 0.53,
-            },
-        ]
-    )
+    frame = [
+        {
+            "Deal Date": "01/07/2026",
+            "Security Code": "512591",
+            "Company": "PULSRIN",
+            "Client Name": "SHARE INDIA SECURITIES LIMITED",
+            "Deal Type": "P",
+            "Quantity": 2876465,
+            "Price": 0.53,
+        },
+        {
+            "Deal Date": "01/07/2026",
+            "Security Code": "512591",
+            "Company": "PULSRIN",
+            "Client Name": "SHARE INDIA SECURITIES LIMITED",
+            "Deal Type": "S",
+            "Quantity": 3112309,
+            "Price": 0.53,
+        },
+    ]
     deals = normalize_disclosed_deals_frame(frame, kind="bulk")
     assert len(deals) == 2
     assert [d.deal_type for d in deals] == ["BUY", "SELL"]
@@ -89,35 +85,34 @@ def test_filter_deals_by_market_cap() -> None:
 
 
 def test_fetch_todays_bulk_deals_with_mock_frame() -> None:
-    frame = pd.DataFrame(
-        [
-            {
-                "Deal Date": "28/07/2026",
-                "Security Code": "500325",
-                "Company": "RELIANCE",
-                "Client Name": "Alpha",
-                "Deal Type": "P",
-                "Quantity": 100000,
-                "Price": 1400,
-            },
-            {
-                "Deal Date": "01/07/2026",
-                "Security Code": "500112",
-                "Company": "SBIN",
-                "Client Name": "Beta",
-                "Deal Type": "S",
-                "Quantity": 50000,
-                "Price": 800,
-            },
-        ]
-    )
+    frame = [
+        {
+            "Deal Date": "28/07/2026",
+            "Security Code": "500325",
+            "Company": "RELIANCE",
+            "Client Name": "Alpha",
+            "Deal Type": "P",
+            "Quantity": 100000,
+            "Price": 1400,
+        },
+        {
+            "Deal Date": "01/07/2026",
+            "Security Code": "500112",
+            "Company": "SBIN",
+            "Client Name": "Beta",
+            "Deal Type": "S",
+            "Quantity": 50000,
+            "Price": 800,
+        },
+    ]
     latest = fetch_disclosed_deals("bulk", session=None, fetch_frame=lambda: frame)
     assert latest.as_of_date == date(2026, 7, 28)
     assert latest.deal_count == 1
     assert latest.kind == "bulk"
     assert latest.available_dates == (date(2026, 7, 28), date(2026, 7, 1))
 
-    prior = fetch_disclosed_deals("bulk", 
+    prior = fetch_disclosed_deals(
+        "bulk",
         session=None,
         fetch_frame=lambda: frame,
         as_of_date=date(2026, 7, 1),
@@ -130,28 +125,26 @@ def test_fetch_todays_bulk_deals_with_mock_frame() -> None:
 def test_portfolio_dates_only_include_our_firms(session, sample_security) -> None:
     sample_security.bse_code = "500325"
     session.flush()
-    frame = pd.DataFrame(
-        [
-            {
-                "Deal Date": "28/07/2026",
-                "Security Code": "500325",
-                "Company": "RELIANCE",
-                "Client Name": "Alpha",
-                "Deal Type": "P",
-                "Quantity": 100000,
-                "Price": 1400,
-            },
-            {
-                "Deal Date": "01/07/2026",
-                "Security Code": "500112",
-                "Company": "SBIN",
-                "Client Name": "Beta",
-                "Deal Type": "S",
-                "Quantity": 50000,
-                "Price": 800,
-            },
-        ]
-    )
+    frame = [
+        {
+            "Deal Date": "28/07/2026",
+            "Security Code": "500325",
+            "Company": "RELIANCE",
+            "Client Name": "Alpha",
+            "Deal Type": "P",
+            "Quantity": 100000,
+            "Price": 1400,
+        },
+        {
+            "Deal Date": "01/07/2026",
+            "Security Code": "500112",
+            "Company": "SBIN",
+            "Client Name": "Beta",
+            "Deal Type": "S",
+            "Quantity": 50000,
+            "Price": 800,
+        },
+    ]
     result = fetch_disclosed_deals("bulk", session=session, fetch_frame=lambda: frame)
     assert result.available_dates == (date(2026, 7, 28), date(2026, 7, 1))
     assert result.portfolio_dates == (date(2026, 7, 28),)

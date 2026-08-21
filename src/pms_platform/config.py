@@ -22,7 +22,6 @@ class Settings(BaseSettings):
     snapshot_seed_dir: Path | None = None
     yahoo_finance_base_url: str = "https://query1.finance.yahoo.com"
     fundamentals_provider: str = "manual"
-    log_level: str = "INFO"
 
     # Auth (invite-only). Production VM: AUTH_DISABLED=0 + strong AUTH_SECRET.
     # Local solo Docker may set AUTH_DISABLED=1 until users exist.

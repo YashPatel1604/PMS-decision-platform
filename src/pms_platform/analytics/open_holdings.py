@@ -151,6 +151,7 @@ class OpenHoldingRow:
     days_below_first_buy: int | None
     sector: str | None
     industry: str | None
+    mcap: Decimal | None  # Model!Mcap (₹ Cr), when symbol is on Model
     benchmarks: tuple[HoldingBenchmarkComparison, ...]
     data_quality_status: str
     notes: tuple[str, ...]
@@ -194,9 +195,19 @@ def _parse_benchmark_codes(raw: str | None) -> tuple[str, ...]:
     return codes or default_benchmark_codes()
 
 
-def _average_buy_price(events: list[DecisionEvent]) -> Decimal | None:
+def _average_buy_price(
+    session: Session,
+    security_id: str,
+    events: list[DecisionEvent],
+) -> Decimal | None:
+    """Qty-weighted avg buy in current share units (post split/bonus).
+
+    Ledger prices are trade-day face value. Later SPLIT/BONUS multiply shares;
+    cash spent is ``price * qty``, while those shares become
+    ``qty * factor_after(buy_date)`` in today's units.
+    """
     buy_value = _ZERO
-    buy_qty = _ZERO
+    buy_qty_current = _ZERO
     for event in events:
         if event.price is None or event.price <= 0:
             continue
@@ -205,9 +216,12 @@ def _average_buy_price(events: list[DecisionEvent]) -> Decimal | None:
         qty = abs(Decimal(event.quantity_change))
         if qty <= 0:
             continue
+        factor = cumulative_split_bonus_factor_after(
+            session, security_id, event.event_date
+        )
         buy_value += event.price * qty
-        buy_qty += qty
-    return buy_value / buy_qty if buy_qty > 0 else None
+        buy_qty_current += qty * factor
+    return buy_value / buy_qty_current if buy_qty_current > 0 else None
 
 
 def _quantity_on_date(events: list[DecisionEvent], as_of_date: date) -> int:
@@ -394,6 +408,8 @@ def _analyze_open_episode(
     industry = security.industry if security is not None else None
     cache = portfolio_cache if portfolio_cache is not None else {}
     primary = benchmark_codes[0] if benchmark_codes else default_benchmark_codes()[0]
+    model_pos = _model_position_for_security(security, model_by_symbol or {})
+    mcap = model_pos.mcap if model_pos is not None else None
 
     # Period window: optional from_date, never before entry.
     period_start = episode.entry_date
@@ -454,6 +470,7 @@ def _analyze_open_episode(
             days_below_first_buy=None,
             sector=sector,
             industry=industry,
+            mcap=mcap,
             benchmarks=benchmarks,
             data_quality_status=status,
             notes=tuple(notes),
@@ -468,13 +485,12 @@ def _analyze_open_episode(
         return _empty_row(holding_days=max((as_of_date - episode.entry_date).days, 0))
 
     quantity = _quantity_on_date(events, as_of_date)
-    model_pos = _model_position_for_security(security, model_by_symbol or {})
     if model_pos is not None:
         model_qty = int(model_pos.qty)
         if model_qty != quantity:
             notes.append(f"Qty from Model sheet ({model_qty}); episode ledger was {quantity}")
         quantity = model_qty
-    average_buy = _average_buy_price(events)
+    average_buy = _average_buy_price(session, episode.security_id, events)
     cost_states = _episode_first_buy_states(session, episode.security_id, events)
     cost_state = _cost_state_on_date(cost_states, as_of_date)
     first_buy = cost_state.first_buy_price if cost_state is not None else None
@@ -609,6 +625,7 @@ def _analyze_open_episode(
         days_below_first_buy=days_below,
         sector=sector,
         industry=industry,
+        mcap=mcap,
         benchmarks=benchmarks,
         data_quality_status=status,
         notes=tuple(notes),

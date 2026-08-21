@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-import pandas as pd
 import pytest
 
 from pms_platform.market_data.bse_disclosed_deals import (
@@ -41,24 +40,22 @@ def _row(
 
 
 def test_normalize_empty_frame() -> None:
-    assert normalize_disclosed_deals_frame(pd.DataFrame(), kind="block") == []
+    assert normalize_disclosed_deals_frame([], kind="block") == []
     assert normalize_disclosed_deals_frame(None, kind="block") == []
 
 
 def test_normalize_standard_columns() -> None:
-    frame = pd.DataFrame(
-        [
-            {
-                "Deal Date": "06-Aug-2026",
-                "Security Code": "500325",
-                "Security Name": "RELIANCE",
-                "Client Name": "Foo Brokers",
-                "Deal Type": "Buy",
-                "Quantity": "1,000",
-                "Price": "2,500.50",
-            }
-        ]
-    )
+    frame = [
+        {
+            "Deal Date": "06-Aug-2026",
+            "Security Code": "500325",
+            "Security Name": "RELIANCE",
+            "Client Name": "Foo Brokers",
+            "Deal Type": "Buy",
+            "Quantity": "1,000",
+            "Price": "2,500.50",
+        }
+    ]
     deals = normalize_disclosed_deals_frame(frame, kind="block")
     assert len(deals) == 1
     deal = deals[0]
@@ -73,7 +70,7 @@ def test_normalize_standard_columns() -> None:
 
 
 def test_normalize_missing_required_columns_raises() -> None:
-    frame = pd.DataFrame([{"Foo": 1, "Bar": 2}])
+    frame = [{"Foo": 1, "Bar": 2}]
     with pytest.raises(BlockDealsFetchError):
         normalize_disclosed_deals_frame(frame, kind="block")
 
@@ -133,75 +130,69 @@ def test_arbitrage_different_days_not_paired() -> None:
 
 
 def test_normalize_purchase_code_p() -> None:
-    frame = pd.DataFrame(
-        [
-            {
-                "Deal Date": "05/08/2026",
-                "Security Code": "540565",
-                "Company": "INDIGRID",
-                "Client Name": "Foo",
-                "Deal Type": "P",
-                "Quantity": 1000,
-                "Price": 150,
-            },
-            {
-                "Deal Date": "05/08/2026",
-                "Security Code": "540565",
-                "Company": "INDIGRID",
-                "Client Name": "Bar",
-                "Deal Type": "S",
-                "Quantity": 500,
-                "Price": 151,
-            },
-        ]
-    )
+    frame = [
+        {
+            "Deal Date": "05/08/2026",
+            "Security Code": "540565",
+            "Company": "INDIGRID",
+            "Client Name": "Foo",
+            "Deal Type": "P",
+            "Quantity": 1000,
+            "Price": 150,
+        },
+        {
+            "Deal Date": "05/08/2026",
+            "Security Code": "540565",
+            "Company": "INDIGRID",
+            "Client Name": "Bar",
+            "Deal Type": "S",
+            "Quantity": 500,
+            "Price": 151,
+        },
+    ]
     deals = normalize_disclosed_deals_frame(frame, kind="block")
     assert [d.deal_type for d in deals] == ["BUY", "SELL"]
     assert deals[0].deal_date == date(2026, 8, 5)
 
 
 def test_fetch_todays_block_deals_with_mock_frame() -> None:
-    frame = pd.DataFrame(
-        [
-            {
-                "Deal Date": "06-Aug-2026",
-                "Security Code": "500325",
-                "Security Name": "RELIANCE",
-                "Client Name": "Arb Desk",
-                "Deal Type": "Buy",
-                "Quantity": 1000,
-                "Price": 100,
-            },
-            {
-                "Deal Date": "06-Aug-2026",
-                "Security Code": "500325",
-                "Security Name": "RELIANCE",
-                "Client Name": "Arb Desk",
-                "Deal Type": "Sell",
-                "Quantity": 1000,
-                "Price": 100.5,
-            },
-            {
-                "Deal Date": "05-Aug-2026",
-                "Security Code": "500112",
-                "Security Name": "SBIN",
-                "Client Name": "Other",
-                "Deal Type": "Buy",
-                "Quantity": 500,
-                "Price": 800,
-            },
-        ]
-    )
-    latest = fetch_disclosed_deals("block", 
-        session=None,
-        fetch_frame=lambda: frame,
-    )
+    frame = [
+        {
+            "Deal Date": "06-Aug-2026",
+            "Security Code": "500325",
+            "Security Name": "RELIANCE",
+            "Client Name": "Arb Desk",
+            "Deal Type": "Buy",
+            "Quantity": 1000,
+            "Price": 100,
+        },
+        {
+            "Deal Date": "06-Aug-2026",
+            "Security Code": "500325",
+            "Security Name": "RELIANCE",
+            "Client Name": "Arb Desk",
+            "Deal Type": "Sell",
+            "Quantity": 1000,
+            "Price": 100.5,
+        },
+        {
+            "Deal Date": "05-Aug-2026",
+            "Security Code": "500112",
+            "Security Name": "SBIN",
+            "Client Name": "Other",
+            "Deal Type": "Buy",
+            "Quantity": 500,
+            "Price": 800,
+        },
+    ]
+    latest = fetch_disclosed_deals("block", session=None, fetch_frame=lambda: frame)
     assert latest.as_of_date == date(2026, 8, 6)
     assert latest.deal_count == 2
     assert latest.arbitrage_deal_count == 2
     assert latest.available_dates == (date(2026, 8, 6), date(2026, 8, 5))
 
-    prior = fetch_disclosed_deals("block", 
+    prior = fetch_disclosed_deals(
+        "block",
         session=None,
         fetch_frame=lambda: frame,
         as_of_date=date(2026, 8, 5),

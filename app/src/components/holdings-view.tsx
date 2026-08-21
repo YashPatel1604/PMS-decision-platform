@@ -178,7 +178,7 @@ export function HoldingsView() {
 
   const holdingsQuery = useQuery({
     queryKey: ["open-holdings", asOf || "book-latest", effectiveFrom],
-    queryFn: () => api.getOpenHoldings(asOf || null, undefined, false, effectiveFrom),
+    queryFn: () => api.getOpenHoldings(asOf || null, effectiveFrom),
     staleTime: 60 * 1000,
   });
 
@@ -299,7 +299,7 @@ export function HoldingsView() {
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">Holdings analyze</h1>
           <p className="mt-3 text-base leading-7 text-stone-600">
             Values: History book when that day exists; otherwise Model×bhav from
-            PMS_ClientPortfolio (as-of {formatDate(bookDate)}). Qty follows Model when
+            PMS_ClientPortfolio (as-of {formatDate(bookDate)}). Qty and Mcap follow Model when
             present. Yahoo live quotes do not affect this page.
           </p>
         </div>
@@ -436,6 +436,7 @@ export function HoldingsView() {
                 <tr>
                   <th className="px-3 py-3 font-semibold">Stock</th>
                   <th className="px-3 py-3 font-semibold">Period</th>
+                  <th className="px-3 py-3 text-right font-semibold">Mcap</th>
                   <th className="px-3 py-3 text-right font-semibold">Wt %</th>
                   <th className="px-3 py-3 text-right font-semibold">Stock %</th>
                   <th className="px-3 py-3 text-right font-semibold">Port %</th>
@@ -472,6 +473,11 @@ export function HoldingsView() {
                           {formatDate(row.period_start_date)} → {formatDate(row.as_of_date)}
                         </p>
                         <p className="text-xs text-stone-500">{formatDays(row.period_days)}</p>
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums">
+                        {row.mcap == null
+                          ? "—"
+                          : Math.round(row.mcap).toLocaleString("en-IN")}
                       </td>
                       <td className="px-3 py-3 text-right tabular-nums">
                         {formatPct(row.position_weight_pct)}
@@ -718,7 +724,11 @@ export function HoldingsView() {
               ) : null}
 
               <p className="text-xs text-stone-500">
-                Portfolio weight {formatPct(selected.position_weight_pct)} · Unrealized{" "}
+                Mcap{" "}
+                {selected.mcap == null
+                  ? "—"
+                  : `${Math.round(selected.mcap).toLocaleString("en-IN")} Cr`}{" "}
+                · Portfolio weight {formatPct(selected.position_weight_pct)} · Unrealized{" "}
                 {formatPct(selected.unrealized_pnl_pct)} ({formatPnL(selected.unrealized_pnl)}) ·
                 qty {selected.quantity}
               </p>

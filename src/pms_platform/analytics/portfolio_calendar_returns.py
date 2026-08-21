@@ -146,11 +146,6 @@ def _cached_nav() -> tuple[NavMonth, ...]:
     return tuple(load_portfolio_nav_months())
 
 
-def clear_portfolio_calendar_cache() -> None:
-    _cached_calendar.cache_clear()
-    _cached_nav.cache_clear()
-
-
 def _nav_on_or_before(as_of: date, months: list[NavMonth]) -> NavMonth | None:
     chosen: NavMonth | None = None
     for row in months:
@@ -268,65 +263,3 @@ def linked_bse_smallcap_return_pct(
         if nav is not None:
             return nav[0]
     return linked_calendar_return_pct(start_date, end_date, use_bse_smallcap=True)
-
-
-# Back-compat alias used by older call sites / tests
-def linked_portfolio_return_pct_calendar_only(
-    start_date: date,
-    end_date: date,
-    *,
-    calendar: dict[int, CalendarYearReturn] | None = None,
-) -> Decimal | None:
-    return linked_calendar_return_pct(start_date, end_date, calendar=calendar)
-
-
-def write_portfolio_calendar_csv(path: Path, rows: list[CalendarYearReturn]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(
-            handle,
-            fieldnames=["year", "portfolio_return", "bse_smallcap_return", "source"],
-        )
-        writer.writeheader()
-        for row in sorted(rows, key=lambda item: item.year):
-            writer.writerow(
-                {
-                    "year": row.year,
-                    "portfolio_return": f"{row.portfolio_return:f}",
-                    "bse_smallcap_return": (
-                        f"{row.bse_smallcap_return:f}"
-                        if row.bse_smallcap_return is not None
-                        else ""
-                    ),
-                    "source": row.source,
-                }
-            )
-
-
-def extract_calendar_from_cagr_workbook(path: Path) -> list[CalendarYearReturn]:
-    import openpyxl
-
-    workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    sheet = workbook["From Start"] if "From Start" in workbook.sheetnames else workbook.active
-    rows: list[CalendarYearReturn] = []
-    for raw in sheet.iter_rows(values_only=True):
-        if not raw or raw[0] is None or raw[1] is None:
-            continue
-        label = str(raw[0]).strip()
-        if not label.upper().startswith("CY"):
-            continue
-        year = int(label[2:])
-        if year < 100:
-            year += 2000
-        port = Decimal(str(raw[1]))
-        bse = Decimal(str(raw[2])) if raw[2] is not None else None
-        rows.append(
-            CalendarYearReturn(
-                year=year,
-                portfolio_return=port,
-                bse_smallcap_return=bse,
-                source="CAGR_PMS",
-            )
-        )
-    workbook.close()
-    return rows

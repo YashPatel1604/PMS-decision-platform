@@ -341,19 +341,12 @@ def flag_arbitrage_deals(
 def normalize_disclosed_deals_frame(
     frame: Any, *, kind: DealKind = "block"
 ) -> list[DisclosedDealRow]:
-    """Convert a BSE / pandas DataFrame (or empty) into DisclosedDealRow list."""
-    if frame is None:
-        return []
-    try:
-        empty = getattr(frame, "empty", None)
-        if empty is True:
-            return []
-        columns = list(getattr(frame, "columns", []))
-    except Exception:
-        return []
-    if not columns:
+    """Convert BSE deal rows (list[dict] or empty) into DisclosedDealRow list."""
+    rows = _as_deal_row_dicts(frame)
+    if not rows:
         return []
 
+    columns = list(rows[0].keys())
     resolved = _resolve_columns(columns)
     required = ("bse_code", "deal_type", "quantity", "price")
     if any(field not in resolved for field in required):
@@ -363,7 +356,7 @@ def normalize_disclosed_deals_frame(
         )
 
     deals: list[DisclosedDealRow] = []
-    for _, series in frame.iterrows():
+    for series in rows:
         qty = _to_decimal(series.get(resolved["quantity"]))
         price = _to_decimal(series.get(resolved["price"]))
         if qty is None or price is None or qty <= 0 or price <= 0:
@@ -396,6 +389,14 @@ def normalize_disclosed_deals_frame(
             )
         )
     return deals
+
+
+def _as_deal_row_dicts(frame: Any) -> list[dict[str, Any]]:
+    if frame is None:
+        return []
+    if isinstance(frame, list):
+        return [row for row in frame if isinstance(row, dict)]
+    return []
 
 
 def _portfolio_lookup(session: Session) -> dict[str, tuple[str, bool]]:
@@ -477,42 +478,26 @@ def _extract_aspnet_fields(html: str) -> dict[str, str]:
 
 def fetch_bse_disclosed_deals_history(
     kind: DealKind, from_date: date, to_date: date
-) -> Any:
+) -> list[dict[str, Any]]:
     """Historical BSE bulk/block deals via bulknblockdeals form + CSV download."""
+    import csv
     from io import StringIO
 
-    import pandas as pd
-
     import httpx
+
+    from pms_platform.market_data.bse_http import bse_headers
 
     if to_date < from_date:
         from_date, to_date = to_date, from_date
 
     rbl = _RBL_DT[kind]
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
+        **bse_headers(referer="https://www.bseindia.com/"),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.bseindia.com/",
         "Origin": "https://beta.bseindia.com",
     }
     fro = _fmt_bse_date(from_date)
     to = _fmt_bse_date(to_date)
-    empty = pd.DataFrame(
-        columns=[
-            "Deal Date",
-            "Security Code",
-            "Company",
-            "Client Name",
-            "Deal Type",
-            "Quantity",
-            "Price",
-        ]
-    )
 
     with httpx.Client(headers=headers, timeout=90.0, follow_redirects=True) as client:
         get_response = client.get(_BSE_HISTORY_URL)
@@ -568,50 +553,100 @@ def fetch_bse_disclosed_deals_history(
     text_body = body.decode("utf-8", errors="replace")
     if "deal date" not in text_body.lower()[:500]:
         if "no record" in submit_html.lower() or len(body) < 40:
-            return empty
+            return []
         raise DisclosedDealsFetchError(
             f"BSE {kind} history download was not CSV ({content_type=} {disposition=})"
         )
     try:
-        frame = pd.read_csv(StringIO(text_body))
+        return list(csv.DictReader(StringIO(text_body)))
     except Exception as exc:
         raise DisclosedDealsFetchError(
             f"Failed to parse BSE {kind}-deal CSV: {exc}"
         ) from exc
-    return frame
 
 
-def _fetch_bse_beta_block_deals_frame() -> Any:
+def _html_tables_as_dicts(html: str) -> list[list[dict[str, str]]]:
+    """Parse HTML tables into list-of-row-dicts (header row → keys)."""
+    from html.parser import HTMLParser
+
+    class _Tables(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.tables: list[list[list[str]]] = []
+            self._table: list[list[str]] | None = None
+            self._row: list[str] | None = None
+            self._cell = False
+            self._parts: list[str] = []
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            del attrs
+            if tag == "table":
+                self._table = []
+            elif tag == "tr" and self._table is not None:
+                self._row = []
+            elif tag in {"td", "th"} and self._row is not None:
+                self._cell = True
+                self._parts = []
+
+        def handle_endtag(self, tag: str) -> None:
+            if tag in {"td", "th"} and self._cell and self._row is not None:
+                self._row.append(" ".join("".join(self._parts).split()))
+                self._cell = False
+            elif tag == "tr" and self._row is not None and self._table is not None:
+                if self._row:
+                    self._table.append(self._row)
+                self._row = None
+            elif tag == "table" and self._table is not None:
+                if self._table:
+                    self.tables.append(self._table)
+                self._table = None
+
+        def handle_data(self, data: str) -> None:
+            if self._cell:
+                self._parts.append(data)
+
+    parser = _Tables()
+    parser.feed(html)
+    out: list[list[dict[str, str]]] = []
+    for table in parser.tables:
+        if len(table) < 2:
+            continue
+        headers = [h or f"col{i}" for i, h in enumerate(table[0])]
+        rows: list[dict[str, str]] = []
+        for raw in table[1:]:
+            row = {
+                headers[i]: (raw[i] if i < len(raw) else "")
+                for i in range(len(headers))
+            }
+            rows.append(row)
+        if rows:
+            out.append(rows)
+    return out
+
+
+def _fetch_bse_beta_block_deals_frame() -> list[dict[str, Any]]:
     """Latest-session BSE block-deal HTML table (block only)."""
-    from io import StringIO
-
-    import pandas as pd
-
     import httpx
 
+    from pms_platform.market_data.bse_http import bse_headers
+
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
+        **bse_headers(),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.bseindia.com/",
     }
     with httpx.Client(headers=headers, timeout=30.0, follow_redirects=True) as client:
         response = client.get(_BSE_BLOCK_LATEST_URL)
         response.raise_for_status()
         html = response.text
-    tables = pd.read_html(StringIO(html))
+    tables = _html_tables_as_dicts(html)
     for table in tables:
-        cols = {_norm_header(c) for c in table.columns}
+        cols = {_norm_header(c) for c in table[0].keys()}
         if "deal date" in cols and ("security code" in cols or "scrip code" in cols):
-            return table.reset_index(drop=True)
+            return table
     if len(tables) >= 2:
-        return tables[1].reset_index(drop=True)
+        return tables[1]
     if tables:
-        return tables[0].reset_index(drop=True)
+        return tables[0]
     raise DisclosedDealsFetchError("BSE block-deals page returned no HTML tables")
 
 

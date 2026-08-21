@@ -1,6 +1,5 @@
 """SQLAlchemy engine and declarative base."""
 
-from collections.abc import Generator
 from functools import lru_cache
 
 from sqlalchemy import create_engine
@@ -23,12 +22,3 @@ def get_engine():
 def get_session_factory() -> sessionmaker[Session]:
     """Return a cached session factory."""
     return sessionmaker(bind=get_engine(), autoflush=False, autocommit=False)
-
-
-def get_session() -> Generator[Session, None, None]:
-    """Yield a database session."""
-    session = get_session_factory()()
-    try:
-        yield session
-    finally:
-        session.close()

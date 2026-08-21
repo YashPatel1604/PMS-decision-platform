@@ -29,7 +29,6 @@ services:
       - "8000:8000"
     environment:
       APP_ENV: ${APP_ENV:-production}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pms}
       DATABASE_URL: postgresql+psycopg://pms:${POSTGRES_PASSWORD:-pms}@postgres:5432/pms
       RESEARCH_DIR: /data/research

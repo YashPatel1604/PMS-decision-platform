@@ -265,3 +265,38 @@ def test_open_holding_stock_return_uses_first_buy_not_avg(
     assert row.average_buy_price == Decimal("150")
     # 150/100 - 1 = 50% (avg buy → current would be 0%)
     assert row.stock_return_pct == Decimal("50")
+
+
+def test_average_buy_price_in_current_share_units(
+    session, import_batch, sample_security
+) -> None:
+    """Pre-split lots are diluted into today's share units; post-split lots stay as-is."""
+    from types import SimpleNamespace
+
+    from pms_platform.analytics.open_holdings import _average_buy_price
+
+    sid = sample_security.security_id
+    add_transaction(
+        session, import_batch, sid, date(2025, 1, 2), EventType.BUY, 100, 1, Decimal("1000")
+    )
+    add_transaction(
+        session, import_batch, sid, date(2025, 6, 5), EventType.SPLIT, 900, 2
+    )
+    session.flush()
+
+    events = [
+        SimpleNamespace(
+            decision_type="INITIATE",
+            price=Decimal("1000"),
+            quantity_change=100,
+            event_date=date(2025, 1, 2),
+        ),
+        SimpleNamespace(
+            decision_type="ADD",
+            price=Decimal("200"),
+            quantity_change=50,
+            event_date=date(2025, 7, 1),
+        ),
+    ]
+    # (1000*100 + 200*50) / (100*10 + 50*1) = 110000/1050
+    assert _average_buy_price(session, sid, events) == Decimal("110000") / Decimal("1050")

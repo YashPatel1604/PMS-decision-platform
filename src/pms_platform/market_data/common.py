@@ -76,14 +76,3 @@ def validate_required_columns(path: Path, required_columns: tuple[str, ...]) -> 
         if missing:
             msg = f"{path} is missing required columns: {', '.join(missing)}"
             raise ValueError(msg)
-
-
-def directory_checksum(paths: list[Path]) -> str:
-    """Return a combined checksum for a set of files."""
-    import hashlib
-
-    digest = hashlib.sha256()
-    for path in sorted(paths):
-        digest.update(path.name.encode())
-        digest.update(file_checksum(path).encode())
-    return digest.hexdigest()

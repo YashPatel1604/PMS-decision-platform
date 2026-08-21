@@ -61,6 +61,7 @@ class OpenHoldingResponse(BaseModel):
     days_below_first_buy: int | None
     sector: str | None
     industry: str | None
+    mcap: float | None
     benchmarks: list[HoldingBenchmarkResponse]
     data_quality_status: str
     notes: list[str]
@@ -194,6 +195,7 @@ def _holding_response(row: OpenHoldingRow) -> OpenHoldingResponse:
         days_below_first_buy=row.days_below_first_buy,
         sector=row.sector,
         industry=row.industry,
+        mcap=_float(row.mcap),
         benchmarks=[
             HoldingBenchmarkResponse(
                 code=item.code,
