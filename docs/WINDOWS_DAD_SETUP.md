@@ -144,18 +144,27 @@ cd $HOME\Apps\PMS-decision-platform
 .\scripts\windows\refresh-watchlist-quotes.ps1
 ```
 
+**NSE bhav Final (IST):** tries **CM-UDiFF Common Bhavcopy Final** for **today only** at **17:00 IST**, retries at **17:15 IST**. Skips both pulls if that day is **already committed** (manual upload anytime, or a successful 17:00 run). No older-day auto-fill — if both auto tries miss and nothing was uploaded, Dad uploads the zip on **Pivot Point Strategy**.
+
+```powershell
+.\scripts\windows\sync-nse-bhav.ps1
+```
+
+Set the PC timezone to **India Standard Time** so Task Scheduler times match IST.
+
 **Watchlist fundamentals (weekly scheduled job):** full BSE quarterly + annual + snapshot recompute (run overnight for ~200 stocks):
 
 ```powershell
 .\scripts\windows\refresh-watchlist-fundamentals.ps1
 ```
 
-Register all three tasks once (run this on Dad’s PC; it cannot be installed from another machine):
+Register scheduled tasks once (run this on Dad’s PC; it cannot be installed from another machine):
 
 ```powershell
 .\scripts\windows\install-watchlist-schedule.ps1
 ```
 
+That registers alerts (07:00 IST), quotes (07:15 IST), **NSE bhav (17:00 + 17:15 IST)**, and weekly fundamentals.
 **One-time Fair Value seed** (names from Research `Stocks_FairValue_Watchlist.xlsx`):
 
 ```powershell

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from pms_platform.market_data.client_portfolio_parse import (
     book_meta,
     load_client_portfolio_book,
+    yearly_as_dicts,
 )
 from pms_platform.market_data.nse_bhav_store import (
     available_trade_dates,
@@ -41,6 +42,27 @@ def _pick_bar(eq_map: dict[str, Any], be_map: dict[str, Any], symbol: str) -> An
     return eq_map.get(symbol) or be_map.get(symbol)
 
 
+def _patch_portfolio_ytd(
+    yearly: list[dict[str, Any]], *, year: int, total: float
+) -> list[dict[str, Any]]:
+    """Set Portfolio current-year End / Return / Cum from live Total_Value."""
+    for series in yearly:
+        if series.get("name") != "Portfolio":
+            continue
+        rows = series.get("rows") or []
+        if not rows:
+            continue
+        target = next((r for r in rows if r.get("year") == year), rows[-1])
+        start = target.get("start")
+        initial = rows[0].get("start")
+        target["end"] = total
+        if start and start != 0:
+            target["return_pct"] = (total / start - 1.0) * 100.0
+        if initial and initial != 0:
+            target["cum_pct"] = (total / initial - 1.0) * 100.0
+    return yearly
+
+
 def build_client_portfolio_dashboard(
     session: Session,
     *,
@@ -58,7 +80,9 @@ def build_client_portfolio_dashboard(
         "excel_mtime": None,
         "excel_total_value": None,
         "bhav_revalued_total": None,
+        "total_value": None,
         "holdings": [],
+        "yearly": [],
         "missing_symbols": [],
         "model_symbols": [],
         "error": None,
@@ -72,38 +96,48 @@ def build_client_portfolio_dashboard(
     if as_of is None:
         meta = book_meta(book)
         empty.update(meta)
+        empty["total_value"] = meta["excel_total_value"]
         empty["model_symbols"] = [p.symbol for p in book.model]
+        empty["yearly"] = yearly_as_dicts(book)
         empty["error"] = "No bhav days committed yet — upload on Pivot Point Strategy."
         return empty
 
     eq_bars = {b.symbol: b for b in load_day_bars(session, as_of, series="EQ")}
     be_bars = {b.symbol: b for b in load_day_bars(session, as_of, series="BE")}
-    vol_exp_by_symbol = load_vol_exp_map(session)
+    vol_exp_by_symbol = load_vol_exp_map(session, as_of)
 
     holdings: list[dict[str, Any]] = []
     missing: list[str] = []
-    revalued = Decimal(0)
-    revalued_any = False
 
     for pos in book.model:
         bar = _pick_bar(eq_bars, be_bars, pos.symbol)
         stocks_qty = book.stocks_qty.get(pos.symbol)
         qty_mismatch = stocks_qty is not None and stocks_qty != pos.qty
+        excel_price = float(pos.excel_price) if pos.excel_price is not None else None
+        excel_value = float(pos.excel_value) if pos.excel_value is not None else None
 
         row: dict[str, Any] = {
             "symbol": pos.symbol,
             "qty": float(pos.qty),
             "stocks_qty": float(stocks_qty) if stocks_qty is not None else None,
             "qty_mismatch": qty_mismatch,
-            "excel_price": float(pos.excel_price) if pos.excel_price is not None else None,
-            "excel_value": float(pos.excel_value) if pos.excel_value is not None else None,
+            "excel_price": excel_price,
+            "excel_value": excel_value,
             "excel_percent": float(pos.excel_percent)
             if pos.excel_percent is not None
             else None,
             "index_label": pos.index_label,
+            "mcap": float(pos.mcap) if pos.mcap is not None else None,
+            "as_of_label": pos.as_of_label,
+            "firm_pct": float(pos.firm_pct) if pos.firm_pct is not None else None,
+            "target_value": float(pos.target_value) if pos.target_value is not None else None,
+            "portfolio_flag": pos.portfolio_flag,
             "series": None,
             "close": None,
             "bhav_value": None,
+            "price": excel_price,
+            "value": excel_value,
+            "percent": None,
             "be_only": False,
             "missing_bhav": bar is None,
             "pivot": None,
@@ -113,27 +147,26 @@ def build_client_portfolio_dashboard(
             "band_51_300": None,
         }
 
-        if bar is None:
-            missing.append(pos.symbol)
-            holdings.append(row)
-            continue
-
-        if bar.series not in DAILY_SERIES:
-            missing.append(pos.symbol)
+        if bar is None or bar.series not in DAILY_SERIES:
+            if bar is not None and bar.series not in DAILY_SERIES:
+                missing.append(pos.symbol)
+            elif bar is None:
+                missing.append(pos.symbol)
             holdings.append(row)
             continue
 
         close = Decimal(bar.close)
         bhav_value = pos.qty * close
-        revalued += bhav_value
-        revalued_any = True
         vol_exp = vol_exp_by_symbol.get(pos.symbol)
         row.update(
             {
                 "series": bar.series,
                 "close": float(close),
                 "bhav_value": float(bhav_value),
+                "price": float(close),
+                "value": float(bhav_value),
                 "be_only": bar.series == "BE",
+                "missing_bhav": False,
                 "pivot": _pivot_from_bar(bar, as_of=as_of),
             }
         )
@@ -144,6 +177,20 @@ def build_client_portfolio_dashboard(
             row["top50"] = float(vol_15 * Decimal(3))
             row["band_51_300"] = float(vol_15 * Decimal(6))
         holdings.append(row)
+
+    total = Decimal(0)
+    for row in holdings:
+        if row["value"] is not None:
+            total += Decimal(str(row["value"]))
+    total_f = float(total) if holdings else None
+    if total_f and total_f != 0:
+        for row in holdings:
+            if row["value"] is not None:
+                row["percent"] = float(Decimal(str(row["value"])) / total * Decimal(100))
+
+    yearly = _patch_portfolio_ytd(
+        yearly_as_dicts(book), year=as_of.year, total=total_f or 0.0
+    )
 
     run = latest_committed_run(session, as_of)
     last_run = None
@@ -162,16 +209,18 @@ def build_client_portfolio_dashboard(
         "source_file": meta["source_file"],
         "excel_mtime": meta["excel_mtime"],
         "excel_total_value": meta["excel_total_value"],
-        "bhav_revalued_total": float(revalued) if revalued_any else None,
+        "bhav_revalued_total": total_f,
+        "total_value": total_f,
         "holdings": holdings,
+        "yearly": yearly,
         "missing_symbols": missing,
         "model_symbols": [p.symbol for p in book.model],
         "last_run": last_run,
         "error": None,
         "formulas": {
             "qty": "Model!Qnty from Research PMS_ClientPortfolio.xlsx",
-            "close": "Committed NSE bhav (EQ preferred, else BE)",
-            "pivot": "Same-day PP=(H+L+C)/3 + 0.3% bands (Pivot Daily)",
-            "vol_exp": "Pivot Vol Exp table (AllSymbols seed or Last20×1.1)",
+            "price_value_percent": "Price/Value/Percent/Total_Value from qty × as-of bhav close",
+            "yearly_portfolio": "Portfolio current year End/Return/Cum updated from Total_Value",
+            "yearly_benchmarks": "BSESmallCap / MidCap / Sensex / BSE500 stay from workbook",
         },
     }

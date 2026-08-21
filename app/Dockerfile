@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@9.15.9 --activate

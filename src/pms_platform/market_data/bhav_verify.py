@@ -146,7 +146,8 @@ def reconcile_day(
         report.errors.append("Volume ranks are not dense 1..N")
 
     for rank in ranks_sorted[:5]:
-        expected = (rank.avg_volume * Decimal("1.1")).quantize(Decimal("0.0001"))
+        bump = Decimal("1.1") if rank.rank <= 50 else Decimal("1.2")
+        expected = (rank.avg_volume * bump).quantize(Decimal("0.0001"))
         if abs(rank.avg_volume_plus_10pct - expected) > Decimal("0.01"):
             report.ok = False
             report.errors.append(f"{rank.symbol}: avg_volume_plus_10pct mismatch")

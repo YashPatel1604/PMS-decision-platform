@@ -796,6 +796,51 @@ def sync_bhav_day_cmd(file: Path) -> int:
         session.close()
 
 
+def fetch_bhav_day_cmd(
+    trade_date: date | None,
+    *,
+    commit: bool,
+    lookback_days: int = 0,
+) -> int:
+    """Download NSE CM-UDiFF Common Bhavcopy Final; optionally commit into the DB."""
+    from pms_platform.market_data.nse_bhav_fetch import (
+        BhavFetchError,
+        download_cm_udiff_bhav,
+        fetch_and_commit_cm_udiff_bhav,
+    )
+
+    if not commit:
+        try:
+            day, path = download_cm_udiff_bhav(trade_date, lookback_days=lookback_days)
+        except BhavFetchError as exc:
+            print(f"fetch-bhav-day failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"Downloaded {day.isoformat()} (IST target) → {path}")
+        return 0
+
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        result = fetch_and_commit_cm_udiff_bhav(
+            session, trade_date, lookback_days=lookback_days
+        )
+        session.commit()
+        print(result["message"])
+        if result.get("skipped"):
+            return 0
+        return 0 if result.get("status") == "committed" else 1
+    except BhavFetchError as exc:
+        session.rollback()
+        print(f"fetch-bhav-day failed: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        print(f"fetch-bhav-day commit failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
 def main() -> None:
     """Parse CLI arguments and dispatch commands."""
     parser = argparse.ArgumentParser(description="PMS Decision Platform")
@@ -1034,6 +1079,28 @@ def main() -> None:
         help="Daily bhav CSV or XLSX path",
     )
 
+    fetch_bhav_parser = subparsers.add_parser(
+        "fetch-bhav-day",
+        help="Download NSE CM-UDiFF Common Bhavcopy Final (today IST) and commit",
+    )
+    fetch_bhav_parser.add_argument(
+        "--date",
+        type=date.fromisoformat,
+        default=None,
+        help="Trade date YYYY-MM-DD IST (default: today IST only — no older fallback)",
+    )
+    fetch_bhav_parser.add_argument(
+        "--lookback-days",
+        type=int,
+        default=0,
+        help="Optional backfill only; scheduled jobs leave this at 0",
+    )
+    fetch_bhav_parser.add_argument(
+        "--download-only",
+        action="store_true",
+        help="Save CSV under data/uploads/bhav/nse without committing",
+    )
+
     args = parser.parse_args()
     if args.command == "import-all":
         raise SystemExit(import_all(args.export_dir))
@@ -1128,6 +1195,14 @@ def main() -> None:
         )
     if args.command == "sync-bhav-day":
         raise SystemExit(sync_bhav_day_cmd(file=args.file))
+    if args.command == "fetch-bhav-day":
+        raise SystemExit(
+            fetch_bhav_day_cmd(
+                trade_date=args.date,
+                commit=not args.download_only,
+                lookback_days=args.lookback_days,
+            )
+        )
 
 
 if __name__ == "__main__":

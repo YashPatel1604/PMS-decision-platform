@@ -2,9 +2,13 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api, type ClientPortfolioDashboard } from "@/lib/api";
+import {
+  api,
+  type ClientPortfolioDashboard,
+  type ClientPortfolioYearlySeries,
+} from "@/lib/api";
 import { formatDate } from "@/lib/format";
 
 function num(value: number | null | undefined, digits = 2): string {
@@ -15,23 +19,46 @@ function num(value: number | null | undefined, digits = 2): string {
   });
 }
 
-function pivotNum(value: number | null | undefined): string {
+function pct(value: number | null | undefined, digits = 2): string {
   if (value == null || !Number.isFinite(value)) return "—";
-  return value.toLocaleString("en-IN", {
-    maximumFractionDigits: 4,
-    minimumFractionDigits: 2,
-  });
+  return `${value.toLocaleString("en-IN", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits,
+  })}%`;
+}
+
+function apiDetail(err: Error): string {
+  try {
+    const parsed = JSON.parse(err.message) as { detail?: unknown };
+    if (typeof parsed.detail === "string") return parsed.detail;
+  } catch {
+    /* plain text */
+  }
+  return err.message;
 }
 
 const PRESELECT_KEY = "pivot-preselect-symbols";
 
 export function ClientPortfolioView() {
+  const queryClient = useQueryClient();
   const [asOf, setAsOf] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [fetchMsg, setFetchMsg] = useState<string | null>(null);
 
   const dashQuery = useQuery({
     queryKey: ["client-portfolio-dashboard", asOf ?? "latest"],
     queryFn: () => api.getClientPortfolioDashboard(asOf),
+  });
+
+  const fetchNseMutation = useMutation({
+    mutationFn: () => api.fetchNseBhav(),
+    onSuccess: (result) => {
+      setFetchMsg(result.message);
+      setAsOf(result.trade_date);
+      void queryClient.invalidateQueries({ queryKey: ["client-portfolio-dashboard"] });
+      void queryClient.invalidateQueries({ queryKey: ["pivot-dashboard"] });
+    },
+    onError: (err: Error) => setFetchMsg(apiDetail(err)),
   });
 
   const data = dashQuery.data;
@@ -57,9 +84,9 @@ export function ClientPortfolioView() {
           </p>
           <h2 className="text-2xl font-semibold text-stone-900">Client Portfolio</h2>
           <p className="mt-1 max-w-2xl text-sm text-stone-600">
-            Quantities from Research <span className="font-medium">PMS_ClientPortfolio.xlsx</span>{" "}
-            (Model). Prices, pivots, and Vol Exp from the last committed Pivot bhav day — upload
-            bhav on Pivot Point Strategy.
+            Qnty / Index / Mcap / Date / %Firm from Research{" "}
+            <span className="font-medium">PMS_ClientPortfolio.xlsx</span>. Price, Value,
+            Percent, and Total_Value refresh from the as-of bhav day (qty × close).
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
@@ -80,6 +107,26 @@ export function ClientPortfolioView() {
               ) : null}
             </select>
           </label>
+          <button
+            type="button"
+            disabled={fetchNseMutation.isPending}
+            onClick={() => {
+              setFetchMsg(null);
+              fetchNseMutation.mutate();
+            }}
+            className="rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {fetchNseMutation.isPending ? "Pulling NSE…" : "Pull today's bhav"}
+          </button>
+          {asOf && data?.available_dates?.[0] && asOf !== data.available_dates[0] ? (
+            <button
+              type="button"
+              onClick={() => setAsOf(null)}
+              className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100"
+            >
+              Jump to latest ({formatDate(data.available_dates[0])})
+            </button>
+          ) : null}
           <Link
             href="/strategy/pivot-point"
             onClick={openInPivot}
@@ -90,6 +137,26 @@ export function ClientPortfolioView() {
         </div>
       </div>
 
+      {data?.as_of ? (
+        <p className="text-sm text-stone-500">
+          Marks from bhav{" "}
+          <span className="font-medium text-stone-800">{formatDate(data.as_of)}</span>.
+          Benchmark yearly tables stay from the workbook.
+        </p>
+      ) : null}
+
+      {fetchMsg ? (
+        <p
+          className={`rounded-lg border px-3 py-2 text-sm ${
+            fetchNseMutation.isError
+              ? "border-red-200 bg-red-50 text-red-800"
+              : "border-stone-200 bg-stone-50 text-stone-700"
+          }`}
+        >
+          {fetchMsg}
+        </p>
+      ) : null}
+
       {data?.error ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           {data.error}
@@ -99,20 +166,15 @@ export function ClientPortfolioView() {
       {data && !data.error ? (
         <div className="flex flex-wrap gap-4 text-sm text-stone-600">
           <span>
-            Excel total:{" "}
-            <span className="font-medium text-stone-900">{num(data.excel_total_value, 0)}</span>
-          </span>
-          <span>
-            Bhav revalued:{" "}
-            <span className="font-medium text-stone-900">{num(data.bhav_revalued_total, 0)}</span>
+            Total_Value:{" "}
+            <span className="font-medium text-stone-900">
+              {num(data.total_value ?? data.bhav_revalued_total, 0)}
+            </span>
           </span>
           {data.missing_symbols.length ? (
             <span className="text-amber-800">
               Missing bhav: {data.missing_symbols.length}
             </span>
-          ) : null}
-          {data.excel_mtime ? (
-            <span className="text-stone-400">Workbook {data.excel_mtime}</span>
           ) : null}
         </div>
       ) : null}
@@ -130,85 +192,126 @@ export function ClientPortfolioView() {
         <p className="text-red-700">{(dashQuery.error as Error).message}</p>
       ) : null}
 
-      {data ? <HoldingsTable rows={holdings} /> : null}
+      {data ? (
+        <ModelTable rows={holdings} total={data.total_value ?? data.bhav_revalued_total} />
+      ) : null}
+      {data?.yearly?.length ? <YearlySection series={data.yearly} /> : null}
     </div>
   );
 }
 
-function HoldingsTable({ rows }: { rows: ClientPortfolioDashboard["holdings"] }) {
+function ModelTable({
+  rows,
+  total,
+}: {
+  rows: ClientPortfolioDashboard["holdings"];
+  total: number | null | undefined;
+}) {
   return (
     <div className="space-y-2">
-      <h3 className="text-sm font-semibold text-stone-700">
-        Model holdings ({rows.length})
-      </h3>
+      <h3 className="text-sm font-semibold text-stone-700">Model ({rows.length})</h3>
       <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
         <table className="min-w-full text-sm">
           <thead className="bg-stone-50 text-left text-xs font-semibold uppercase tracking-[0.06em] text-stone-500">
             <tr>
-              <th className="px-3 py-2">Symbol</th>
-              <th className="px-3 py-2 text-right">Qty</th>
-              <th className="px-3 py-2">Srs</th>
-              <th className="px-3 py-2 text-right">Excel Px</th>
-              <th className="px-3 py-2 text-right">Close</th>
-              <th className="px-3 py-2 text-right">Excel Val</th>
-              <th className="px-3 py-2 text-right">Bhav Val</th>
-              <th className="px-3 py-2 text-right">%</th>
-              <th className="px-3 py-2 text-right">S4-0.3</th>
-              <th className="px-3 py-2 text-right">S1-03</th>
-              <th className="px-3 py-2 text-right">Pivot</th>
-              <th className="px-3 py-2 text-right">R1+0.3</th>
-              <th className="px-3 py-2 text-right">R4+0.3</th>
-              <th className="px-3 py-2 text-right">Vol Exp</th>
-              <th className="px-3 py-2 text-right">15min</th>
-              <th className="px-3 py-2">Flags</th>
+              <th className="px-3 py-2">Model</th>
+              <th className="px-3 py-2 text-right">Qnty</th>
+              <th className="px-3 py-2 text-right">Price</th>
+              <th className="px-3 py-2 text-right">Value</th>
+              <th className="px-3 py-2 text-right">Percent</th>
+              <th className="px-3 py-2">Index</th>
+              <th className="px-3 py-2 text-right">Mcap</th>
+              <th className="px-3 py-2">Date</th>
+              <th className="px-3 py-2 text-right">%Firm</th>
+              <th className="px-3 py-2 text-right">Value</th>
+              <th className="px-3 py-2">Portfolio</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
-              const p = row.pivot;
-              const miss = row.missing_bhav || !p || p.missing;
-              const flags: string[] = [];
-              if (row.missing_bhav) flags.push("no bhav");
-              if (row.be_only) flags.push("BE");
-              if (row.qty_mismatch) flags.push("qty≠Stocks");
-              return (
-                <tr key={row.symbol} className="border-t border-stone-100">
-                  <td className="px-3 py-1.5 font-medium">{row.symbol}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{num(row.qty, 0)}</td>
-                  <td className="px-3 py-1.5">{row.series ?? "—"}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{num(row.excel_price)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{num(row.close)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{num(row.excel_value, 0)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{num(row.bhav_value, 0)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">
-                    {row.excel_percent == null ? "—" : num(row.excel_percent, 2)}
-                  </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">
-                    {miss ? "—" : pivotNum(p?.s4_03)}
-                  </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">
-                    {miss ? "—" : pivotNum(p?.s1_03)}
-                  </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">
-                    {miss ? "—" : pivotNum(p?.pp)}
-                  </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">
-                    {miss ? "—" : pivotNum(p?.r1_03)}
-                  </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">
-                    {miss ? "—" : pivotNum(p?.r4_03)}
-                  </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{num(row.vol_exp, 0)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{num(row.vol_15min, 0)}</td>
-                  <td className="px-3 py-1.5 text-xs text-amber-800">
-                    {flags.length ? flags.join(", ") : "—"}
-                  </td>
-                </tr>
-              );
-            })}
+            {rows.map((row) => (
+              <tr key={row.symbol} className="border-t border-stone-100">
+                <td className="px-3 py-1.5 font-medium">{row.symbol}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{num(row.qty, 0)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">
+                  {num(row.price ?? row.close ?? row.excel_price)}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums">
+                  {num(row.value ?? row.bhav_value ?? row.excel_value, 0)}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums">
+                  {row.percent == null && row.excel_percent == null
+                    ? "—"
+                    : num(row.percent ?? row.excel_percent, 2)}
+                </td>
+                <td className="px-3 py-1.5">{row.index_label ?? "—"}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{num(row.mcap, 0)}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap">{row.as_of_label ?? "—"}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">
+                  {row.firm_pct == null ? "—" : num(row.firm_pct, 2)}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{num(row.target_value, 0)}</td>
+                <td className="px-3 py-1.5">{row.portfolio_flag ?? "—"}</td>
+              </tr>
+            ))}
+            {total != null ? (
+              <tr className="border-t border-stone-200 bg-stone-50 font-medium">
+                <td className="px-3 py-1.5">Total_Value</td>
+                <td className="px-3 py-1.5" colSpan={2} />
+                <td className="px-3 py-1.5 text-right tabular-nums">{num(total, 0)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">100.00</td>
+                <td className="px-3 py-1.5" colSpan={6} />
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function YearlySection({ series }: { series: ClientPortfolioYearlySeries[] }) {
+  return (
+    <div className="space-y-4">
+      <h3 className="text-sm font-semibold text-stone-700">Yearly returns</h3>
+      <div className="grid gap-4 xl:grid-cols-2">
+        {series.map((block) => (
+          <YearlyTable key={block.name} block={block} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function YearlyTable({ block }: { block: ClientPortfolioYearlySeries }) {
+  return (
+    <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
+      <table className="min-w-full text-sm">
+        <thead className="bg-stone-50 text-left text-xs font-semibold uppercase tracking-[0.06em] text-stone-500">
+          <tr>
+            <th className="px-3 py-2" colSpan={5}>
+              {block.name}
+            </th>
+          </tr>
+          <tr>
+            <th className="px-3 py-2">Year</th>
+            <th className="px-3 py-2 text-right">Start</th>
+            <th className="px-3 py-2 text-right">End</th>
+            <th className="px-3 py-2 text-right">Return</th>
+            <th className="px-3 py-2 text-right">Cum</th>
+          </tr>
+        </thead>
+        <tbody>
+          {block.rows.map((row) => (
+            <tr key={row.year} className="border-t border-stone-100">
+              <td className="px-3 py-1.5 tabular-nums">{row.year}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums">{num(row.start, 0)}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums">{num(row.end, 0)}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums">{pct(row.return_pct)}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums">{pct(row.cum_pct)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

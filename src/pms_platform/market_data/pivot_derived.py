@@ -186,7 +186,10 @@ def volume_ranks(
     *,
     series: str = "EQ",
 ) -> list[VolumeRank]:
-    """Average volume + sum turnover over the Last20 bars, ranked by turnover."""
+    """Average volume + sum turnover over the Last20 bars, ranked by turnover.
+
+    Excel AllSymbols ``AvgQty20Days+x%``: top 50 by turnover get +10%, else +20%.
+    """
     by_symbol: dict[str, list[Any]] = {}
     for bar in bars:
         if getattr(bar, "series", None) != series:
@@ -202,13 +205,15 @@ def volume_ranks(
     scored.sort(key=lambda item: (-item[2], item[0]))
     out: list[VolumeRank] = []
     for idx, (symbol, avg_vol, sum_to) in enumerate(scored, start=1):
+        # ponytail: Excel Top50 → ×1.1; rest → ×1.2 (AllSymbols AvgQty20Days+x%)
+        bump = Decimal("1.1") if idx <= 50 else Decimal("1.2")
         out.append(
             VolumeRank(
                 symbol=symbol,
                 avg_volume=avg_vol,
                 sum_turnover=sum_to,
                 rank=idx,
-                avg_volume_plus_10pct=_q(avg_vol * Decimal("1.1")),
+                avg_volume_plus_10pct=_q(avg_vol * bump),
             )
         )
     return out

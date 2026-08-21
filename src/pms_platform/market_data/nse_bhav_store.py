@@ -33,8 +33,11 @@ from pms_platform.models.nse_bhav import (
     PivotVolExp,
 )
 
-# Only this many trade sessions are kept; older days are deleted on each commit.
-MAX_BHAV_SESSIONS = 20
+# Keep enough sessions so prior-day Vol Exp can still see a full 20 working days
+# after today's commit drops the oldest from the current window.
+MAX_BHAV_SESSIONS = 25
+# Excel Last20Days_test / AvgQty20Days+x% window length.
+LAST20_SESSIONS = 20
 
 
 def _bhav_upload_dir() -> Path:
@@ -122,6 +125,7 @@ def _replace_day_bars(
 
 
 def list_session_dates(session: Session, *, as_of: date, limit: int = 20) -> list[date]:
+    """Newest ``limit`` trade dates on/before as_of (may include large gaps)."""
     rows = session.scalars(
         select(NseBhavBar.trade_date)
         .where(NseBhavBar.trade_date <= as_of)
@@ -130,6 +134,37 @@ def list_session_dates(session: Session, *, as_of: date, limit: int = 20) -> lis
         .limit(limit)
     ).all()
     return sorted(rows)
+
+
+def last_working_sessions(
+    session: Session,
+    *,
+    as_of: date,
+    limit: int = LAST20_SESSIONS,
+    max_gap_days: int = 10,
+) -> list[date]:
+    """Last ≤20 NSE working days ending at as_of (contiguous; stop on a long gap).
+
+    Matches Excel Last20Days_test: add today, drop the 21st prior session — never
+    stitch across year-long holes (e.g. 2024 seed + 2026 daily).
+    """
+    newest_first = session.scalars(
+        select(NseBhavBar.trade_date)
+        .where(NseBhavBar.trade_date <= as_of)
+        .distinct()
+        .order_by(NseBhavBar.trade_date.desc())
+        .limit(max(limit * 3, MAX_BHAV_SESSIONS))
+    ).all()
+    if not newest_first:
+        return []
+    out: list[date] = [newest_first[0]]
+    for day in newest_first[1:]:
+        if (out[-1] - day).days > max_gap_days:
+            break
+        out.append(day)
+        if len(out) >= limit:
+            break
+    return sorted(out)
 
 
 def count_bars(session: Session, trade_date: date, *, series: str | None = None) -> int:
@@ -165,14 +200,23 @@ def load_day_bars(
     return list(session.scalars(stmt.order_by(NseBhavBar.symbol)).all())
 
 
-def prior_session_date(session: Session, as_of: date) -> date | None:
-    return session.scalar(
+def prior_session_date(
+    session: Session, as_of: date, *, max_gap_days: int = 10
+) -> date | None:
+    """Nearest earlier bhav day, or None if the gap is too large (sparse history)."""
+    prior = session.scalar(
         select(NseBhavBar.trade_date)
         .where(NseBhavBar.trade_date < as_of)
         .distinct()
         .order_by(NseBhavBar.trade_date.desc())
         .limit(1)
     )
+    if prior is None:
+        return None
+    # ponytail: no full holiday calendar; 10d covers long weekends, not year-long seed gaps
+    if (as_of - prior).days > max_gap_days:
+        return None
+    return prior
 
 
 def bars_by_symbol(bars: list[NseBhavBar]) -> dict[str, NseBhavBar]:
@@ -267,11 +311,9 @@ def commit_bhav_run(session: Session, run_id: int) -> BhavImportRun:
         return run
 
     _replace_day_bars(session, trade_date, rows, run.run_id)
+    # Snapshot Vol Exp while Last20 still includes today; then drop the 21st day.
+    snapshot_vol_exp_for_as_of(session, trade_date)
     prune_bhav_sessions(session, MAX_BHAV_SESSIONS)
-    # Excel Daily Vol Exp = AllSymbols AvgQty20Days+x%, not Last20×1.1. Keep seeded
-    # AllSymbols until we intentionally rebuild; otherwise fill from bars.
-    if not _has_all_symbols_vol_exp(session):
-        rebuild_vol_exp_from_bars(session, before=trade_date)
     run.status = "committed"
     run.committed_at = datetime.now(timezone.utc)
     run.error_message = None
@@ -284,6 +326,16 @@ def available_trade_dates(session: Session) -> list[date]:
         session.scalars(
             select(NseBhavBar.trade_date).distinct().order_by(NseBhavBar.trade_date.desc())
         ).all()
+    )
+
+
+def has_bhav_trade_date(session: Session, trade_date: date) -> bool:
+    """True when any committed bhav bars exist for that session day."""
+    return (
+        session.scalar(
+            select(NseBhavBar.trade_date).where(NseBhavBar.trade_date == trade_date).limit(1)
+        )
+        is not None
     )
 
 
@@ -323,8 +375,34 @@ def prune_bhav_sessions(session: Session, keep: int = MAX_BHAV_SESSIONS) -> int:
     if not drop:
         return 0
     result = session.execute(delete(NseBhavBar).where(NseBhavBar.trade_date.in_(drop)))
+    session.execute(delete(PivotVolExp).where(PivotVolExp.as_of_date.in_(drop)))
     session.flush()
     return int(result.rowcount or 0)
+
+
+def snapshot_vol_exp_for_as_of(session: Session, as_of: date) -> int:
+    """Daily Vol Exp = Last20 avg EQ vol ×1.1 (top 50 by turnover) or ×1.2 (rest).
+
+    Call after writing that day's bars and before pruning older sessions so the
+    window still matches Excel Last20Days_test (add today, drop the 21st day later).
+    """
+    dates = last_working_sessions(session, as_of=as_of, limit=LAST20_SESSIONS)
+    if not dates:
+        return 0
+    ranks = volume_ranks(load_bars_for_dates(session, dates, series="EQ"), series="EQ")
+    session.execute(delete(PivotVolExp).where(PivotVolExp.as_of_date == as_of))
+    for row in ranks:
+        session.add(
+            PivotVolExp(
+                as_of_date=as_of,
+                symbol=row.symbol,
+                vol_exp=row.avg_volume_plus_10pct,
+                rank=row.rank,
+                source="last20",
+            )
+        )
+    session.flush()
+    return len(ranks)
 
 
 def replace_vol_exp_stats(
@@ -332,43 +410,62 @@ def replace_vol_exp_stats(
     rows: list[tuple[str, Decimal, int | None]],
     *,
     source: str,
+    as_of: date,
 ) -> int:
-    session.execute(delete(PivotVolExp))
+    session.execute(delete(PivotVolExp).where(PivotVolExp.as_of_date == as_of))
     for symbol, vol_exp, rank in rows:
         session.add(
-            PivotVolExp(symbol=symbol, vol_exp=vol_exp, rank=rank, source=source)
+            PivotVolExp(
+                as_of_date=as_of,
+                symbol=symbol,
+                vol_exp=vol_exp,
+                rank=rank,
+                source=source,
+            )
         )
     session.flush()
     return len(rows)
 
 
 def rebuild_vol_exp_from_bars(session: Session, *, before: date) -> int:
-    """Vol Exp = avg EQ volume over sessions before ``before`` (≤20) × 1.1."""
+    """Legacy helper: Vol Exp from sessions strictly before ``before``."""
     dates = [d for d in available_trade_dates(session) if d < before][:MAX_BHAV_SESSIONS]
     ranks = volume_ranks(load_bars_for_dates(session, dates, series="EQ"), series="EQ")
     return replace_vol_exp_stats(
         session,
         [(r.symbol, r.avg_volume_plus_10pct, r.rank) for r in ranks],
         source="bars",
+        as_of=before,
     )
 
 
-def _has_all_symbols_vol_exp(session: Session) -> bool:
-    return (
-        session.scalar(
-            select(func.count())
-            .select_from(PivotVolExp)
-            .where(PivotVolExp.source == "all_symbols")
+def load_vol_exp_map(session: Session, as_of: date) -> dict[str, Decimal]:
+    """Vol Exp snapshot for ``as_of``; build from Last20 bars if missing."""
+    rows = list(
+        session.scalars(select(PivotVolExp).where(PivotVolExp.as_of_date == as_of)).all()
+    )
+    if not rows and has_bhav_trade_date(session, as_of):
+        snapshot_vol_exp_for_as_of(session, as_of)
+        rows = list(
+            session.scalars(select(PivotVolExp).where(PivotVolExp.as_of_date == as_of)).all()
         )
-        or 0
-    ) > 0
+    return {row.symbol: row.vol_exp for row in rows}
 
 
-def load_vol_exp_map(session: Session) -> dict[str, Decimal]:
-    return {
-        row.symbol: row.vol_exp
-        for row in session.scalars(select(PivotVolExp)).all()
-    }
+def backfill_vol_exp_snapshots(session: Session) -> int:
+    """Snapshot Vol Exp for every kept bhav day (oldest → newest).
+
+    Leaves existing ``all_symbols`` snapshots alone (Excel Daily numbers).
+    """
+    total = 0
+    for day in sorted(available_trade_dates(session)):
+        existing = session.scalar(
+            select(PivotVolExp.source).where(PivotVolExp.as_of_date == day).limit(1)
+        )
+        if existing == "all_symbols":
+            continue
+        total += snapshot_vol_exp_for_as_of(session, day)
+    return total
 
 
 def upsert_portfolio_symbols(

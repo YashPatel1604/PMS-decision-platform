@@ -123,19 +123,12 @@ def build_pivot_dashboard(
     last20 = load_bars_for_dates(session, session_dates, series="EQ")
     ranks = volume_ranks(last20, series="EQ")
     gainers = gainer_rows(load_day_bars(session, as_of, series="EQ"), series="EQ")
-    # Excel Daily!Vol Exp = VLOOKUP(AllSymbols AvgQty20Days+x%). Prefer seeded table.
-    vol_exp_by_symbol = load_vol_exp_map(session)
-    if not vol_exp_by_symbol:
-        vol_history_dates = [
-            d for d in list_session_dates(session, as_of=as_of, limit=21) if d < as_of
-        ][-20:]
-        vol_exp_by_symbol = {
-            r.symbol: r.avg_volume_plus_10pct
-            for r in volume_ranks(
-                load_bars_for_dates(session, vol_history_dates, series="EQ"),
-                series="EQ",
-            )
-        }
+    # Daily Vol Exp = Last20 avg×1.1/1.2 snapshotted for this as_of (Excel Last20Days roll).
+    vol_exp_by_symbol = load_vol_exp_map(session, as_of)
+    prior_date = prior_session_date(session, as_of)
+    prev_vol_exp_by_symbol = (
+        load_vol_exp_map(session, prior_date) if prior_date is not None else {}
+    )
 
     portfolio_rows = list(
         session.scalars(select(PivotPortfolioSymbol).order_by(PivotPortfolioSymbol.symbol)).all()
@@ -146,11 +139,13 @@ def build_pivot_dashboard(
     for bar in load_day_bars(session, as_of, series="BE"):
         last_map.setdefault(bar.symbol, bar)
     prior_map: dict[str, Any] = {}
-    prior_date = prior_session_date(session, as_of)
     if prior_date:
-        prior_map = bars_by_symbol(load_day_bars(session, prior_date, series="EQ"))
-        for bar in load_day_bars(session, prior_date, series="BE"):
-            prior_map.setdefault(bar.symbol, bar)
+        prior_day_bars = load_day_bars(session, prior_date, series=None)
+        prior_map = bars_by_symbol([b for b in prior_day_bars if b.series == "EQ"])
+        for bar in prior_day_bars:
+            if bar.series == "BE":
+                prior_map.setdefault(bar.symbol, bar)
+
     daily_symbols = sorted({b.symbol for b in daily if b.series in DAILY_SERIES})
     pivot_symbol_list = list(dict.fromkeys([*symbols, *daily_symbols]))
     pivots = {
@@ -196,6 +191,8 @@ def build_pivot_dashboard(
             row["portfolio_flag"] = "Y" if portfolio_a_by_symbol[bar.symbol] else "N"
         else:
             row["portfolio_flag"] = None
+        prev_ve = prev_vol_exp_by_symbol.get(bar.symbol)
+        row["prev_day_vol_exp"] = float(prev_ve) if prev_ve is not None else None
         # Excel: Vol Exp; 15minVol=VolExp/25; Top50=15min*3; 51=300=15min*6
         vol_exp = vol_exp_by_symbol.get(bar.symbol)
         if vol_exp is not None:
@@ -244,7 +241,8 @@ def build_pivot_dashboard(
             "s4": "L-3*(H-PP); S3=L-2*(H-PP); S2=PP-(H-L); S1=2*PP-H",
             "r4": "H+3*(PP-L); R3=H+2*(PP-L); R2=PP+(H-L); R1=2*PP-L",
             "bands": "Sx-0.3=Sx*(1-0.003); Rx+0.3=Rx*(1+0.003)",
-            "vol_exp": "Excel AllSymbols AvgQty20Days+x% (seeded); else avg prior-session volume×1.1",
+            "vol_exp": "Last20 avg EQ vol ×1.1 (top 50 turnover) or ×1.2 (rest), snapshotted on commit",
+            "prev_day_vol_exp": "Vol Exp snapshot from the prior bhav day (what Daily showed yesterday)",
             "vol_15min": "VolExp/25",
             "top50": "15minVol*3",
             "band_51_300": "15minVol*6",

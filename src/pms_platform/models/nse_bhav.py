@@ -101,11 +101,12 @@ class PivotPortfolioSymbol(Base):
 
 
 class PivotVolExp(Base):
-    """Per-symbol Vol Exp (Excel AllSymbols col, or rebuilt from last-20 bars)."""
+    """Per-symbol Vol Exp for one as-of day (Last20 avg ×1.1 top50 / ×1.2 else)."""
 
     __tablename__ = "pivot_vol_exp"
 
+    as_of_date: Mapped[date] = mapped_column(Date, primary_key=True)
     symbol: Mapped[str] = mapped_column(String(64), primary_key=True)
     vol_exp: Mapped[Decimal] = mapped_column(Numeric(24, 4), nullable=False)
     rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    source: Mapped[str] = mapped_column(String(32), nullable=False, default="bars")
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="last20")

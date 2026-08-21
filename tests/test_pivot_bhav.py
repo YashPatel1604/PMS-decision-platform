@@ -30,6 +30,31 @@ def test_floor_pivot_matches_excel_reliance_aug20() -> None:
     assert abs(float(levels["r1_03"]) - 1321.4190666666666) < 1e-6
 
 
+def test_vol_exp_bump_top50_vs_rest() -> None:
+    """Excel AllSymbols: top 50 turnover ×1.1; everyone else ×1.2."""
+    from types import SimpleNamespace
+
+    from pms_platform.market_data.pivot_derived import volume_ranks
+
+    bars = []
+    for i in range(52):
+        bars.append(
+            SimpleNamespace(
+                symbol=f"S{i:02d}",
+                series="EQ",
+                volume=1000,
+                turnover=Decimal(1000 - i),  # S00 = rank 1
+            )
+        )
+    ranks = {r.symbol: r for r in volume_ranks(bars)}
+    assert ranks["S00"].rank == 1
+    assert ranks["S00"].avg_volume_plus_10pct == Decimal("1100.0000")
+    assert ranks["S49"].rank == 50
+    assert ranks["S49"].avg_volume_plus_10pct == Decimal("1100.0000")
+    assert ranks["S50"].rank == 51
+    assert ranks["S50"].avg_volume_plus_10pct == Decimal("1200.0000")
+
+
 def test_prune_keeps_only_20_sessions(session, tmp_path, monkeypatch) -> None:
     from datetime import timedelta
 
@@ -212,6 +237,10 @@ def test_bhav_validate_commit_reconcile_loop(session, tmp_path, monkeypatch) -> 
     assert abs(daily_rel["pivot"]["pp"] - 1418.3333333333333) < 1e-9
     assert daily_rel["vol_exp"] is not None
     assert abs(daily_rel["vol_15min"] - daily_rel["vol_exp"] / 25) < 1e-6
+    # Prev day Vol Exp = what Daily printed on 2026-08-18 for RELIANCE.
+    prior_dash = build_pivot_dashboard(session, as_of=date(2026, 8, 18))
+    prior_rel = next(r for r in prior_dash["daily"] if r["symbol"] == "RELIANCE")
+    assert daily_rel["prev_day_vol_exp"] == prior_rel["vol_exp"]
 
     gainers = dash["gainers"]
     assert gainers

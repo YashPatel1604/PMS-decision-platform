@@ -556,6 +556,16 @@ export type BhavRun = {
   error_message: string | null;
 };
 
+export type FetchNseBhavResult = {
+  skipped: boolean;
+  trade_date: string | null;
+  message: string;
+  run_id: number | null;
+  status: string | null;
+  row_count_all: number | null;
+  row_count_eq: number | null;
+};
+
 export type PivotLevel = {
   symbol: string;
   series: string;
@@ -601,6 +611,7 @@ export type PivotBar = {
   turnover: number | null;
   pivot?: PivotLevel | null;
   portfolio_flag?: string | null;
+  prev_day_vol_exp?: number | null;
   vol_exp?: number | null;
   vol_15min?: number | null;
   top50?: number | null;
@@ -665,6 +676,14 @@ export type ClientPortfolioHolding = {
   excel_value?: number | null;
   excel_percent?: number | null;
   index_label?: string | null;
+  mcap?: number | null;
+  as_of_label?: string | null;
+  firm_pct?: number | null;
+  target_value?: number | null;
+  portfolio_flag?: string | null;
+  price?: number | null;
+  value?: number | null;
+  percent?: number | null;
   series?: string | null;
   close?: number | null;
   bhav_value?: number | null;
@@ -677,6 +696,19 @@ export type ClientPortfolioHolding = {
   band_51_300?: number | null;
 };
 
+export type ClientPortfolioYearlyRow = {
+  year: number;
+  start: number | null;
+  end: number | null;
+  return_pct: number | null;
+  cum_pct: number | null;
+};
+
+export type ClientPortfolioYearlySeries = {
+  name: string;
+  rows: ClientPortfolioYearlyRow[];
+};
+
 export type ClientPortfolioDashboard = {
   as_of: string | null;
   available_dates: string[];
@@ -684,7 +716,9 @@ export type ClientPortfolioDashboard = {
   excel_mtime: string | null;
   excel_total_value: number | null;
   bhav_revalued_total: number | null;
+  total_value?: number | null;
   holdings: ClientPortfolioHolding[];
+  yearly?: ClientPortfolioYearlySeries[];
   missing_symbols: string[];
   model_symbols: string[];
   last_run?: {
@@ -1332,6 +1366,15 @@ export const api = {
     const query = params.toString();
     return request<ClientPortfolioDashboard>(
       `/strategy/client-portfolio/dashboard${query ? `?${query}` : ""}`,
+    );
+  },
+  fetchNseBhav: (tradeDate?: string | null) => {
+    const params = new URLSearchParams();
+    if (tradeDate) params.set("trade_date", tradeDate);
+    const query = params.toString();
+    return request<FetchNseBhavResult>(
+      `/strategy/pivot/bhav/fetch-nse${query ? `?${query}` : ""}`,
+      { method: "POST" },
     );
   },
   uploadBhav: async (file: File) => {

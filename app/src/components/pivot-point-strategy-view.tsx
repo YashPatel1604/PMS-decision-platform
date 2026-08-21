@@ -53,10 +53,12 @@ export function PivotPointStrategyView() {
   const [query, setQuery] = useState("");
   const [dailyScope, setDailyScope] = useState<DailyScope>("portfolio");
   const [seriesScope, setSeriesScope] = useState<SeriesScope>("both");
+  const [showPrevDayVolExp, setShowPrevDayVolExp] = useState(false);
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
   const [newFirm, setNewFirm] = useState("");
   const [addFirmError, setAddFirmError] = useState<string | null>(null);
   const [firmSuggestOpen, setFirmSuggestOpen] = useState(false);
+  const [fetchMsg, setFetchMsg] = useState<string | null>(null);
 
   const dashQuery = useQuery({
     queryKey: ["pivot-dashboard", asOf ?? "latest"],
@@ -64,6 +66,17 @@ export function PivotPointStrategyView() {
   });
 
   const data = dashQuery.data;
+
+  const fetchNseMutation = useMutation({
+    mutationFn: () => api.fetchNseBhav(),
+    onSuccess: (result) => {
+      setFetchMsg(result.message);
+      setAsOf(result.trade_date);
+      void queryClient.invalidateQueries({ queryKey: ["pivot-dashboard"] });
+      void queryClient.invalidateQueries({ queryKey: ["client-portfolio-dashboard"] });
+    },
+    onError: (err: Error) => setFetchMsg(apiDetail(err)),
+  });
 
   useEffect(() => {
     try {
@@ -210,22 +223,63 @@ export function PivotPointStrategyView() {
             the Daily sheet (pivots, Vol Exp, 15min bands).
           </p>
         </div>
-        <label className="flex flex-col gap-1 text-sm text-stone-600">
-          As-of date
-          <select
-            className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-stone-900 shadow-sm"
-            value={asOf ?? data?.as_of ?? ""}
-            onChange={(e) => setAsOf(e.target.value || null)}
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-sm text-stone-600">
+            As-of date
+            <select
+              className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-stone-900 shadow-sm"
+              value={asOf ?? data?.as_of ?? ""}
+              onChange={(e) => setAsOf(e.target.value || null)}
+            >
+              {(data?.available_dates?.length ? data.available_dates : []).map((d) => (
+                <option key={d} value={d}>
+                  {formatDate(d)}
+                </option>
+              ))}
+              {!data?.available_dates?.length ? <option value="">No bhav days yet</option> : null}
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={fetchNseMutation.isPending}
+            onClick={() => {
+              setFetchMsg(null);
+              fetchNseMutation.mutate();
+            }}
+            className="rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {(data?.available_dates?.length ? data.available_dates : []).map((d) => (
-              <option key={d} value={d}>
-                {formatDate(d)}
-              </option>
-            ))}
-            {!data?.available_dates?.length ? <option value="">No bhav days yet</option> : null}
-          </select>
-        </label>
+            {fetchNseMutation.isPending ? "Pulling NSE…" : "Pull today's bhav"}
+          </button>
+          {asOf && data?.available_dates?.[0] && asOf !== data.available_dates[0] ? (
+            <button
+              type="button"
+              onClick={() => setAsOf(null)}
+              className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100"
+            >
+              Jump to latest ({formatDate(data.available_dates[0])})
+            </button>
+          ) : null}
+        </div>
       </div>
+      {data?.as_of ? (
+        <p className="text-sm text-stone-500">
+          Showing bhav for <span className="font-medium text-stone-800">{formatDate(data.as_of)}</span>
+          {data.available_dates?.[0] && data.as_of !== data.available_dates[0]
+            ? ` (latest committed is ${formatDate(data.available_dates[0])})`
+            : null}
+        </p>
+      ) : null}
+      {fetchMsg ? (
+        <p
+          className={`rounded-lg border px-3 py-2 text-sm ${
+            fetchNseMutation.isError
+              ? "border-red-200 bg-red-50 text-red-800"
+              : "border-stone-200 bg-stone-50 text-stone-700"
+          }`}
+        >
+          {fetchMsg}
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         {TABS.map((item) => (
@@ -296,6 +350,20 @@ export function PivotPointStrategyView() {
                 </label>
               ))}
             </div>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-700">
+              <input
+                type="checkbox"
+                checked={showPrevDayVolExp}
+                onChange={(e) => setShowPrevDayVolExp(e.target.checked)}
+                className="rounded border-stone-300 text-emerald-700 focus:ring-emerald-600"
+              />
+              Prev day Vol Exp
+            </label>
+            {showPrevDayVolExp ? (
+              <span className="text-xs text-stone-500">
+                Yesterday&apos;s Daily Vol Exp (Last20 avg ×1.1/×1.2 from that day&apos;s snapshot).
+              </span>
+            ) : null}
             {dailyScope === "selected" ? (
               <div className="space-y-2">
                 <div className="flex flex-wrap items-end gap-2">
@@ -447,7 +515,11 @@ export function PivotPointStrategyView() {
       ) : null}
 
       {tab === "daily" && data ? (
-        <DailySheetTable title={`Daily (${daily.length})`} rows={daily} />
+        <DailySheetTable
+          title={`Daily (${daily.length})`}
+          rows={daily}
+          showPrevDayVolExp={showPrevDayVolExp}
+        />
       ) : null}
     </div>
   );
@@ -553,9 +625,11 @@ function UploadPanel({
 function DailySheetTable({
   title,
   rows,
+  showPrevDayVolExp,
 }: {
   title: string;
   rows: PivotDashboard["daily"];
+  showPrevDayVolExp: boolean;
 }) {
   return (
     <div className="space-y-2">
@@ -576,8 +650,9 @@ function DailySheetTable({
               <th className="px-3 py-2 text-right">R2+0.3</th>
               <th className="px-3 py-2 text-right">R3+0.3</th>
               <th className="px-3 py-2 text-right">R4+0.3</th>
-              <th className="px-3 py-2">Portfolio</th>
-              <th className="px-3 py-2 text-right">Vol Exp</th>
+              <th className="px-3 py-2 text-right">
+                {showPrevDayVolExp ? "Prev Vol Exp" : "Vol Exp"}
+              </th>
               <th className="px-3 py-2 text-right">15minVol</th>
               <th className="px-3 py-2 text-right">Top50</th>
               <th className="px-3 py-2 text-right">51=300</th>
@@ -587,6 +662,10 @@ function DailySheetTable({
             {rows.slice(0, 500).map((row) => {
               const p = row.pivot;
               const miss = !p || p.missing;
+              const volValue = showPrevDayVolExp ? row.prev_day_vol_exp : row.vol_exp;
+              const vol15 = volValue != null ? volValue / 25 : null;
+              const top50 = vol15 != null ? vol15 * 3 : null;
+              const band51300 = vol15 != null ? vol15 * 6 : null;
               return (
                 <tr
                   key={`${row.trade_date}-${row.symbol}-${row.series}`}
@@ -622,17 +701,12 @@ function DailySheetTable({
                   <td className="px-3 py-1.5 text-right tabular-nums">
                     {miss ? "—" : pivotNum(p?.r4_03)}
                   </td>
-                  <td className="px-3 py-1.5">{row.portfolio_flag ?? "—"}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums">
-                    {num(row.vol_exp, 0)}
+                    {num(volValue, 0)}
                   </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">
-                    {num(row.vol_15min, 0)}
-                  </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{num(row.top50, 0)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">
-                    {num(row.band_51_300, 0)}
-                  </td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{num(vol15, 0)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{num(top50, 0)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{num(band51300, 0)}</td>
                 </tr>
               );
             })}

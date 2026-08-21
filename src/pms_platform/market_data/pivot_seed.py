@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 from pms_platform.market_data.nse_bhav_parse import normalize_bhav_row
 from pms_platform.market_data.nse_bhav_store import (
     MAX_BHAV_SESSIONS,
+    backfill_vol_exp_snapshots,
     prune_bhav_sessions,
     replace_vol_exp_stats,
     sync_bhav_file,
@@ -65,8 +67,8 @@ def seed_portfolio_from_workbook(session: Session, path: Path) -> int:
     return upsert_portfolio_symbols(session, payload)
 
 
-def seed_vol_exp_from_all_symbols(session: Session, path: Path) -> int:
-    """Load Excel AllSymbols col 'AvgQty20Days+x%' — exact Daily Vol Exp VLOOKUP source."""
+def seed_vol_exp_from_all_symbols(session: Session, path: Path, *, as_of: date) -> int:
+    """Load Excel AllSymbols col 'AvgQty20Days+x%' as a one-day Vol Exp snapshot."""
     from decimal import Decimal, InvalidOperation
 
     wb = load_workbook(path, read_only=True, data_only=True)
@@ -96,7 +98,7 @@ def seed_vol_exp_from_all_symbols(session: Session, path: Path) -> int:
                 rank = None
         payload.append((symbol, vol_exp, rank))
     wb.close()
-    return replace_vol_exp_stats(session, payload, source="all_symbols")
+    return replace_vol_exp_stats(session, payload, source="all_symbols", as_of=as_of)
 
 
 def _export_sheet_to_csv(path: Path, sheet_name: str, dest: Path) -> int:
@@ -153,20 +155,29 @@ def seed_pivot_from_research(
 
         with TemporaryDirectory(prefix="pivot-seed-") as tmp:
             tmp_path = Path(tmp)
-            for sheet in ("Last20Days", "Daily"):
-                csv_path = tmp_path / f"{sheet}.csv"
-                n = _export_sheet_to_csv(path, sheet, csv_path)
-                if n <= 0:
-                    continue
-                if sheet == "Last20Days":
+            peek = load_workbook(path, read_only=True)
+            available = set(peek.sheetnames)
+            peek.close()
+            # Prefer Last20Days_test (20 working days); fall back to Last20Days.
+            history_sheet = next(
+                (s for s in ("Last20Days_test", "Last20Days") if s in available),
+                None,
+            )
+            if history_sheet is not None:
+                csv_path = tmp_path / f"{history_sheet}.csv"
+                n = _export_sheet_to_csv(path, history_sheet, csv_path)
+                if n > 0:
                     days_committed += _commit_multiday_csv(session, csv_path)
-                else:
+            if "Daily" in available:
+                csv_path = tmp_path / "Daily.csv"
+                n = _export_sheet_to_csv(path, "Daily", csv_path)
+                if n > 0:
                     run = sync_bhav_file(session, csv_path)
                     if run.status == "committed":
                         days_committed += 1
         prune_bhav_sessions(session, MAX_BHAV_SESSIONS)
-    # After history: load AllSymbols so Daily Vol Exp matches the workbook exactly.
-    vol_n = seed_vol_exp_from_all_symbols(session, path)
+    # Rolling Last20 Vol Exp for every kept bhav day (what Daily prints).
+    vol_n = backfill_vol_exp_snapshots(session)
     return {
         "portfolio_symbols": portfolio_n,
         "days_committed": days_committed,

@@ -9,6 +9,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from pms_platform.api.routes.episodes import get_db
+from pms_platform.market_data.nse_bhav_fetch import (
+    BhavFetchError,
+    fetch_and_commit_cm_udiff_bhav,
+)
 from pms_platform.market_data.nse_bhav_parse import BhavParseError
 from pms_platform.market_data.nse_bhav_store import (
     commit_bhav_run,
@@ -73,6 +77,42 @@ def _run_response(run) -> BhavRunResponse:
         validation_report=run.validation_report or {},
         reconcile_report=run.reconcile_report or {},
         error_message=run.error_message,
+    )
+
+
+class FetchBhavResponse(BaseModel):
+    skipped: bool
+    trade_date: date | None
+    message: str
+    run_id: int | None = None
+    status: str | None = None
+    row_count_all: int | None = None
+    row_count_eq: int | None = None
+
+
+@router.post("/bhav/fetch-nse", response_model=FetchBhavResponse)
+def fetch_nse_bhav(
+    trade_date: date | None = Query(default=None),
+    session: Session = Depends(get_db),
+) -> FetchBhavResponse:
+    """Pull CM-UDiFF Common Bhavcopy Final from NSE and commit (today IST by default)."""
+    try:
+        result = fetch_and_commit_cm_udiff_bhav(session, trade_date)
+    except BhavFetchError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except (BhavParseError, ValueError, LookupError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session.commit()
+    if result.get("status") not in {"committed", "skipped"}:
+        raise HTTPException(status_code=400, detail=str(result.get("message")))
+    return FetchBhavResponse(
+        skipped=bool(result["skipped"]),
+        trade_date=result["trade_date"],  # type: ignore[arg-type]
+        message=str(result["message"]),
+        run_id=result["run_id"],  # type: ignore[arg-type]
+        status=result["status"],  # type: ignore[arg-type]
+        row_count_all=result["row_count_all"],  # type: ignore[arg-type]
+        row_count_eq=result["row_count_eq"],  # type: ignore[arg-type]
     )
 
 
