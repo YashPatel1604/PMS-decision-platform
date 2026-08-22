@@ -1,5 +1,5 @@
 # Register Windows Task Scheduler jobs for watchlist maintenance + NSE bhav.
-# All times are local clock — set the PC timezone to India Standard Time (IST).
+# All times are local clock - set the PC timezone to India Standard Time (IST).
 # Run once from PowerShell (elevated if access denied).
 param(
     [string]$AlertsTime = "07:00",
@@ -51,13 +51,13 @@ Register-ScheduledTask -TaskName "PMS Screener Export Sync" `
     -Settings $Settings -Force | Out-Null
 
 Register-ScheduledTask -TaskName "PMS NSE Bhav Final 17:00" `
-    -Description "IST 17:00 — NSE CM-UDiFF Common Bhavcopy Final (today only)." `
+    -Description 'IST 17:00 NSE CM-UDiFF Common Bhavcopy Final for current day only.' `
     -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$BhavScript`"") `
     -Trigger (New-ScheduledTaskTrigger -Daily -At $BhavTime) `
     -Settings $Settings -Force | Out-Null
 
 Register-ScheduledTask -TaskName "PMS NSE Bhav Final 17:15" `
-    -Description "IST 17:15 retry — same day only; after this Dad uploads manually if still missing." `
+    -Description 'IST 17:15 retry for current day only; upload manually on Pivot if still missing.' `
     -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$BhavScript`"") `
     -Trigger (New-ScheduledTaskTrigger -Daily -At $BhavRetryTime) `
     -Settings $Settings -Force | Out-Null
@@ -69,13 +69,13 @@ Register-ScheduledTask -TaskName "PMS Watchlist Fundamentals" `
     -Settings $Settings -Force | Out-Null
 
 Write-Host "Registered scheduled tasks (PC clock must be IST):" -ForegroundColor Green
-Write-Host "  PMS Watchlist Alerts         — daily $AlertsTime IST"
-Write-Host "  PMS Watchlist Quotes         — daily $QuotesTime IST"
-Write-Host "  PMS Screener Export Sync     — daily $ScreenerTime IST (drop Screener export first)"
-Write-Host "  PMS NSE Bhav Final 17:00     — daily $BhavTime IST (today only)"
-Write-Host "  PMS NSE Bhav Final 17:15     — daily $BhavRetryTime IST retry"
-Write-Host "  PMS Watchlist Fundamentals   — weekly $WeeklyDay $WeeklyTime IST"
+Write-Host "  PMS Watchlist Alerts         - daily $AlertsTime IST"
+Write-Host "  PMS Watchlist Quotes         - daily $QuotesTime IST"
+Write-Host "  PMS Screener Export Sync     - daily $ScreenerTime IST (drop Screener export first)"
+Write-Host "  PMS NSE Bhav Final 17:00     - daily $BhavTime IST"
+Write-Host "  PMS NSE Bhav Final 17:15     - daily $BhavRetryTime IST retry"
+Write-Host "  PMS Watchlist Fundamentals   - weekly $WeeklyDay $WeeklyTime IST"
 Write-Host ""
 Write-Host "Docker Desktop must be running before each task." -ForegroundColor Yellow
-Write-Host "Screener: Export watchlist/screen → save into external fundamentals/screener/ before $ScreenerTime." -ForegroundColor Yellow
+Write-Host "Screener: Export watchlist/screen, save into external fundamentals/screener/ before $ScreenerTime." -ForegroundColor Yellow
 Write-Host "If Final bhav is still missing after 17:15 IST, upload manually on Pivot Point Strategy." -ForegroundColor Yellow
