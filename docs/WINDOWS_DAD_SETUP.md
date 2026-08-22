@@ -4,6 +4,8 @@ You run the app on **this PC**. Open it in a browser. You do **not** need Python
 
 Software updates come from Yash (USA) via GitHub. Portfolio files come from **OneDrive Research**.
 
+**Brand-new PC / first install?** Follow [`WINDOWS_NEW_PC_INSTALL.md`](./WINDOWS_NEW_PC_INSTALL.md) first (seeds, bhav, watchlist backfill, schedules). This doc is day-to-day use and troubleshooting after that.
+
 ---
 
 ## What you need installed (one time)
