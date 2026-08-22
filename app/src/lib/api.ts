@@ -1276,7 +1276,7 @@ export const api = {
       `/watchlists/${watchlistId}/alerts/${alertId}/acknowledge`,
       { method: "POST" },
     ),
-  refreshWatchlist: (watchlistId: number, includeFundamentals = false) =>
+  refreshWatchlist: (watchlistId: number, includeFundamentals = true) =>
     request<WatchlistRefreshResult>(
       `/watchlists/${watchlistId}/refresh?include_fundamentals=${includeFundamentals ? "true" : "false"}`,
       { method: "POST" },

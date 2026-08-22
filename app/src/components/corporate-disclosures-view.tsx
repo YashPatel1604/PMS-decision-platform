@@ -385,30 +385,6 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
   );
 }
 
-: {
-  title: string;
-  description: string;
-  onRefresh: () => void;
-  refreshing: boolean;
-}) {
-  return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div>
-        <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
-        <p className="mt-2 text-stone-600">{description}</p>
-      </div>
-      <button
-        type="button"
-        onClick={onRefresh}
-        disabled={refreshing}
-        className="rounded-lg bg-emerald-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-900 disabled:opacity-60"
-      >
-        {refreshing ? "Refreshing…" : "Refresh"}
-      </button>
-    </div>
-  );
-}
-
 function DisclosureRow({ row }: { row: CorporateDisclosure }) {
   return (
     <tr className="border-t border-stone-100 hover:bg-stone-50/80">

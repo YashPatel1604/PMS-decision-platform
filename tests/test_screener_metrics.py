@@ -104,3 +104,5 @@ def test_compute_price_returns():
     assert result is not None
     assert result.all_time_high is not None
     assert result.return_1y_pct is not None
+    assert result.week_52_high is not None
+    assert result.week_52_low is not None

@@ -16,7 +16,7 @@ from pms_platform.fundamentals.providers.base import ProviderImportResult
 from pms_platform.fundamentals.providers.annual_xbrl import refresh_annual_fundamentals
 from pms_platform.fundamentals.providers.promoter import refresh_promoter_snapshots
 from pms_platform.fundamentals.providers.valuation import refresh_valuation_snapshots
-from pms_platform.fundamentals.providers.yahoo import YahooFundamentalsProvider
+from pms_platform.fundamentals.providers.nse import NseTarget, refresh_nse_financials
 from pms_platform.fundamentals.providers.xbrl import XbrlFundamentalsProvider
 from pms_platform.market_data.price_returns import refresh_price_returns
 from pms_platform.models.company_fundamentals_quarterly import CompanyFundamentalsQuarterly
@@ -84,9 +84,15 @@ def _recompute_grouped(
         grouped.setdefault(key, []).append(row)
 
     written = 0
+    pending: dict[tuple[str, str, object, str], FundamentalSnapshot] = {}
     for group in grouped.values():
         for computed in compute_snapshots_for_identifier(group):
-            upsert_snapshot(session, computed, computation_version=computation_version)
+            upsert_snapshot(
+                session,
+                computed,
+                computation_version=computation_version,
+                pending=pending,
+            )
             written += 1
     session.flush()
     return written
@@ -140,6 +146,7 @@ def sync_fundamentals(
     include_valuation: bool = True,
     include_annual: bool = True,
     include_price_returns: bool = True,
+    nse_targets: list[NseTarget] | None = None,
 ) -> FundamentalsSyncResult:
     """Import fundamentals from CSV, BSE, and/or Yahoo, then recompute snapshots.
 
@@ -162,6 +169,15 @@ def sync_fundamentals(
 
     bse_result: ProviderImportResult | None = None
     if provider_name == "xbrl":
+        if nse_targets:
+            try:
+                refresh_nse_financials(session, nse_targets)
+                for target in nse_targets:
+                    code = (target.bse_code or "").strip()
+                    if code:
+                        touched.add(("BSE_CODE", code))
+            except Exception:
+                pass
         bse_result = XbrlFundamentalsProvider().import_data(
             session,
             bse_codes=bse_codes,

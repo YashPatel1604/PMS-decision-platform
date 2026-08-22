@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from pms_platform.models import Security
@@ -96,6 +96,15 @@ def member_count(session: Session, watchlist_id: int) -> int:
         )
         or 0
     )
+
+
+def member_counts(session: Session) -> dict[int, int]:
+    """One GROUP BY query for all watchlist sizes (list endpoint)."""
+    rows = session.execute(
+        select(WatchlistMember.watchlist_id, func.count())
+        .group_by(WatchlistMember.watchlist_id)
+    ).all()
+    return {int(watchlist_id): int(count) for watchlist_id, count in rows}
 
 
 def get_watchlist(session: Session, watchlist_id: int) -> Watchlist:
@@ -360,6 +369,8 @@ def resolve_stale_members(session: Session, watchlist_id: int) -> dict[str, int]
         _apply_resolved_to_member(member, _resolved_from_result(result))
         if result.status == "RESOLVED":
             ok += 1
+        elif result.status == "EXCHANGE_RESOLVED":
+            ok += 1
         else:
             failed += 1
             res.log_resolution_attempt(
@@ -370,8 +381,12 @@ def resolve_stale_members(session: Session, watchlist_id: int) -> dict[str, int]
                 message=result.note or "Resolution failed",
                 source_attempted=result.source,
             )
+    from pms_platform.watchlists import identity_link as il
+
+    link_stats = il.link_watchlist_members(session, watchlist_id=watchlist_id)
+    ok += link_stats.linked
     session.flush()
-    return {"resolved": ok, "failed": failed, "skipped": skipped}
+    return {"resolved": ok, "failed": failed, "skipped": skipped, "linked": link_stats.linked}
 
 
 def update_member_symbols(
@@ -600,6 +615,11 @@ def remove_member(session: Session, watchlist_id: int, member_id: int) -> None:
         raise WatchlistMemberNotFoundError(
             f"Member {member_id} not found on watchlist {watchlist_id}"
         )
+    from pms_platform.models.watchlist_member_metrics import WatchlistMemberMetrics
+
+    session.execute(
+        delete(WatchlistMemberMetrics).where(WatchlistMemberMetrics.member_id == member_id)
+    )
     session.delete(row)
     session.flush()
 

@@ -50,6 +50,8 @@ class AnnualFundamentalsSnapshot(Base):
     interest_coverage: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
     current_ratio: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
 
+    sales: Mapped[Decimal | None] = mapped_column(Numeric(20, 2))
+    pat: Mapped[Decimal | None] = mapped_column(Numeric(20, 2))
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

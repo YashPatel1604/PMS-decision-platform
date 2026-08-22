@@ -45,6 +45,8 @@ def upsert_annual_snapshot(
     debt_to_equity: Decimal | None,
     interest_coverage: Decimal | None,
     current_ratio: Decimal | None,
+    sales: Decimal | None = None,
+    pat: Decimal | None = None,
     provider: str = "bse_annual_xbrl",
 ) -> bool:
     """Insert or update an AnnualFundamentalsSnapshot; returns True if new."""
@@ -71,11 +73,17 @@ def upsert_annual_snapshot(
         debt_to_equity=debt_to_equity,
         interest_coverage=interest_coverage,
         current_ratio=current_ratio,
+        sales=sales,
+        pat=pat,
         provider=provider,
         computed_at=datetime.now(timezone.utc),
     )
     if existing is not None:
         for k, v in fields.items():
+            if v is None and k not in {"provider", "computed_at", "period_end_date"}:
+                continue
+            if v is None and k == "security_id":
+                continue
             setattr(existing, k, v)
         return False
 
@@ -87,6 +95,7 @@ def upsert_annual_snapshot(
             **fields,
         )
     )
+    session.flush()
     return True
 
 
@@ -142,6 +151,8 @@ def refresh_annual_fundamentals(
                 debt_to_equity=annual.debt_to_equity,
                 interest_coverage=annual.interest_coverage,
                 current_ratio=annual.current_ratio,
+                sales=annual.sales,
+                pat=annual.pat,
             )
             if is_new:
                 inserted += 1

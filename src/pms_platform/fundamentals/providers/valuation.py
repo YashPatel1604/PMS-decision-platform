@@ -94,7 +94,20 @@ def upsert_valuation_snapshot(
         computed_at=datetime.now(timezone.utc),
     )
     if existing is not None:
+        # Don't wipe price-history fields when quote refresh omits them.
+        preserve_if_none = {
+            "return_1m_pct",
+            "return_3m_pct",
+            "return_6m_pct",
+            "return_1y_pct",
+            "return_3y_pct",
+            "all_time_high",
+            "week_52_high",
+            "week_52_low",
+        }
         for k, v in fields.items():
+            if v is None and k in preserve_if_none:
+                continue
             setattr(existing, k, v)
         return existing, False
 

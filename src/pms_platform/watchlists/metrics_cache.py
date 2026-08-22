@@ -8,11 +8,13 @@ from decimal import Decimal
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, joinedload
 
-from pms_platform.fundamentals.catalog import COMPUTATION_VERSION, METRIC_CATALOG
+from pms_platform.fundamentals.catalog import METRIC_CATALOG, WATCHLIST_METRICS_VERSION
 from pms_platform.models.watchlist import WatchlistMember
 from pms_platform.models.watchlist_member_metrics import WatchlistMemberMetrics
 from pms_platform.watchlists import screen as scr
 from pms_platform.watchlists import service as wl
+from pms_platform.watchlists.member_context import load_member_snapshot_context
+from pms_platform.watchlists.metric_diagnostics import build_member_diagnostics
 
 
 def _metrics_to_json(metrics: dict[str, Decimal | None]) -> dict[str, float | None]:
@@ -36,7 +38,7 @@ def rebuild_watchlist_metrics(
     session: Session,
     watchlist_id: int,
     *,
-    computation_version: str = COMPUTATION_VERSION,
+    computation_version: str = WATCHLIST_METRICS_VERSION,
 ) -> int:
     """Recompute and persist materialized metrics for every member in a watchlist."""
     wl.get_watchlist(session, watchlist_id)
@@ -45,18 +47,34 @@ def rebuild_watchlist_metrics(
         session,
         watchlist_id,
         column_keys=all_columns,
-        computation_version=computation_version,
     )
+    members = {
+        m.member_id: m
+        for m in session.scalars(
+            select(WatchlistMember).where(WatchlistMember.watchlist_id == watchlist_id)
+        ).all()
+    }
 
     session.execute(
         delete(WatchlistMemberMetrics).where(
             WatchlistMemberMetrics.watchlist_id == watchlist_id,
-            WatchlistMemberMetrics.computation_version == computation_version,
         )
     )
 
     now = datetime.now(timezone.utc)
     for row in rows:
+        member = members.get(row.member_id)
+        diagnostics: dict[str, object] = {}
+        if member is not None:
+            ctx = load_member_snapshot_context(session, member)
+            diagnostics = build_member_diagnostics(
+                session,
+                member,
+                row.metrics,
+                ctx,
+                computation_version=computation_version,
+                metric_keys=all_columns,
+            )
         session.add(
             WatchlistMemberMetrics(
                 member_id=row.member_id,
@@ -69,6 +87,7 @@ def rebuild_watchlist_metrics(
                 has_fundamentals=row.has_fundamentals,
                 fundamentals_stale=row.fundamentals_stale,
                 metrics=_metrics_to_json(row.metrics),
+                diagnostics=diagnostics,
                 computed_at=now,
             )
         )
@@ -79,7 +98,7 @@ def rebuild_watchlist_metrics(
 def rebuild_all_watchlist_metrics(
     session: Session,
     *,
-    computation_version: str = COMPUTATION_VERSION,
+    computation_version: str = WATCHLIST_METRICS_VERSION,
 ) -> int:
     """Rebuild materialized metrics for every watchlist."""
     total = 0
@@ -97,7 +116,7 @@ def load_cached_screen_rows(
     watchlist_id: int,
     *,
     column_keys: tuple[str, ...],
-    computation_version: str = COMPUTATION_VERSION,
+    computation_version: str = WATCHLIST_METRICS_VERSION,
 ) -> list[scr.ScreenRow] | None:
     """Return screener rows from materialized cache, or None if cache is incomplete."""
     members = list(

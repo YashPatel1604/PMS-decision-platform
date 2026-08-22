@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 CONTRACT_VERSION = "1.0"
 COMPUTATION_VERSION = "1.0"
+WATCHLIST_METRICS_VERSION = "2.0"
+COMPUTATION_VERSION_LEGACY = "1.0"
 
 QUARTERLY_FUNDAMENTALS_COLUMNS: tuple[str, ...] = (
     "contract_version",

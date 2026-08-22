@@ -36,6 +36,7 @@ class WatchlistMemberMetrics(Base):
     has_fundamentals: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     fundamentals_stale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     metrics: Mapped[dict[str, Any]] = mapped_column(_METRICS_JSON, nullable=False, default=dict)
+    diagnostics: Mapped[dict[str, Any]] = mapped_column(_METRICS_JSON, nullable=False, default=dict)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

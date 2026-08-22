@@ -17,6 +17,7 @@ _cache_loaded_at = 0.0
 _isin_to_code: dict[str, str] = {}
 _name_to_code: dict[str, str] = {}
 _nse_to_code: dict[str, str] = {}
+_code_to_meta: dict[str, dict[str, str]] = {}
 _mktcap_by_code: dict[str, Decimal] = {}
 _all_codes: set[str] = set()
 
@@ -31,7 +32,7 @@ def _norm_name(value: object) -> str:
 
 def refresh_bse_scrip_universe(*, force: bool = False) -> None:
     """Load Active Equity scrips from BSE into in-memory ISIN/name maps."""
-    global _cache_loaded_at, _isin_to_code, _name_to_code, _nse_to_code, _mktcap_by_code, _all_codes
+    global _cache_loaded_at, _isin_to_code, _name_to_code, _nse_to_code, _code_to_meta, _mktcap_by_code, _all_codes
     now = time.time()
     if not force and _isin_to_code and now - _cache_loaded_at < _CACHE_TTL_SEC:
         return
@@ -54,6 +55,7 @@ def refresh_bse_scrip_universe(*, force: bool = False) -> None:
     isin_map: dict[str, str] = {}
     name_map: dict[str, str] = {}
     nse_map: dict[str, str] = {}
+    code_meta: dict[str, dict[str, str]] = {}
     mktcap_map: dict[str, Decimal] = {}
     codes: set[str] = set()
     for row in payload:
@@ -72,12 +74,20 @@ def refresh_bse_scrip_universe(*, force: bool = False) -> None:
             except (InvalidOperation, ValueError):
                 pass
         isin = str(row.get("ISIN_NUMBER") or "").strip().upper()
+        scrip_name = str(row.get("Scrip_Name") or "").strip()
+        nse_symbol = str(row.get("scrip_id") or "").strip().upper()
+        code_meta[code] = {
+            "bse_code": code,
+            "isin": isin,
+            "nse_symbol": nse_symbol,
+            "scrip_name": scrip_name,
+            "active": "Y",
+        }
         if isin:
             isin_map[isin] = code
-        name = _norm_name(row.get("Scrip_Name"))
+        name = _norm_name(scrip_name)
         if name and name not in name_map:
             name_map[name] = code
-        nse_symbol = str(row.get("scrip_id") or "").strip().upper()
         if nse_symbol and nse_symbol not in nse_map:
             nse_map[nse_symbol] = code
 
@@ -87,6 +97,7 @@ def refresh_bse_scrip_universe(*, force: bool = False) -> None:
     _isin_to_code = isin_map
     _name_to_code = name_map
     _nse_to_code = nse_map
+    _code_to_meta = code_meta
     _mktcap_by_code = mktcap_map
     _all_codes = codes
     _cache_loaded_at = now
@@ -138,11 +149,23 @@ def resolve_bse_code(
     return None
 
 
+def lookup_bse_scrip(bse_code: str) -> dict[str, str] | None:
+    """Return ISIN/NSE/scrip name for an active BSE equity code."""
+    code = str(bse_code or "").strip()
+    if code.endswith(".0"):
+        code = code[:-2]
+    if not code:
+        return None
+    refresh_bse_scrip_universe()
+    return _code_to_meta.get(code)
+
+
 def ensure_scrip_universe_loaded() -> dict[str, Any]:
     refresh_bse_scrip_universe()
     return {
         "isin_count": len(_isin_to_code),
         "name_count": len(_name_to_code),
         "nse_count": len(_nse_to_code),
+        "code_count": len(_code_to_meta),
         "loaded_at": _cache_loaded_at,
     }

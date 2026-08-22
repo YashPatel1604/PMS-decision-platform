@@ -73,7 +73,7 @@ def test_resolve_unknown_via_yahoo(mock_client_cls, _mock_bse, session) -> None:
         )
     ]
     result = res.resolve_identifiers(session, display_name="Small Co Ltd")
-    assert result.status == "RESOLVED"
+    assert result.status == "EXCHANGE_RESOLVED"
     assert result.source == "YAHOO"
     assert result.nse_symbol == "SMALLCO"
     assert result.bse_code == "543999"
@@ -120,7 +120,7 @@ def test_manual_symbol_fix_resolves(session) -> None:
         bse_code="123456",
     )
     session.commit()
-    assert updated.resolution_status == "RESOLVED"
+    assert updated.resolution_status == "EXCHANGE_RESOLVED"
     assert updated.resolution_source == "MANUAL"
     assert updated.nse_symbol == "MANUAL"
     assert updated.bse_code == "123456"

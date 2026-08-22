@@ -30,8 +30,8 @@ from pms_platform.models import ImportBatch, Security, WatchlistMember
 from pms_platform.models.company_fundamentals_quarterly import CompanyFundamentalsQuarterly
 
 _REQUEST_DELAY_SEC = 0.1
-_HISTORY_QUARTERS = 16
-_HISTORY_YEARS_BACK = 4
+_HISTORY_QUARTERS = 28
+_HISTORY_YEARS_BACK = 7
 _INTEGRATED_QUARTERS = 4
 _FETCH_WORKERS = 4
 
@@ -259,6 +259,12 @@ class XbrlFundamentalsProvider(FundamentalsProvider):
                     CompanyFundamentalsQuarterly.source == source,
                 )
             )
+            if identity is None:
+                identity = session.scalar(
+                    select(CompanyFundamentalsQuarterly).where(
+                        CompanyFundamentalsQuarterly.source_key == source_key
+                    )
+                )
 
             if identity is not None:
                 identity.sales = quarter.sales
@@ -269,6 +275,9 @@ class XbrlFundamentalsProvider(FundamentalsProvider):
                 identity.security_id = security_id
                 identity.fiscal_year = quarter.fiscal_year
                 identity.fiscal_quarter = quarter.fiscal_quarter
+                identity.period_end_date = quarter.period_end_date
+                identity.source = source
+                identity.source_key = source_key
                 identity.retrieved_at = retrieved_at
                 identity.import_batch_id = batch_id
                 updated += 1

@@ -12,9 +12,11 @@ from pms_platform.watchlists import service as wl
 
 
 @patch("pms_platform.watchlists.refresh.wa.poll_watchlist_alerts")
+@patch("pms_platform.watchlists.metrics_cache.rebuild_watchlist_metrics")
 @patch("pms_platform.watchlists.refresh.sync_fundamentals")
 def test_refresh_watchlist_orchestrates_steps(
     mock_fundamentals,
+    mock_rebuild_metrics,
     mock_poll,
     session,
 ) -> None:
@@ -27,6 +29,7 @@ def test_refresh_watchlist_orchestrates_steps(
         snapshots_written=10,
         identifiers_processed=5,
     )
+    mock_rebuild_metrics.return_value = 0
     mock_poll.return_value = type("R", (), {"inserted": 2, "skipped": 0, "matched": 2})()
 
     watchlist = wl.create_watchlist(session, name="Refresh")
@@ -40,6 +43,7 @@ def test_refresh_watchlist_orchestrates_steps(
     assert result.fundamentals.snapshots_written == 10
     assert result.alerts.inserted == 2
     mock_fundamentals.assert_called_once()
+    mock_rebuild_metrics.assert_called_once()
     mock_poll.assert_called_once()
 
 
@@ -54,6 +58,17 @@ def test_refresh_mutex_rejects_concurrent(_mock_resolve, _mock_poll, session) ->
 
     with pytest.raises(wr.WatchlistRefreshInProgressError):
         wr.refresh_watchlist(session, watchlist.watchlist_id, include_fundamentals=False)
+
+
+def test_enrich_watchlist_for_codes_rebuilds_without_codes(session) -> None:
+    watchlist = wl.create_watchlist(session, name="EnrichEmpty")
+    session.commit()
+    with patch(
+        "pms_platform.watchlists.metrics_cache.rebuild_watchlist_metrics",
+        return_value=0,
+    ) as rebuild:
+        wr.enrich_watchlist_for_codes(session, watchlist.watchlist_id, [])
+        rebuild.assert_called_once()
 
 
 def test_expired_lock_is_cleared(session) -> None:

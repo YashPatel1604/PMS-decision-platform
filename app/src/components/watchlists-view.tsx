@@ -190,7 +190,7 @@ export function WatchlistsView() {
   const membersQuery = useQuery({
     queryKey: ["watchlist-members", activeWatchlist?.watchlist_id],
     queryFn: () => api.listWatchlistMembers(activeWatchlist!.watchlist_id),
-    enabled: activeWatchlist != null,
+    enabled: activeWatchlist != null && activeTab === "members",
   });
 
   const searchQuery = useQuery({
@@ -202,6 +202,8 @@ export function WatchlistsView() {
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ["watchlists"] });
     await queryClient.invalidateQueries({ queryKey: ["watchlist-members"] });
+    await queryClient.invalidateQueries({ queryKey: ["watchlist-screen"] });
+    await queryClient.invalidateQueries({ queryKey: ["watchlist-health"] });
   };
 
   const notify = async (msg: string) => {
@@ -273,6 +275,7 @@ export function WatchlistsView() {
       await queryClient.invalidateQueries({ queryKey: ["watchlist-screen"] });
       await queryClient.invalidateQueries({ queryKey: ["watchlist-members"] });
       await queryClient.invalidateQueries({ queryKey: ["watchlist-alerts-summary"] });
+      await queryClient.invalidateQueries({ queryKey: ["watchlist-health"] });
       setMessage(
         `Refresh done in ${result.duration_ms}ms · resolved ${result.resolution.resolved}, ` +
           `alerts +${result.alerts.inserted}` +
@@ -423,7 +426,7 @@ export function WatchlistsView() {
                   disabled={refreshMutation.isPending}
                   className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900 hover:bg-emerald-100"
                 >
-                  {refreshMutation.isPending ? "Refreshing…" : "Refresh symbols & alerts"}
+                  {refreshMutation.isPending ? "Refreshing…" : "Refresh data"}
                 </button>
                 {activeTab === "members" ? (
                   <>

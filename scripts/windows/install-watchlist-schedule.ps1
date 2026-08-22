@@ -4,6 +4,7 @@
 param(
     [string]$AlertsTime = "07:00",
     [string]$QuotesTime = "07:15",
+    [string]$ScreenerTime = "18:30",
     [string]$BhavTime = "17:00",
     [string]$BhavRetryTime = "17:15",
     [string]$WeeklyDay = "Sunday",
@@ -15,10 +16,11 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $AlertsScript = Join-Path $Root "scripts\windows\refresh-watchlists.ps1"
 $QuotesScript = Join-Path $Root "scripts\windows\refresh-watchlist-quotes.ps1"
+$ScreenerScript = Join-Path $Root "scripts\windows\sync-screener-export.ps1"
 $WeeklyScript = Join-Path $Root "scripts\windows\refresh-watchlist-fundamentals.ps1"
 $BhavScript = Join-Path $Root "scripts\windows\sync-nse-bhav.ps1"
 
-foreach ($path in @($AlertsScript, $QuotesScript, $WeeklyScript, $BhavScript)) {
+foreach ($path in @($AlertsScript, $QuotesScript, $ScreenerScript, $WeeklyScript, $BhavScript)) {
     if (-not (Test-Path $path)) { throw "Missing $path" }
 }
 
@@ -42,6 +44,12 @@ Register-ScheduledTask -TaskName "PMS Watchlist Quotes" `
     -Trigger (New-ScheduledTaskTrigger -Daily -At $QuotesTime) `
     -Settings $Settings -Force | Out-Null
 
+Register-ScheduledTask -TaskName "PMS Screener Export Sync" `
+    -Description "Daily Screener.in CSV/XLSX import + BSE gap-fill + screener cache (drop file in fundamentals/screener/ first)." `
+    -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$ScreenerScript`"") `
+    -Trigger (New-ScheduledTaskTrigger -Daily -At $ScreenerTime) `
+    -Settings $Settings -Force | Out-Null
+
 Register-ScheduledTask -TaskName "PMS NSE Bhav Final 17:00" `
     -Description "IST 17:00 — NSE CM-UDiFF Common Bhavcopy Final (today only)." `
     -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$BhavScript`"") `
@@ -63,9 +71,11 @@ Register-ScheduledTask -TaskName "PMS Watchlist Fundamentals" `
 Write-Host "Registered scheduled tasks (PC clock must be IST):" -ForegroundColor Green
 Write-Host "  PMS Watchlist Alerts         — daily $AlertsTime IST"
 Write-Host "  PMS Watchlist Quotes         — daily $QuotesTime IST"
+Write-Host "  PMS Screener Export Sync     — daily $ScreenerTime IST (drop Screener export first)"
 Write-Host "  PMS NSE Bhav Final 17:00     — daily $BhavTime IST (today only)"
 Write-Host "  PMS NSE Bhav Final 17:15     — daily $BhavRetryTime IST retry"
 Write-Host "  PMS Watchlist Fundamentals   — weekly $WeeklyDay $WeeklyTime IST"
 Write-Host ""
 Write-Host "Docker Desktop must be running before each task." -ForegroundColor Yellow
+Write-Host "Screener: Export watchlist/screen → save into external fundamentals/screener/ before $ScreenerTime." -ForegroundColor Yellow
 Write-Host "If Final bhav is still missing after 17:15 IST, upload manually on Pivot Point Strategy." -ForegroundColor Yellow

@@ -51,6 +51,19 @@ def build_watchlist_health(session: Session, watchlist_id: int) -> WatchlistHeal
     resolved = unresolved = stale_res = 0
     with_fund = missing_fund = stale_fund = 0
 
+    from pms_platform.models.watchlist_member_metrics import WatchlistMemberMetrics
+    from pms_platform.fundamentals.catalog import WATCHLIST_METRICS_VERSION
+
+    cached = {
+        row.member_id: row
+        for row in session.scalars(
+            select(WatchlistMemberMetrics).where(
+                WatchlistMemberMetrics.watchlist_id == watchlist_id,
+                WatchlistMemberMetrics.computation_version == WATCHLIST_METRICS_VERSION,
+            )
+        ).all()
+    }
+
     for member in members:
         if member.resolution_status == "RESOLVED" and not res.is_resolution_stale(member):
             resolved += 1
@@ -58,7 +71,11 @@ def build_watchlist_health(session: Session, watchlist_id: int) -> WatchlistHeal
             unresolved += 1
         if res.is_resolution_stale(member):
             stale_res += 1
-        has_fund, is_stale = scr.member_fundamentals_status(session, member)
+        hit = cached.get(member.member_id)
+        if hit is not None:
+            has_fund, is_stale = hit.has_fundamentals, hit.fundamentals_stale
+        else:
+            has_fund, is_stale = scr.member_fundamentals_status(session, member)
         if has_fund:
             with_fund += 1
             if is_stale:

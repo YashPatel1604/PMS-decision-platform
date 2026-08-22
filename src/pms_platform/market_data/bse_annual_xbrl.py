@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -40,6 +40,8 @@ class BseAnnualFundamentals:
     current_assets: Decimal | None
     current_liabilities: Decimal | None
     shares_outstanding: Decimal | None
+    sales: Decimal | None
+    pat: Decimal | None
 
     # Derived ratios (computed during parse)
     roce: Decimal | None
@@ -151,6 +153,12 @@ _TAGS: dict[str, list[str]] = {
         "in-bse-fin:ProfitForThePeriod",
         "in-ind-as-fin:ProfitForThePeriod",
     ],
+    "sales": [
+        "RevenueFromOperations",
+        "Revenue",
+        "in-bse-fin:RevenueFromOperations",
+        "in-ind-as-fin:RevenueFromOperations",
+    ],
 }
 
 
@@ -235,6 +243,7 @@ def parse_annual_xbrl(bse_code: str, xml_text: str, fiscal_year: int, period_end
     current_liabilities = _to_crores(v.get("current_liabilities"))
     shares = v.get("shares_outstanding")
     pat = _to_crores(v.get("pat"))
+    sales = _to_crores(v.get("sales"))
     ebit = _to_crores(v.get("ebit"))
 
     # Capital Employed = Total Assets − Current Liabilities.
@@ -270,6 +279,8 @@ def parse_annual_xbrl(bse_code: str, xml_text: str, fiscal_year: int, period_end
         current_assets=current_assets,
         current_liabilities=current_liabilities,
         shares_outstanding=shares,
+        sales=sales,
+        pat=pat,
         roce=roce,
         roe=roe,
         roa=roa,
@@ -284,16 +295,25 @@ def _list_annual_filings(
     bse_code: str,
     *,
     timeout: float,
+    years_back: int = 3,
 ) -> list[dict[str, Any]]:
-    """List annual XBRL filings for a BSE code."""
+    """List annual XBRL filings for a BSE code (requires fromdate/todate)."""
+    to_date = date.today()
+    from_date = to_date - timedelta(days=max(years_back, 1) * 366)
+    params = {
+        "scripcode": bse_code,
+        "flag": _ANNUAL_FLAG,
+        "fromdate": from_date.strftime("%Y/%m/%d"),
+        "todate": to_date.strftime("%Y/%m/%d"),
+    }
     for attempt in range(_MAX_RETRIES):
         try:
             resp = client.get(
                 _BSE_XBRL_DETAILS_URL,
-                params={"scripcode": bse_code, "flag": _ANNUAL_FLAG},
+                params=params,
                 timeout=timeout,
             )
-            if resp.status_code != 200 or len(resp.content) < 50:
+            if resp.status_code != 200 or "json" not in resp.headers.get("content-type", "").lower():
                 time.sleep(_RETRY_BACKOFF_SEC * (attempt + 1))
                 continue
             payload = resp.json()
@@ -338,7 +358,7 @@ def fetch_bse_annual_fundamentals(
         except Exception:
             pass
 
-        filings = _list_annual_filings(c, bse_code, timeout=timeout)
+        filings = _list_annual_filings(c, bse_code, timeout=timeout, years_back=years_back)
         if not filings:
             return []
 
@@ -347,26 +367,39 @@ def fetch_bse_annual_fundamentals(
         seen_years: set[int] = set()
 
         for filing in filings:
-            xbrl_url = str(filing.get("XBRL") or filing.get("XbrlFile") or "").strip()
+            xbrl_url = str(
+                filing.get("XBRL")
+                or filing.get("XbrlFile")
+                or filing.get("xbrlurl")
+                or ""
+            ).strip()
+            # BSE annual Ind-AS balance-sheet filings (classic path).
             if not xbrl_url or "Main_Ind_As" not in xbrl_url:
                 continue
 
-            # Parse date from attachment date field.
-            date_raw = str(filing.get("ATTACHMENT_DATE") or filing.get("AttachmentDate") or "").strip()
+            date_raw = str(
+                filing.get("ATTACHMENT_DATE")
+                or filing.get("AttachmentDate")
+                or filing.get("attachmentdate")
+                or filing.get("xbrldate")
+                or ""
+            ).strip()
             period_end: date | None = None
-            if date_raw:
+            if date_raw and date_raw not in {"-", "—"}:
                 try:
                     dt = datetime.fromisoformat(date_raw.replace("Z", "+00:00"))
                     period_end = dt.date()
                 except ValueError:
                     pass
-
             if period_end is None:
                 continue
 
             fy = _fiscal_year_from_date(period_end)
             if fy < cutoff_year or fy in seen_years:
                 continue
+
+            if xbrl_url.startswith("/"):
+                xbrl_url = f"https://www.bseindia.com{xbrl_url}"
 
             xml_text = _fetch_xml(c, xbrl_url, timeout=timeout)
             if not xml_text:

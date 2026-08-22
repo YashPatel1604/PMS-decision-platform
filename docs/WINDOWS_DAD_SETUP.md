@@ -144,6 +144,18 @@ cd $HOME\Apps\PMS-decision-platform
 .\scripts\windows\refresh-watchlist-quotes.ps1
 ```
 
+**Screener.in export sync (daily 18:30 IST):** primary fill for ROCE/ROE/PE/CAGRs/etc.
+
+1. On [screener.in](https://www.screener.in) open your watchlist/screen → **Edit columns** (add BSE Code, ROCE, ROE, Sales Qtr, …) → **Export**.
+2. Save the file into the external data folder: `fundamentals/screener/`  
+   (Docker: under `ONEDRIVE_EXTERNAL_DATA_DIR` / `EXTERNAL_DATA_DIR`).
+3. At **18:30 IST** the job imports the newest CSV/XLSX, **BSE-fills** any watchlist codes still missing sales/mcap, refreshes returns from price history, rebuilds the screener cache.
+
+```powershell
+.\scripts\windows\sync-screener-export.ps1
+# or: docker compose exec -T api uv run pms-platform sync-screener-export
+```
+
 **NSE bhav Final (IST):** tries **CM-UDiFF Common Bhavcopy Final** for **today only** at **17:00 IST**, retries at **17:15 IST**. Skips both pulls if that day is **already committed** (manual upload anytime, or a successful 17:00 run). No older-day auto-fill — if both auto tries miss and nothing was uploaded, Dad uploads the zip on **Pivot Point Strategy**.
 
 ```powershell
@@ -164,7 +176,7 @@ Register scheduled tasks once (run this on Dad’s PC; it cannot be installed fr
 .\scripts\windows\install-watchlist-schedule.ps1
 ```
 
-That registers alerts (07:00 IST), quotes (07:15 IST), **NSE bhav (17:00 + 17:15 IST)**, and weekly fundamentals.
+That registers alerts (07:00 IST), quotes (07:15 IST), **Screener export sync (18:30 IST)**, **NSE bhav (17:00 + 17:15 IST)**, and weekly fundamentals.
 **One-time Fair Value seed** (names from Research `Stocks_FairValue_Watchlist.xlsx`):
 
 ```powershell

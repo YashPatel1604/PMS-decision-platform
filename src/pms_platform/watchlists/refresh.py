@@ -10,6 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from pms_platform.config import settings
+from pms_platform.fundamentals.providers.nse import NseTarget
 from pms_platform.fundamentals.service import FundamentalsSyncResult, sync_fundamentals
 from pms_platform.models.watchlist_refresh_lock import WatchlistRefreshLock
 from pms_platform.watchlists import alerts as wa
@@ -132,7 +133,10 @@ def _watchlist_bse_codes(session: Session, watchlist_id: int) -> list[str]:
         ]
         for raw in candidates:
             code = str(raw or "").strip()
-            if not code or code in seen:
+            if code.endswith(".0"):
+                code = code[:-2]
+            # BSE scrip codes are numeric; skip NSE symbols parked in bse_code.
+            if not code or not code.isdigit() or code in seen:
                 continue
             seen.add(code)
             codes.append(code)
@@ -161,12 +165,19 @@ def refresh_watchlist(
 
         fundamentals_stats: FundamentalsRefreshStats | None = None
         if include_fundamentals:
+            codes = _watchlist_bse_codes(session, watchlist_id)
+            # Prefer filling gaps first; only re-pull everything when already complete.
+            to_fetch = codes_missing_valuation(session, codes) or codes
             fund = fundamentals_result or sync_fundamentals(
                 session,
                 external_dir=external_dir or settings.external_data_dir,
-                bse_codes=_watchlist_bse_codes(session, watchlist_id),
+                bse_codes=to_fetch or None,
             )
             fundamentals_stats = _fundamentals_stats(fund)
+            # Screener prefers materialized metrics; keep them in sync with snapshots.
+            from pms_platform.watchlists.metrics_cache import rebuild_watchlist_metrics
+
+            rebuild_watchlist_metrics(session, watchlist_id)
 
         alert_raw = wa.poll_watchlist_alerts(session, watchlist_id)
         alerts = AlertsRefreshStats(
@@ -186,6 +197,47 @@ def refresh_watchlist(
         )
     finally:
         release_refresh_lock(session, watchlist_id)
+
+
+def _watchlist_nse_targets(session: Session, watchlist_id: int) -> list[NseTarget]:
+    """NSE symbols with BSE codes for one watchlist (current + historical aliases)."""
+    from pms_platform.models.watchlist import WatchlistMember
+    from pms_platform.watchlists.identity_aliases import all_identifiers_for_security
+
+    members = session.scalars(
+        select(WatchlistMember).where(WatchlistMember.watchlist_id == watchlist_id)
+    ).all()
+    out: list[NseTarget] = []
+    seen: set[str] = set()
+    for member in members:
+        nse = str(member.nse_symbol or "").strip().upper()
+        bse = str(member.bse_code or "").strip()
+        if bse.endswith(".0"):
+            bse = bse[:-2]
+        pairs = [(nse, bse)] if nse and bse.isdigit() else []
+        if member.security_id:
+            id_map = {t: v for t, v in all_identifiers_for_security(session, member.security_id)}
+            hist_nse = id_map.get("NSE_SYMBOL")
+            hist_bse = id_map.get("BSE_CODE") or bse
+            if hist_nse and hist_bse.isdigit():
+                pairs.append((hist_nse.upper(), hist_bse))
+        for sym, code in pairs:
+            if not sym or not code.isdigit() or sym in seen:
+                continue
+            seen.add(sym)
+            out.append(NseTarget(nse_symbol=sym, bse_code=code, security_id=member.security_id))
+    return out
+
+
+def _all_watchlist_nse_targets(session: Session) -> list[NseTarget]:
+    out: list[NseTarget] = []
+    seen: set[str] = set()
+    for row in wl.list_watchlists(session):
+        for target in _watchlist_nse_targets(session, row.watchlist_id):
+            if target.nse_symbol not in seen:
+                seen.add(target.nse_symbol)
+                out.append(target)
+    return out
 
 
 def _all_watchlist_bse_codes(session: Session) -> list[str]:
@@ -218,12 +270,15 @@ def refresh_watchlist_fundamentals(
 
     if watchlist_id is not None:
         codes = _watchlist_bse_codes(session, watchlist_id)
+        nse_targets = _watchlist_nse_targets(session, watchlist_id)
     else:
         codes = _all_watchlist_bse_codes(session)
+        nse_targets = _all_watchlist_nse_targets(session)
     result = sync_fundamentals(
         session,
         external_dir=external_dir or settings.external_data_dir,
         bse_codes=codes or None,
+        nse_targets=nse_targets or None,
     )
     if watchlist_id is not None:
         rebuild_watchlist_metrics(session, watchlist_id)
@@ -240,29 +295,13 @@ def sync_all_watchlists(
     include_fundamentals: bool = True,
     watchlist_id: int | None = None,
 ) -> SyncWatchlistsResult:
-    """Refresh fundamentals once, then resolve + poll alerts for each watchlist."""
-    fundamentals_result: FundamentalsSyncResult | None = None
-    fundamentals_stats: FundamentalsRefreshStats | None = None
-    if include_fundamentals:
-        if watchlist_id is not None:
-            scoped_codes = _watchlist_bse_codes(session, watchlist_id)
-        else:
-            scoped_codes = _all_watchlist_bse_codes(session) or None
-        fundamentals_result = sync_fundamentals(
-            session,
-            external_dir=external_dir or settings.external_data_dir,
-            bse_codes=scoped_codes,
-        )
-        fundamentals_stats = _fundamentals_stats(fundamentals_result)
-        from pms_platform.watchlists.metrics_cache import rebuild_all_watchlist_metrics
-
-        rebuild_all_watchlist_metrics(session)
-
+    """Resolve + poll alerts first, then fundamentals + metrics (codes after resolve)."""
     if watchlist_id is not None:
         watchlists = [wl.get_watchlist(session, watchlist_id)]
     else:
         watchlists = wl.list_watchlists(session)
 
+    # Resolve symbols before fundamentals so newly filled BSE codes are included.
     results: list[WatchlistRefreshResult] = []
     for row in watchlists:
         results.append(
@@ -271,9 +310,27 @@ def sync_all_watchlists(
                 row.watchlist_id,
                 external_dir=external_dir,
                 include_fundamentals=False,
-                fundamentals_result=fundamentals_result,
             )
         )
+
+    fundamentals_stats: FundamentalsRefreshStats | None = None
+    if include_fundamentals:
+        if watchlist_id is not None:
+            scoped_codes = _watchlist_bse_codes(session, watchlist_id)
+            nse_targets = _watchlist_nse_targets(session, watchlist_id)
+        else:
+            scoped_codes = _all_watchlist_bse_codes(session) or None
+            nse_targets = _all_watchlist_nse_targets(session)
+        fundamentals_result = sync_fundamentals(
+            session,
+            external_dir=external_dir or settings.external_data_dir,
+            bse_codes=scoped_codes,
+            nse_targets=nse_targets or None,
+        )
+        fundamentals_stats = _fundamentals_stats(fundamentals_result)
+        from pms_platform.watchlists.metrics_cache import rebuild_all_watchlist_metrics
+
+        rebuild_all_watchlist_metrics(session)
 
     return SyncWatchlistsResult(
         watchlists_refreshed=len(results),
@@ -294,6 +351,7 @@ def refresh_watchlist_quotes(
     session: Session,
     *,
     watchlist_id: int | None = None,
+    bse_codes: list[str] | None = None,
 ) -> WatchlistQuotesRefreshResult:
     """Fetch valuation + promoter + price returns; rebuild materialized screener cache."""
     from pms_platform.fundamentals.providers.promoter import refresh_promoter_snapshots
@@ -305,7 +363,9 @@ def refresh_watchlist_quotes(
         rebuild_watchlist_metrics,
     )
 
-    if watchlist_id is not None:
+    if bse_codes is not None:
+        codes = list(dict.fromkeys(str(c).strip() for c in bse_codes if c and str(c).strip()))
+    elif watchlist_id is not None:
         codes = _watchlist_bse_codes(session, watchlist_id)
     else:
         codes = _all_watchlist_bse_codes(session)
@@ -338,3 +398,54 @@ def refresh_watchlist_quotes(
         promoter_updated=prom_updated,
         metrics_rows=metrics_rows,
     )
+
+
+def codes_missing_valuation(session: Session, bse_codes: list[str]) -> list[str]:
+    """BSE codes with no valuation_snapshots row yet."""
+    from pms_platform.models.valuation_snapshot import ValuationSnapshot
+
+    codes = list(dict.fromkeys(str(c).strip() for c in bse_codes if c and str(c).strip()))
+    if not codes:
+        return []
+    have = set(
+        session.scalars(
+            select(ValuationSnapshot.identifier).where(
+                ValuationSnapshot.identifier_type == "BSE_CODE",
+                ValuationSnapshot.identifier.in_(codes),
+            )
+        ).all()
+    )
+    return [c for c in codes if c not in have]
+
+
+def enrich_watchlist_for_codes(
+    session: Session,
+    watchlist_id: int,
+    bse_codes: list[str],
+) -> None:
+    """Populate screener data for BSE codes after add (fundamentals + quotes + metrics).
+
+    Best-effort: member stays saved if a provider call fails.
+    # ponytail: syncs one/few codes on add; full-list schedule still owns nightly refresh.
+    """
+    codes = list(dict.fromkeys(str(c).strip() for c in bse_codes if c and str(c).strip()))
+    if not codes:
+        from pms_platform.watchlists.metrics_cache import rebuild_watchlist_metrics
+
+        rebuild_watchlist_metrics(session, watchlist_id)
+        session.flush()
+        return
+    try:
+        sync_fundamentals(
+            session,
+            external_dir=settings.external_data_dir,
+            bse_codes=codes,
+        )
+    except Exception:
+        # Fall back to quotes-only so PE/mcap/returns still appear.
+        refresh_watchlist_quotes(session, watchlist_id=watchlist_id, bse_codes=codes)
+        return
+    from pms_platform.watchlists.metrics_cache import rebuild_watchlist_metrics
+
+    rebuild_watchlist_metrics(session, watchlist_id)
+    session.flush()

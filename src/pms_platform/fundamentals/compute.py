@@ -80,6 +80,47 @@ def _quarter_key(row: CompanyFundamentalsQuarterly) -> tuple[int, str]:
     return row.fiscal_year, row.fiscal_quarter
 
 
+_PROVIDER_RANK = {
+    "nse_xbrl": 0,
+    "xbrl": 1,
+    "bse_xbrl": 1,
+    "bse_tabresults": 2,
+    "manual": 3,
+    "screener": 4,
+    "yahoo": 5,
+    "unknown": 9,
+}
+
+
+def _provider_rank(provider: str | None) -> int:
+    return _PROVIDER_RANK.get((provider or "unknown").lower(), 9)
+
+
+def dedupe_quarterly_rows(
+    rows: list[CompanyFundamentalsQuarterly],
+) -> list[CompanyFundamentalsQuarterly]:
+    """Keep one quarterly row per period_end_date (best provider wins)."""
+    by_period: dict[object, CompanyFundamentalsQuarterly] = {}
+    for row in rows:
+        key = row.period_end_date
+        existing = by_period.get(key)
+        if existing is None:
+            by_period[key] = row
+            continue
+        row_rank = _provider_rank(row.provider)
+        existing_rank = _provider_rank(existing.provider)
+        if row_rank < existing_rank:
+            by_period[key] = row
+            continue
+        if row_rank > existing_rank:
+            continue
+        row_ts = row.retrieved_at or datetime.min.replace(tzinfo=timezone.utc)
+        existing_ts = existing.retrieved_at or datetime.min.replace(tzinfo=timezone.utc)
+        if row_ts >= existing_ts:
+            by_period[key] = row
+    return sorted(by_period.values(), key=lambda row: row.period_end_date)
+
+
 def _index_rows(
     rows: list[CompanyFundamentalsQuarterly],
 ) -> dict[tuple[int, str], CompanyFundamentalsQuarterly]:
@@ -93,7 +134,7 @@ def compute_snapshots_for_identifier(
     if not rows:
         return []
 
-    sorted_rows = sorted(rows, key=lambda row: row.period_end_date)
+    sorted_rows = dedupe_quarterly_rows(rows)
     by_key = _index_rows(sorted_rows)
     snapshots: list[ComputedSnapshot] = []
 
@@ -121,9 +162,9 @@ def compute_snapshots_for_identifier(
                 opm_delta_pp=pp_change(row.opm, prior_y.opm if prior_y else None),
                 npm_delta_pp=pp_change(row.npm, prior_y.npm if prior_y else None),
                 sales_3y_cagr=compute_cagr(row.sales, prior_3y.sales if prior_3y else None, 3),
-                sales_5y_cagr=compute_cagr(row.sales, prior_5y.sales if prior_5y else None, 5),
+                sales_5y_cagr=None,  # FY annual pipeline — see fundamentals.annual_cagr
                 pat_3y_cagr=compute_cagr(row.pat, prior_3y.pat if prior_3y else None, 3),
-                pat_5y_cagr=compute_cagr(row.pat, prior_5y.pat if prior_5y else None, 5),
+                pat_5y_cagr=None,
                 provider=row.provider,
                 retrieved_at=row.retrieved_at,
             )
@@ -132,43 +173,76 @@ def compute_snapshots_for_identifier(
     return snapshots
 
 
+def _snapshot_identity(
+    computed: ComputedSnapshot,
+    *,
+    computation_version: str,
+) -> tuple[str, str, object, str]:
+    return (
+        computed.identifier_type,
+        computed.identifier,
+        computed.period_end_date,
+        computation_version,
+    )
+
+
+def _apply_snapshot_fields(
+    row: FundamentalSnapshot,
+    computed: ComputedSnapshot,
+    *,
+    computation_version: str,
+) -> None:
+    row.security_id = computed.security_id
+    row.fiscal_year = computed.fiscal_year
+    row.fiscal_quarter = computed.fiscal_quarter
+    row.sales = computed.sales
+    row.pat = computed.pat
+    row.opm = computed.opm
+    row.npm = computed.npm
+    row.sales_yoy_pct = computed.sales_yoy_pct
+    row.sales_qoq_pct = computed.sales_qoq_pct
+    row.pat_yoy_pct = computed.pat_yoy_pct
+    row.opm_delta_pp = computed.opm_delta_pp
+    row.npm_delta_pp = computed.npm_delta_pp
+    row.sales_3y_cagr = computed.sales_3y_cagr
+    row.sales_5y_cagr = computed.sales_5y_cagr
+    row.pat_3y_cagr = computed.pat_3y_cagr
+    row.pat_5y_cagr = computed.pat_5y_cagr
+    row.provider = computed.provider
+    row.retrieved_at = computed.retrieved_at
+    row.computation_version = computation_version
+    row.computed_at = datetime.now(timezone.utc)
+
+
 def upsert_snapshot(
     session,
     computed: ComputedSnapshot,
     *,
     computation_version: str = COMPUTATION_VERSION,
+    pending: dict[tuple[str, str, object, str], FundamentalSnapshot] | None = None,
 ) -> FundamentalSnapshot:
-    """Insert or update a computed snapshot row."""
+    """Insert or update a computed snapshot row (safe within one flush batch)."""
     from sqlalchemy import select
+
+    key = _snapshot_identity(computed, computation_version=computation_version)
+    if pending is not None:
+        existing = pending.get(key)
+        if existing is not None:
+            _apply_snapshot_fields(existing, computed, computation_version=computation_version)
+            return existing
 
     existing = session.scalar(
         select(FundamentalSnapshot).where(
-            FundamentalSnapshot.identifier_type == computed.identifier_type,
-            FundamentalSnapshot.identifier == computed.identifier,
-            FundamentalSnapshot.period_end_date == computed.period_end_date,
-            FundamentalSnapshot.computation_version == computation_version,
+            FundamentalSnapshot.identifier_type == key[0],
+            FundamentalSnapshot.identifier == key[1],
+            FundamentalSnapshot.period_end_date == key[2],
+            FundamentalSnapshot.computation_version == key[3],
         )
     )
     if existing is not None:
-        existing.security_id = computed.security_id
-        existing.fiscal_year = computed.fiscal_year
-        existing.fiscal_quarter = computed.fiscal_quarter
-        existing.sales = computed.sales
-        existing.pat = computed.pat
-        existing.opm = computed.opm
-        existing.npm = computed.npm
-        existing.sales_yoy_pct = computed.sales_yoy_pct
-        existing.sales_qoq_pct = computed.sales_qoq_pct
-        existing.pat_yoy_pct = computed.pat_yoy_pct
-        existing.opm_delta_pp = computed.opm_delta_pp
-        existing.npm_delta_pp = computed.npm_delta_pp
-        existing.sales_3y_cagr = computed.sales_3y_cagr
-        existing.sales_5y_cagr = computed.sales_5y_cagr
-        existing.pat_3y_cagr = computed.pat_3y_cagr
-        existing.pat_5y_cagr = computed.pat_5y_cagr
-        existing.provider = computed.provider
-        existing.retrieved_at = computed.retrieved_at
-        existing.computed_at = datetime.now(timezone.utc)
+        _apply_snapshot_fields(existing, computed, computation_version=computation_version)
+        if pending is not None:
+            pending[key] = existing
         return existing
 
     row = FundamentalSnapshot(
@@ -196,4 +270,6 @@ def upsert_snapshot(
         computation_version=computation_version,
     )
     session.add(row)
+    if pending is not None:
+        pending[key] = row
     return row

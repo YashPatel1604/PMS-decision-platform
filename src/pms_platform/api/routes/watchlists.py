@@ -350,7 +350,19 @@ def _member_response(row: WatchlistMember) -> WatchlistMemberResponse:
 @router.get("", response_model=list[WatchlistResponse])
 def list_watchlists(session: Session = Depends(get_db)) -> list[WatchlistResponse]:
     rows = wl.list_watchlists(session)
-    return [_watchlist_response(session, row) for row in rows]
+    counts = wl.member_counts(session)
+    return [
+        WatchlistResponse(
+            watchlist_id=row.watchlist_id,
+            name=row.name,
+            description=row.description,
+            is_default=row.is_default,
+            member_count=counts.get(row.watchlist_id, 0),
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+        for row in rows
+    ]
 
 
 @router.post("", response_model=WatchlistResponse, status_code=201)
@@ -637,6 +649,24 @@ def add_member(
                 notes=body.notes,
             ),
         )
+        session.flush()
+        codes = [row.bse_code] if row.bse_code else []
+        if not codes and row.nse_symbol:
+            from pms_platform.market_data.bse_scrip_universe import resolve_bse_code
+
+            resolved = resolve_bse_code(
+                nse_symbol=row.nse_symbol,
+                company_name=row.display_name,
+                isin=row.isin,
+            )
+            if resolved:
+                codes = [resolved]
+                if not row.bse_code:
+                    row.bse_code = resolved
+        try:
+            wr.enrich_watchlist_for_codes(session, watchlist_id, codes)
+        except Exception:
+            pass
         session.commit()
         session.refresh(row)
     except wl.WatchlistNotFoundError as exc:
@@ -666,6 +696,16 @@ def add_members_bulk(
         raise HTTPException(status_code=400, detail="No names to add")
     try:
         result = wl.add_members_by_names(session, watchlist_id, names)
+        session.flush()
+        try:
+            codes = wr._watchlist_bse_codes(session, watchlist_id)
+            wr.enrich_watchlist_for_codes(
+                session,
+                watchlist_id,
+                wr.codes_missing_valuation(session, codes),
+            )
+        except Exception:
+            pass
         session.commit()
     except wl.WatchlistNotFoundError as exc:
         session.rollback()
@@ -698,6 +738,12 @@ def update_member(
             bse_code=body.bse_code,
             notes=body.notes,
         )
+        session.flush()
+        if row.bse_code:
+            try:
+                wr.enrich_watchlist_for_codes(session, watchlist_id, [row.bse_code])
+            except Exception:
+                pass
         session.commit()
     except wl.WatchlistNotFoundError as exc:
         session.rollback()
@@ -722,6 +768,12 @@ def resolve_member(
 ) -> WatchlistMemberResponse:
     try:
         row = wl.resolve_watchlist_member(session, watchlist_id, member_id)
+        session.flush()
+        if row.bse_code:
+            try:
+                wr.enrich_watchlist_for_codes(session, watchlist_id, [row.bse_code])
+            except Exception:
+                pass
         session.commit()
     except wl.WatchlistNotFoundError as exc:
         session.rollback()
@@ -739,6 +791,16 @@ def resolve_watchlist(
 ) -> ResolveWatchlistResponse:
     try:
         stats = wl.resolve_stale_members(session, watchlist_id)
+        session.flush()
+        try:
+            codes = wr._watchlist_bse_codes(session, watchlist_id)
+            wr.enrich_watchlist_for_codes(
+                session,
+                watchlist_id,
+                wr.codes_missing_valuation(session, codes),
+            )
+        except Exception:
+            pass
         session.commit()
     except wl.WatchlistNotFoundError as exc:
         session.rollback()

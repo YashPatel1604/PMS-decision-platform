@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
-from pms_platform.fundamentals.catalog import COMPUTATION_VERSION, METRIC_CATALOG, MetricDefinition
+from pms_platform.fundamentals.catalog import COMPUTATION_VERSION, METRIC_CATALOG, MetricDefinition, WATCHLIST_METRICS_VERSION
 from pms_platform.market_data.bse_scrip_universe import resolve_bse_code
 from pms_platform.models.annual_fundamentals_snapshot import AnnualFundamentalsSnapshot
 from pms_platform.models.fundamental_snapshot import FundamentalSnapshot
@@ -379,6 +379,13 @@ def _find_valuation(
     return None
 
 
+def _annual_row_rank(row: AnnualFundamentalsSnapshot) -> tuple[int, int, int]:
+    """Prefer rows with quality ratios, then newer FY, then primary providers."""
+    provider_rank = 0 if row.provider in {"nse_xbrl", "bse_annual_xbrl"} else 1
+    has_quality = 1 if row.roe is not None or row.roce is not None else 0
+    return (has_quality, row.fiscal_year, -provider_rank)
+
+
 def _index_latest_annual(
     rows: list[AnnualFundamentalsSnapshot],
 ) -> dict[tuple[str, str], AnnualFundamentalsSnapshot]:
@@ -386,7 +393,7 @@ def _index_latest_annual(
     for row in rows:
         key = (row.identifier_type, row.identifier)
         existing = latest.get(key)
-        if existing is None or row.fiscal_year > existing.fiscal_year:
+        if existing is None or _annual_row_rank(row) > _annual_row_rank(existing):
             latest[key] = row
     return latest
 
@@ -402,192 +409,6 @@ def _index_latest_promoter(
             latest[key] = row
     return latest
 
-
-def _member_bse_codes(members: list[WatchlistMember]) -> list[str]:
-    codes: list[str] = []
-    seen: set[str] = set()
-    for member in members:
-        candidates = [
-            member.bse_code,
-            resolve_bse_code(
-                nse_symbol=member.nse_symbol,
-                company_name=member.display_name,
-                isin=member.isin,
-            ),
-        ]
-        for raw in candidates:
-            code = str(raw or "").strip()
-            if not code or code in seen:
-                continue
-            seen.add(code)
-            codes.append(code)
-    return codes
-
-
-_VALUATION_FRESH_HOURS = 6
-
-
-def _valuation_needs_refresh(
-    row: ValuationSnapshot | None,
-    *,
-    column_keys: tuple[str, ...] = (),
-) -> bool:
-    if row is None:
-        return True
-    quote_cols = {
-        col
-        for col in column_keys
-        if col in VALUATION_FIELDS and not col.startswith("return_") and col != "all_time_high"
-    }
-    if not quote_cols:
-        quote_cols = {"market_cap_cr", "pe_ratio", "last_price"}
-    if all(getattr(row, col, None) is None for col in quote_cols):
-        return True
-    for col in column_keys:
-        if col in VALUATION_FIELDS and getattr(row, col, None) is None:
-            return True
-    if row.as_of_date == date.today():
-        return False
-    computed = row.computed_at
-    if computed is not None:
-        if computed.tzinfo is None:
-            computed = computed.replace(tzinfo=timezone.utc)
-        age = datetime.now(timezone.utc) - computed
-        if age <= timedelta(hours=_VALUATION_FRESH_HOURS):
-            return False
-    return True
-
-
-def _promoter_needs_refresh(
-    row: PromoterSnapshot | None,
-    *,
-    column_keys: tuple[str, ...] = (),
-) -> bool:
-    if row is None:
-        return True
-    need_cols = [col for col in column_keys if col in PROMOTER_FIELDS] or [
-        "promoter_holding_pct",
-        "pledged_pct",
-    ]
-    return any(getattr(row, col, None) is None for col in need_cols)
-
-
-def _annual_needs_refresh(row: AnnualFundamentalsSnapshot | None) -> bool:
-    if row is None:
-        return True
-    return (
-        row.current_ratio is None
-        and row.roce is None
-        and row.roe is None
-        and row.debt_to_equity is None
-    )
-
-
-def ensure_screen_metrics(
-    session: Session,
-    members: list[WatchlistMember],
-    column_keys: tuple[str, ...],
-) -> None:
-    """Fetch and persist missing valuation/promoter/annual metrics.
-
-    Intended for explicit user action or refresh — not routine screen loads.
-    """
-    need_valuation = any(col in VALUATION_FIELDS for col in column_keys)
-    need_promoter = any(col in PROMOTER_FIELDS for col in column_keys)
-    need_annual = any(col in ANNUAL_FIELDS for col in column_keys)
-    if not (need_valuation or need_promoter or need_annual):
-        return
-
-    codes = _member_bse_codes(members)
-    if not codes:
-        return
-
-    lookup_keys = _collect_lookup_keys(members)
-    missing: list[str] = []
-    missing_p: list[str] = []
-
-    if need_valuation:
-        latest = _load_latest_valuations_scoped(session, lookup_keys)
-        missing = [
-            code
-            for code in codes
-            if _valuation_needs_refresh(
-                latest.get(("BSE_CODE", code)),
-                column_keys=column_keys,
-            )
-        ]
-
-    if need_promoter:
-        latest_p = _load_latest_promoter_scoped(session, lookup_keys)
-        missing_p = [
-            code
-            for code in codes
-            if _promoter_needs_refresh(
-                latest_p.get(("BSE_CODE", code)),
-                column_keys=column_keys,
-            )
-        ]
-
-    if missing:
-        try:
-            from pms_platform.fundamentals.providers.valuation import (
-                refresh_valuation_snapshots,
-            )
-
-            refresh_valuation_snapshots(session, missing, force=False)
-            session.flush()
-        except Exception:
-            pass
-
-    if missing_p:
-        try:
-            from pms_platform.fundamentals.providers.promoter import (
-                refresh_promoter_snapshots,
-            )
-
-            refresh_promoter_snapshots(session, missing_p)
-            session.flush()
-        except Exception:
-            pass
-
-    if need_valuation:
-        need_returns = any(
-            col.startswith("return_") or col == "all_time_high" for col in column_keys
-        )
-        if need_returns:
-            try:
-                from pms_platform.market_data.price_returns import refresh_price_returns
-
-                refresh_price_returns(
-                    session,
-                    [("BSE_CODE", code) for code in codes],
-                )
-                session.flush()
-            except Exception:
-                pass
-
-    if need_annual:
-        latest_a = _load_latest_annual_scoped(session, lookup_keys)
-        missing_a = [
-            code
-            for code in codes
-            if _annual_needs_refresh(latest_a.get(("BSE_CODE", code)))
-        ]
-        if missing_a:
-            try:
-                from pms_platform.fundamentals.providers.annual_xbrl import (
-                    refresh_annual_fundamentals,
-                )
-
-                refresh_annual_fundamentals(
-                    session,
-                    missing_a,
-                    years_back=1,
-                    request_delay_sec=0.15,
-                )
-                session.flush()
-            except Exception:
-                pass
 
 
 def assemble_screen_rows(
@@ -624,6 +445,24 @@ def assemble_screen_rows(
         promoter = _find_from_dict(member, promoter_by_key)
         annual = _find_from_dict(member, annual_by_key)
         sec = member.security
+        metrics = _metric_values(snapshot, valuation, promoter, annual, column_keys)
+        bse = str(member.bse_code or "").strip()
+        if bse.endswith(".0"):
+            bse = bse[:-2]
+        if bse.isdigit() and any(k in column_keys for k in ("sales_5y_cagr", "pat_5y_cagr")):
+            from pms_platform.fundamentals.annual_cagr import compute_annual_5y_cagr
+            from pms_platform.watchlists.financial_discovery import build_financial_discovery_identities
+
+            extra_bse: tuple[str, ...] = ()
+            if member.security_id:
+                ids = build_financial_discovery_identities(session, member.security_id)
+                if ids:
+                    extra_bse = ids.historical_bse_codes
+            cagr = compute_annual_5y_cagr(session, bse, extra_bse_codes=extra_bse)
+            if "sales_5y_cagr" in column_keys:
+                metrics["sales_5y_cagr"] = cagr.sales_5y_cagr
+            if "pat_5y_cagr" in column_keys:
+                metrics["pat_5y_cagr"] = cagr.pat_5y_cagr
         rows.append(
             ScreenRow(
                 member_id=member.member_id,
@@ -640,7 +479,7 @@ def assemble_screen_rows(
                 retrieved_at=snapshot.retrieved_at if snapshot else None,
                 has_fundamentals=snapshot is not None,
                 fundamentals_stale=_is_stale(snapshot.retrieved_at if snapshot else None),
-                metrics=_metric_values(snapshot, valuation, promoter, annual, column_keys),
+                metrics=metrics,
             )
         )
     return rows
@@ -665,7 +504,7 @@ def build_watchlist_screen(
         session,
         watchlist_id,
         column_keys=column_keys,
-        computation_version=computation_version,
+        computation_version=WATCHLIST_METRICS_VERSION,
     )
     if cached is not None:
         return sort_screen_rows(cached, column=sort_column, direction=sort_direction)
@@ -674,7 +513,7 @@ def build_watchlist_screen(
         session,
         watchlist_id,
         column_keys=column_keys,
-        computation_version=computation_version,
+        computation_version=COMPUTATION_VERSION,
     )
     return sort_screen_rows(rows, column=sort_column, direction=sort_direction)
 

@@ -15,7 +15,7 @@ from pms_platform.models import Security
 from pms_platform.models.watchlist import WatchlistMember, WatchlistResolutionLog
 
 ResolutionSource = Literal["MASTER", "BSE", "YAHOO", "MANUAL"]
-ResolutionStatus = Literal["RESOLVED", "PENDING", "FAILED"]
+ResolutionStatus = Literal["RESOLVED", "EXCHANGE_RESOLVED", "PENDING", "FAILED", "AMBIGUOUS", "UNSUPPORTED"]
 
 RESOLVE_STALE_AFTER = timedelta(days=7)
 
@@ -109,7 +109,7 @@ def _apply_bse(
         nse_symbol=nse_symbol,
         bse_code=code,
         isin=isin,
-        status="RESOLVED",
+        status="EXCHANGE_RESOLVED",
         source="BSE",
         note="Matched via BSE scrip universe",
     )
@@ -141,7 +141,7 @@ def _from_yahoo(hit: YahooSearchHit, *, prior_name: str) -> ResolutionResult:
         nse_symbol=nse or (hit.symbol if hit.exchange == "NSE" else None),
         bse_code=bse,
         isin=None,
-        status="RESOLVED",
+        status="EXCHANGE_RESOLVED",
         source="YAHOO",
         note=f"Yahoo ticker {hit.yahoo_ticker}",
     )
@@ -200,7 +200,7 @@ def resolve_identifiers(
                 nse_symbol=nse,
                 bse_code=bse_result.bse_code,
                 isin=bse_result.isin,
-                status="RESOLVED",
+                status="EXCHANGE_RESOLVED",
                 source="BSE",
                 note=bse_result.note,
             )
@@ -275,7 +275,7 @@ def resolve_manual_codes(
         nse_symbol=nse,
         bse_code=bse,
         isin=None,
-        status="RESOLVED",
+        status="EXCHANGE_RESOLVED",
         source="MANUAL",
         note="User-supplied NSE/BSE codes",
     )
@@ -294,7 +294,7 @@ def apply_resolution_to_member(member: WatchlistMember, result: ResolutionResult
 
 
 def is_resolution_stale(member: WatchlistMember, *, now: datetime | None = None) -> bool:
-    if member.resolution_status in {"PENDING", "FAILED"}:
+    if member.resolution_status in {"PENDING", "FAILED", "EXCHANGE_RESOLVED", "AMBIGUOUS"}:
         return True
     if member.resolved_at is None:
         return True

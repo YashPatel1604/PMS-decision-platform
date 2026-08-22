@@ -127,6 +127,13 @@ def poll_watchlist_alerts(
     inserted = 0
     skipped = 0
     matched = 0
+    existing_keys = set(
+        session.scalars(
+            select(WatchlistAlert.dedupe_key).where(
+                WatchlistAlert.watchlist_id == watchlist_id
+            )
+        ).all()
+    )
 
     for kind in kinds:
         rows = fetch_disclosures_for_codes(
@@ -141,13 +148,7 @@ def poll_watchlist_alerts(
             if row.bse_code.strip() not in code_to_member:
                 continue
             dedupe_key = disclosure_dedupe_key(row)
-            existing = session.scalar(
-                select(WatchlistAlert).where(
-                    WatchlistAlert.watchlist_id == watchlist_id,
-                    WatchlistAlert.dedupe_key == dedupe_key,
-                )
-            )
-            if existing is not None:
+            if dedupe_key in existing_keys:
                 skipped += 1
                 continue
             if row.disclosure_date is None:
@@ -174,6 +175,7 @@ def poll_watchlist_alerts(
                     fetched_at=fetched_at,
                 )
             )
+            existing_keys.add(dedupe_key)
             inserted += 1
 
     session.flush()

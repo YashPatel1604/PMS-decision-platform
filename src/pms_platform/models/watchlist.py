@@ -75,7 +75,7 @@ class WatchlistMember(Base):
     isin: Mapped[str | None] = mapped_column(String(16))
     notes: Mapped[str | None] = mapped_column(Text)
     resolution_status: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="PENDING"
+        String(32), nullable=False, default="PENDING"
     )
     resolution_source: Mapped[str | None] = mapped_column(String(16))
     resolution_note: Mapped[str | None] = mapped_column(Text)

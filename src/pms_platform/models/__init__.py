@@ -19,6 +19,7 @@ from pms_platform.models.post_exit_horizon_performance import (
 )
 from pms_platform.models.post_exit_performance import PostExitPerformance
 from pms_platform.models.security import Security
+from pms_platform.models.security_identity_alias import SecurityIdentityAlias
 from pms_platform.models.security_successor import SecuritySuccessor
 from pms_platform.models.security_symbol_history import SecuritySymbolHistory
 from pms_platform.models.sell_assessment import SellAssessment
@@ -53,6 +54,7 @@ __all__ = [
     "PostExitPerformance",
     "PostExitHorizonPerformance",
     "Security",
+    "SecurityIdentityAlias",
     "SecuritySuccessor",
     "SecuritySymbolHistory",
     "SellAssessment",

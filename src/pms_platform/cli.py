@@ -258,6 +258,50 @@ def import_fundamentals_cmd(
         session.close()
 
 
+def sync_screener_watchlists_cmd(
+    *,
+    external_dir: Path | None = None,
+    watchlist_id: int | None = None,
+    export_path: Path | None = None,
+    skip_bse: bool = False,
+) -> int:
+    """Daily job: Screener export import → BSE gap-fill → quotes/returns → metrics."""
+    from pms_platform.watchlists.screener_sync import sync_screener_then_bse_gaps
+
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        result = sync_screener_then_bse_gaps(
+            session,
+            external_dir=external_dir,
+            watchlist_id=watchlist_id,
+            export_path=export_path,
+            skip_bse=skip_bse,
+        )
+        session.commit()
+        print("Screener + BSE gap sync complete.")
+        if result.export_path:
+            print(f"  Export: {result.export_path}")
+        else:
+            print("  Export: (none found — drop CSV/XLSX in fundamentals/screener/)")
+        if result.screener is not None:
+            s = result.screener
+            print(
+                f"  Screener rows={s.rows_read} val={s.valuation_upserts} "
+                f"fund={s.fund_upserts} quality={s.annual_upserts} "
+                f"promoter={s.promoter_upserts} skipped={s.skipped}"
+            )
+        print(f"  BSE gap codes: {result.bse_gap_codes}")
+        print(f"  Metrics rows: {result.metrics_rows}")
+        return 0
+    except Exception as exc:
+        session.rollback()
+        print(f"Screener sync failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
 def refresh_watchlist_quotes_cmd(
     *,
     watchlist_id: int | None = None,
@@ -314,6 +358,164 @@ def refresh_watchlist_fundamentals_cmd(
     except Exception as exc:
         session.rollback()
         print(f"Watchlist fundamentals refresh failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
+def audit_watchlist_data_cmd(*, watchlist_id: int | None = None) -> int:
+    """Coverage audit for watchlist metrics — read-only DB diagnostics."""
+    from pms_platform.watchlists.audit import audit_watchlist_data, format_audit_report
+
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        report = audit_watchlist_data(session, watchlist_id=watchlist_id)
+        print(format_audit_report(report))
+        return 0
+    finally:
+        session.close()
+
+
+def watchlist_provider_status_cmd() -> int:
+    """Probe NSE/BSE endpoints and DB freshness for watchlist operations."""
+    from datetime import date
+
+    from sqlalchemy import func, select
+
+    from pms_platform.fundamentals.providers.nse.session import NSESession
+    from pms_platform.models.daily_price import DailyPrice
+    from pms_platform.models.nse_bhav import BhavImportRun
+
+    lines = ["Watchlist provider status", ""]
+
+    def _probe(label: str, fn) -> None:
+        try:
+            fn()
+            lines.append(f"  {label}: OK")
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"  {label}: FAILED ({exc})")
+
+    with NSESession() as nse:
+        _probe(
+            "NSE session",
+            lambda: nse.get_json(
+                "/api/integrated-filing-results",
+                params={
+                    "index": "equities",
+                    "symbol": "RELIANCE",
+                    "period": "Quarterly",
+                    "from_date": "01-01-2024",
+                    "to_date": date.today().strftime("%d-%m-%Y"),
+                },
+            ),
+        )
+        _probe(
+            "NSE legacy financial results",
+            lambda: nse.get_json(
+                "/api/corporates-financial-results",
+                params={
+                    "index": "equities",
+                    "symbol": "RELIANCE",
+                    "period": "Annual",
+                    "from_date": "01-01-2020",
+                    "to_date": date.today().strftime("%d-%m-%Y"),
+                },
+            ),
+        )
+        _probe(
+            "NSE shareholding master",
+            lambda: nse.get_json(
+                "/api/corporate-share-holdings-master",
+                params={"index": "equities", "symbol": "RELIANCE"},
+            ),
+        )
+
+    try:
+        import httpx
+        from pms_platform.market_data.bse_http import bse_headers
+
+        with httpx.Client(headers=bse_headers(), timeout=20.0) as client:
+            r = client.get("https://api.bseindia.com/BseIndiaAPI/api/getScripHeaderData/w", params={"scripcode": "500325"})
+            if r.status_code != 200:
+                raise RuntimeError(f"HTTP {r.status_code}")
+        lines.append("  BSE quote header: OK")
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"  BSE quote header: FAILED ({exc})")
+
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        latest_price = session.scalar(select(func.max(DailyPrice.price_date)))
+        lines.append(f"  daily_prices latest date: {latest_price or '(none)'}")
+        latest_bhav = session.scalar(
+            select(func.max(BhavImportRun.trade_date)).where(BhavImportRun.status == "committed")
+        )
+        lines.append(f"  NSE bhav latest committed: {latest_bhav or '(none)'}")
+    finally:
+        session.close()
+
+    print("\n".join(lines))
+    return 0
+
+
+def backfill_watchlist_data_cmd(
+    *,
+    watchlist_id: int | None = None,
+    security_id: str | None = None,
+    nse_symbol: str | None = None,
+    missing_only: bool = True,
+    financial_history: bool = False,
+    annual_history: bool = False,
+    alias_history: bool = False,
+    missing_history_only: bool = True,
+    skip_financials: bool = False,
+    skip_prices: bool = False,
+    skip_valuation: bool = False,
+    skip_metrics: bool = False,
+    force: bool = False,
+) -> int:
+    from pms_platform.watchlists.backfill import BackfillOptions, backfill_watchlist_data
+
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        opts = BackfillOptions(
+            watchlist_id=watchlist_id,
+            security_id=security_id,
+            nse_symbol=nse_symbol,
+            missing_only=missing_only,
+            financial_history=financial_history,
+            annual_history=annual_history,
+            alias_history=alias_history,
+            missing_history_only=missing_history_only,
+            financials=not skip_financials,
+            prices=not skip_prices,
+            valuation=not skip_valuation,
+            rebuild_metrics=not skip_metrics,
+            force=force,
+        )
+        result = backfill_watchlist_data(session, opts)
+        if result.errors and not financial_history:
+            session.rollback()
+            print("Errors:", "; ".join(result.errors), file=sys.stderr)
+            return 1
+        if not financial_history:
+            session.commit()
+        if result.errors:
+            print("Warnings:", "; ".join(result.errors), file=sys.stderr)
+        print("Watchlist backfill complete.")
+        print(f"  Members in scope: {result.members_total}")
+        print(f"  Passes: {', '.join(result.passes_run) or '(none — checkpoint)'}")
+        print(f"  Resolved: {result.resolution_resolved}")
+        print(f"  Prices repaired/skipped: {result.prices_repaired}/{result.prices_skipped}")
+        print(f"  Financials codes: {result.financials_codes}")
+        print(f"  Valuation updated: {result.valuation_updated}")
+        print(f"  Metrics rows: {result.metrics_rows}")
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        print(f"backfill-watchlist-data failed: {exc}", file=sys.stderr)
         return 1
     finally:
         session.close()
@@ -942,6 +1144,84 @@ def main() -> None:
     )
     refresh_quotes_parser.add_argument("--watchlist-id", type=int, default=None)
 
+    screener_sync_parser = subparsers.add_parser(
+        "sync-screener-export",
+        help="Daily: import Screener CSV/XLSX, BSE-fill gaps, rebuild screener cache",
+    )
+    screener_sync_parser.add_argument("--external-dir", type=Path, default=None)
+    screener_sync_parser.add_argument("--watchlist-id", type=int, default=None)
+    screener_sync_parser.add_argument(
+        "--export",
+        type=Path,
+        default=None,
+        help="Explicit Screener export path (else newest in fundamentals/screener/)",
+    )
+    screener_sync_parser.add_argument(
+        "--skip-bse",
+        action="store_true",
+        help="Only import Screener file; do not BSE-fill gaps",
+    )
+
+    audit_watchlist_parser = subparsers.add_parser(
+        "audit-watchlist-data",
+        help="Measure watchlist metric coverage and missing-value reasons (DB only)",
+    )
+    audit_watchlist_parser.add_argument(
+        "--watchlist-id",
+        type=int,
+        default=None,
+        help="Limit to one watchlist (default: all)",
+    )
+
+    provider_status_parser = subparsers.add_parser(
+        "watchlist-provider-status",
+        help="Probe NSE/BSE endpoints and DB freshness for watchlist data",
+    )
+
+    backfill_parser = subparsers.add_parser(
+        "backfill-watchlist-data",
+        help="Resumable watchlist backfill: resolve, prices, financials, valuation, metrics v2",
+    )
+    backfill_parser.add_argument("--watchlist-id", type=int, default=None)
+    backfill_parser.add_argument("--security-id", type=str, default=None)
+    backfill_parser.add_argument("--nse-symbol", type=str, default=None)
+    backfill_parser.add_argument(
+        "--missing-only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Only backfill members/codes with gaps (default: true)",
+    )
+    backfill_parser.add_argument(
+        "--annual-history",
+        action="store_true",
+        help="Deep annual FY backfill for 5Y CAGR (not quarterly crawl)",
+    )
+    backfill_parser.add_argument(
+        "--alias-history",
+        action="store_true",
+        help="Backfill pre-rename NSE/BSE identities for verified aliases",
+    )
+    backfill_parser.add_argument(
+        "--financial-history",
+        action="store_true",
+        help="Targeted per-security financial history repair (resumable)",
+    )
+    backfill_parser.add_argument(
+        "--missing-history-only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="With --financial-history, only securities with history gaps (default: true)",
+    )
+    backfill_parser.add_argument("--skip-financials", action="store_true")
+    backfill_parser.add_argument("--skip-prices", action="store_true")
+    backfill_parser.add_argument("--skip-valuation", action="store_true")
+    backfill_parser.add_argument("--skip-metrics", action="store_true")
+    backfill_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Reset checkpoint and overwrite derived valuation fields",
+    )
+
     market_coverage_parser = subparsers.add_parser(
         "market-data-coverage",
         help="Export price and benchmark coverage reports",
@@ -1143,6 +1423,37 @@ def main() -> None:
         raise SystemExit(
             refresh_watchlist_quotes_cmd(
                 watchlist_id=args.watchlist_id,
+            )
+        )
+    if args.command == "sync-screener-export":
+        raise SystemExit(
+            sync_screener_watchlists_cmd(
+                external_dir=args.external_dir,
+                watchlist_id=args.watchlist_id,
+                export_path=args.export,
+                skip_bse=args.skip_bse,
+            )
+        )
+    if args.command == "audit-watchlist-data":
+        raise SystemExit(audit_watchlist_data_cmd(watchlist_id=args.watchlist_id))
+    if args.command == "watchlist-provider-status":
+        raise SystemExit(watchlist_provider_status_cmd())
+    if args.command == "backfill-watchlist-data":
+        raise SystemExit(
+            backfill_watchlist_data_cmd(
+                watchlist_id=args.watchlist_id,
+                security_id=args.security_id,
+                nse_symbol=args.nse_symbol,
+                missing_only=args.missing_only,
+                financial_history=args.financial_history,
+                annual_history=args.annual_history,
+                alias_history=args.alias_history,
+                missing_history_only=args.missing_history_only,
+                skip_financials=args.skip_financials,
+                skip_prices=args.skip_prices,
+                skip_valuation=args.skip_valuation,
+                skip_metrics=args.skip_metrics,
+                force=args.force,
             )
         )
     if args.command == "market-data-coverage":
