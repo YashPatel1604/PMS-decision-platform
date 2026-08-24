@@ -13,9 +13,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pms_platform.fundamentals.catalog import CONTRACT_VERSION
-from pms_platform.fundamentals.providers.base import FundamentalsProvider, ProviderImportResult
+from pms_platform.fundamentals.providers.base import ProviderImportResult
 from pms_platform.ingestion.common import make_source_key
-from pms_platform.market_data.bse_http import bse_headers as _bse_client_headers
+from pms_platform.market_data.bse_http import bse_headers
 from pms_platform.market_data.bse_financial_results import (
     BseFinancialResultsFetchError,
     BseResultsSnapshot,
@@ -36,7 +36,7 @@ _INTEGRATED_QUARTERS = 4
 _FETCH_WORKERS = 4
 
 
-class XbrlFundamentalsProvider(FundamentalsProvider):
+class XbrlFundamentalsProvider:
     """Fetch quarterly P&L metrics from BSE financial results API."""
 
     name = "xbrl"
@@ -133,7 +133,7 @@ class XbrlFundamentalsProvider(FundamentalsProvider):
                 time.sleep(self._request_delay_sec)
             try:
                 with httpx.Client(
-                    headers=_bse_client_headers(),
+                    headers=bse_headers(),
                     timeout=30.0,
                     follow_redirects=True,
                 ) as client:

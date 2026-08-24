@@ -32,6 +32,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pms}
       DATABASE_URL: postgresql+psycopg://pms:${POSTGRES_PASSWORD:-pms}@postgres:5432/pms
       RESEARCH_DIR: /data/research
+      DAILY_EDIT_DIR: /data/daily_edit
       FINAL_MASTER_DIR: /data/final_master
       SNAPSHOT_SEED_DIR: /data/snapshot_seed
       RAW_DATA_DIR: /data/raw
@@ -50,6 +51,9 @@ services:
         source: ${RESEARCH_DIR:?Set RESEARCH_DIR in .env to your Research folder}
         target: /data/research
         read_only: true
+      - type: bind
+        source: ${DAILY_EDIT_DIR:-../DailyEditFiles}
+        target: /data/daily_edit
       - type: bind
         source: ${FINAL_MASTER_DIR:-./docker/final_master_seed}
         target: /data/final_master

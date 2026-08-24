@@ -318,6 +318,9 @@ def commit_bhav_run(session: Session, run_id: int) -> BhavImportRun:
     run.committed_at = datetime.now(timezone.utc)
     run.error_message = None
     session.flush()
+    from pms_platform.market_data.daily_edit_bhav import maybe_apply_committed_bhav
+
+    maybe_apply_committed_bhav(run.staged_path)
     return run
 
 

@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from pms_platform.market_data.bse_http import bse_headers as _bse_headers
+from pms_platform.market_data.bse_http import bse_headers
 
 _DECLARATION_URL = "https://api.bseindia.com/BseIndiaAPI/api/shpDecleraction/w"
 _SUMMARY_URL = "https://api.bseindia.com/BseIndiaAPI/api/CorporatesSHPSecuritybeta/w"
@@ -185,7 +185,7 @@ def fetch_bse_shareholding(
 
     if client is not None:
         return _do_fetch(client)
-    with httpx.Client(headers=_bse_headers(), follow_redirects=True) as c:
+    with httpx.Client(headers=bse_headers(), follow_redirects=True) as c:
         return _do_fetch(c)
 
 
@@ -197,7 +197,7 @@ def fetch_bse_shareholding_batch(
 ) -> dict[str, BseShareholdingSnapshot | None]:
     """Fetch shareholding snapshots for multiple BSE scrips."""
     results: dict[str, BseShareholdingSnapshot | None] = {}
-    with httpx.Client(headers=_bse_headers(), follow_redirects=True) as client:
+    with httpx.Client(headers=bse_headers(), follow_redirects=True) as client:
         for i, code in enumerate(bse_codes):
             if i > 0:
                 time.sleep(delay_sec)

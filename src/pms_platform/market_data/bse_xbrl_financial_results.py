@@ -37,10 +37,6 @@ class BseXbrlFiling:
     xbrl_date: datetime | None
 
 
-def _bse_headers() -> dict[str, str]:
-    return bse_headers(referer="https://www.bseindia.com/corporates/xbrl.aspx")
-
-
 def _local_tag(tag: str) -> str:
     return tag.split("}")[-1] if "}" in tag else tag
 
@@ -122,7 +118,7 @@ def list_financial_result_xbrl_filings(
         rows = _fetch(client)
     else:
         with httpx.Client(
-            headers=_bse_headers(),
+            headers=bse_headers(referer="https://www.bseindia.com/corporates/xbrl.aspx"),
             timeout=timeout,
             follow_redirects=True,
         ) as owned:
@@ -286,7 +282,7 @@ def fetch_xbrl_quarterly_results(
                     timeout=timeout,
                 )
             with httpx.Client(
-                headers=_bse_headers(),
+                headers=bse_headers(referer="https://www.bseindia.com/corporates/xbrl.aspx"),
                 timeout=timeout,
                 follow_redirects=True,
             ) as owned:

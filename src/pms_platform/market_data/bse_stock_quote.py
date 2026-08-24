@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from pms_platform.market_data.bse_http import bse_headers as _bse_headers
+from pms_platform.market_data.bse_http import bse_headers
 
 _STOCK_TRADING_URL = "https://api.bseindia.com/BseIndiaAPI/api/StockTrading/w"
 _COM_HEADER_URL = "https://api.bseindia.com/BseIndiaAPI/api/ComHeader/w"
@@ -165,7 +165,7 @@ def fetch_bse_stock_quote(
     if client is not None:
         quote = _do_fetch(client)
     else:
-        with httpx.Client(headers=_bse_headers(), follow_redirects=True) as c:
+        with httpx.Client(headers=bse_headers(), follow_redirects=True) as c:
             quote = _do_fetch(c)
 
     _cache[bse_code] = (now, quote)
@@ -180,7 +180,7 @@ def fetch_bse_stock_quotes_batch(
 ) -> dict[str, BseStockQuote | None]:
     """Fetch valuation quotes for multiple BSE scrips with rate limiting."""
     results: dict[str, BseStockQuote | None] = {}
-    with httpx.Client(headers=_bse_headers(), follow_redirects=True) as client:
+    with httpx.Client(headers=bse_headers(), follow_redirects=True) as client:
         try:
             client.get("https://www.bseindia.com/")
         except Exception:

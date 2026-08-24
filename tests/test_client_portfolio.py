@@ -58,3 +58,86 @@ def test_client_portfolio_dashboard_joins_bhav(session, tmp_path, monkeypatch) -
     assert abs(rel["pivot"]["s4_03"] - float(levels["s4_03"])) < 1e-9
     assert by_sym["NOSUCH"]["missing_bhav"] is True
     assert "NOSUCH" in dash["missing_symbols"]
+
+
+def test_sca_quantity_ramprasath_columns(tmp_path: Path) -> None:
+    """Quantity!H is static; G=D−H; I=H×price (same as Excel)."""
+    from openpyxl import Workbook
+
+    from pms_platform.market_data.client_portfolio_parse import (
+        clear_client_portfolio_cache,
+        parse_client_portfolio_workbook,
+    )
+
+    path = tmp_path / "SCA_LLP Stock Holding - Copy.xlsx"
+    wb = Workbook()
+    wb.active.title = "cmbhavcopy"
+    qty = wb.create_sheet("Quantity")
+    qty.append(
+        [
+            "Symbol",
+            "Code",
+            "Percentage",
+            "Total Quantity",
+            "PRICE",
+            "VALUE",
+            "21.08.2026",
+            "RAMPRASATH REDDY QTYN",
+            "BLOCKED ACCOUNT",
+        ]
+    )
+    qty.append(["ASHAPURMIN", 1, None, 100, 10, 1000, "=D2-H2", 15, "=H2*E2"])
+    qty.append(["WELENT", 2, None, "=267283-62869-123080-64967", 50, None, None, 16367, None])
+    qty.append(["Balance with Bank", None, None, None, None, 1_500_000])
+    wb.save(path)
+    wb.close()
+
+    clear_client_portfolio_cache()
+    book = parse_client_portfolio_workbook(path)
+    by_sym = {p.symbol: p for p in book.model}
+    assert by_sym["ASHAPURMIN"].qty == Decimal(100)
+    assert by_sym["ASHAPURMIN"].ramprasath_qty == Decimal(15)
+    assert by_sym["WELENT"].qty == Decimal(16367)  # 267283-62869-123080-64967
+    assert by_sym["WELENT"].ramprasath_qty == Decimal(16367)
+
+    from pms_platform.market_data.client_portfolio_dashboard import _fill_ramprasath
+
+    row = {"price": 105.0, "ramprasath_qty": None, "ex_ramprasath_qty": None, "blocked_value": None}
+    _fill_ramprasath(row, by_sym["ASHAPURMIN"])
+    assert row["ramprasath_qty"] == 15.0
+    assert row["ex_ramprasath_qty"] == 85.0
+    assert row["blocked_value"] == 1575.0
+    assert book.bank_balance == Decimal("1500000")
+    assert "BALANCE WITH BANK" not in by_sym
+
+
+def test_write_sca_bank_balance_updates_quantity_f(tmp_path: Path) -> None:
+    from decimal import Decimal
+
+    from openpyxl import Workbook, load_workbook
+
+    from pms_platform.market_data.client_portfolio_parse import (
+        clear_client_portfolio_cache,
+        parse_client_portfolio_workbook,
+    )
+    from pms_platform.market_data.daily_edit_bhav import write_sca_bank_balance
+
+    path = tmp_path / "SCA_LLP Stock Holding - Copy.xlsx"
+    wb = Workbook()
+    wb.active.title = "cmbhavcopy"
+    qty = wb.create_sheet("Quantity")
+    qty.append(["Symbol", "Code", "Percentage", "Total Quantity", "PRICE", "VALUE"])
+    qty.append(["ASHAPURMIN", 1, None, 10, 100, 1000])
+    qty.append(["Balance with Bank", None, None, None, None, 50])
+    wb.save(path)
+    wb.close()
+
+    written = write_sca_bank_balance(Decimal("123456.78"), folder=tmp_path)
+    assert written == 123456.78
+    clear_client_portfolio_cache()
+    book = parse_client_portfolio_workbook(path)
+    assert book.bank_balance == Decimal("123456.78")
+    wb2 = load_workbook(path, data_only=True)
+    assert wb2["Quantity"]["F3"].value == 123456.78
+    wb2.close()
+

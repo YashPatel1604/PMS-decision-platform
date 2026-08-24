@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-from pms_platform.market_data.bse_http import bse_headers as _bse_headers
+from pms_platform.market_data.bse_http import bse_headers
 
 _BSE_API = "https://api.bseindia.com/BseIndiaAPI/api"
 _RESULTS_URL = f"{_BSE_API}/TabResults_PAR/w"
@@ -226,7 +226,7 @@ def fetch_bse_results_snapshot(
                 payload = _fetch_payload(client, code, timeout=timeout)
             else:
                 with httpx.Client(
-                    headers=_bse_headers(),
+                    headers=bse_headers(),
                     timeout=timeout,
                     follow_redirects=True,
                 ) as owned:

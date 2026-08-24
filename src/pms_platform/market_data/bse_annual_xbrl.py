@@ -52,10 +52,6 @@ class BseAnnualFundamentals:
     current_ratio: Decimal | None
 
 
-def _bse_headers() -> dict[str, str]:
-    return bse_headers(referer="https://www.bseindia.com/corporates/xbrl.aspx")
-
-
 def _local_tag(tag: str) -> str:
     return tag.split("}")[-1] if "}" in tag else tag
 
@@ -416,6 +412,6 @@ def fetch_bse_annual_fundamentals(
 
     if client is not None:
         return _do_fetch(client)
-    headers = _bse_headers()
+    headers = bse_headers(referer="https://www.bseindia.com/corporates/xbrl.aspx")
     with httpx.Client(headers=headers, follow_redirects=True, timeout=timeout) as c:
         return _do_fetch(c)

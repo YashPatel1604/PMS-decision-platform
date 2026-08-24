@@ -5,6 +5,7 @@ Read-only. Never writes back into Research.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
@@ -27,6 +28,7 @@ _SKIP = frozenset(
         "cash",
         "qnty",
         "portfolio",
+        "balance_with_bank",
     }
 )
 
@@ -44,6 +46,7 @@ class ClientPortfolioPosition:
     firm_pct: Decimal | None = None  # Model!%Firm
     target_value: Decimal | None = None  # second Value col (buy / target)
     portfolio_flag: str | None = None  # Model!Portfolio
+    ramprasath_qty: Decimal | None = None  # Quantity!RAMPRASATH REDDY QTYN (static)
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,7 @@ class ClientPortfolioBook:
     stocks_qty: dict[str, Decimal]
     excel_total_value: Decimal | None
     yearly: tuple[YearlyReturnSeries, ...] = field(default_factory=tuple)
+    bank_balance: Decimal | None = None  # Quantity!F "Balance with Bank"
 
 
 def client_portfolio_workbook_path() -> Path | None:
@@ -79,11 +83,22 @@ def client_portfolio_workbook_path() -> Path | None:
     return path if path.is_file() else None
 
 
+# ponytail: only literal a-b-c (WELENT Total Quantity), not cell refs
+_NUMERIC_SUB = re.compile(r"^=\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)+$")
+
+
 def _to_decimal(raw: object) -> Decimal | None:
     if raw is None or raw == "":
         return None
+    text = str(raw).strip().replace(",", "").replace(" ", "")
+    if _NUMERIC_SUB.fullmatch(text):
+        parts = text[1:].split("-")
+        total = Decimal(parts[0])
+        for part in parts[1:]:
+            total -= Decimal(part)
+        return total
     try:
-        return Decimal(str(raw).strip().replace(",", ""))
+        return Decimal(text)
     except Exception:  # noqa: BLE001
         return None
 
@@ -215,8 +230,20 @@ def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:
             if "Stocks" in workbook.sheetnames
             else []
         )
+        has_quantity = "Quantity" in workbook.sheetnames
     finally:
         workbook.close()
+
+    # Quantity Total Quantity may be literal a-b-c formulas (WELENT); need formula cells.
+    quantity_rows: list[tuple[Any, ...]] = []
+    if has_quantity:
+        qty_wb = openpyxl.load_workbook(path, read_only=True, data_only=False)
+        try:
+            quantity_rows = [
+                tuple(r) for r in qty_wb["Quantity"].iter_rows(values_only=True)
+            ]
+        finally:
+            qty_wb.close()
 
     yearly = tuple(_parse_yearly_series(model_rows))
 
@@ -272,6 +299,29 @@ def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:
             )
         )
 
+    # Fallback: some broker books provide only Quantity sheet (no Model layout).
+    if not model and quantity_rows:
+        for row in quantity_rows:
+            if not row or row[0] is None:
+                continue
+            symbol = _symbol(row[0])
+            if symbol is None:
+                continue
+            qty = _to_decimal(_cell(row, 3))
+            if qty is None or qty == 0:
+                continue
+            ramprasath = _to_decimal(_cell(row, 7))
+            model.append(
+                ClientPortfolioPosition(
+                    symbol=symbol,
+                    qty=qty,
+                    excel_price=_to_decimal(_cell(row, 4)),
+                    excel_value=_to_decimal(_cell(row, 5)),
+                    excel_percent=_to_decimal(_cell(row, 2)),
+                    ramprasath_qty=ramprasath,
+                )
+            )
+
     stocks_qty: dict[str, Decimal] = {}
     for row in stocks_rows:
         if not row or row[0] is None:
@@ -285,6 +335,26 @@ def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:
             continue
         stocks_qty[symbol] = qty
 
+    if not stocks_qty and quantity_rows:
+        for row in quantity_rows:
+            if not row or row[0] is None:
+                continue
+            symbol = _symbol(row[0])
+            if symbol is None:
+                continue
+            qty = _to_decimal(_cell(row, 3))
+            if qty is None:
+                continue
+            stocks_qty[symbol] = qty
+
+    bank_balance: Decimal | None = None
+    for row in quantity_rows:
+        if not row or row[0] is None:
+            continue
+        if str(row[0]).strip().lower().replace(" ", "_") == "balance_with_bank":
+            bank_balance = _to_decimal(_cell(row, 5))
+            break
+
     return ClientPortfolioBook(
         path=path,
         mtime=mtime,
@@ -292,6 +362,7 @@ def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:
         stocks_qty=stocks_qty,
         excel_total_value=excel_total,
         yearly=yearly,
+        bank_balance=bank_balance,
     )
 
 
@@ -320,6 +391,7 @@ def book_meta(book: ClientPortfolioBook) -> dict[str, Any]:
         "excel_total_value": float(book.excel_total_value)
         if book.excel_total_value is not None
         else None,
+        "bank_balance": float(book.bank_balance) if book.bank_balance is not None else None,
         "model_count": len(book.model),
     }
 

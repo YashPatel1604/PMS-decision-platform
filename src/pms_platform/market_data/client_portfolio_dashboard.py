@@ -42,6 +42,17 @@ def _pick_bar(eq_map: dict[str, Any], be_map: dict[str, Any], symbol: str) -> An
     return eq_map.get(symbol) or be_map.get(symbol)
 
 
+def _fill_ramprasath(row: dict[str, Any], pos: Any) -> None:
+    """Quantity G/H/I: G=D−H, H static Ramprasath qty, I=H×price."""
+    rp = pos.ramprasath_qty
+    if rp is None:
+        return
+    row["ramprasath_qty"] = float(rp)
+    row["ex_ramprasath_qty"] = float(pos.qty - rp)
+    if row.get("price") is not None:
+        row["blocked_value"] = float(rp * Decimal(str(row["price"])))
+
+
 def _patch_portfolio_ytd(
     yearly: list[dict[str, Any]], *, year: int, total: float
 ) -> list[dict[str, Any]]:
@@ -67,18 +78,38 @@ def build_client_portfolio_dashboard(
     session: Session,
     *,
     as_of: date | None = None,
+    book: str = "client",
 ) -> dict[str, Any]:
     dates = available_trade_dates(session)
     if as_of is None:
         as_of = dates[0] if dates else None
 
-    book = load_client_portfolio_book()
+    book_key = (book or "client").strip().lower()
+    if book_key == "sca":
+        from pms_platform.market_data.daily_edit_bhav import sca_llp_workbook_path
+
+        source_path = sca_llp_workbook_path()
+        loaded = load_client_portfolio_book(source_path) if source_path else None
+        missing_msg = (
+            "SCA_LLP Stock Holding.xlsx not found under DailyEditFiles "
+            "(set DAILY_EDIT_DIR / pin Always keep on this device)."
+        )
+    else:
+        loaded = load_client_portfolio_book()
+        missing_msg = (
+            "PMS_ClientPortfolio.xlsx not found under Research/Portfolio "
+            "(pin Always keep on this device)."
+        )
+
     empty = {
         "as_of": as_of.isoformat() if as_of else None,
         "available_dates": [d.isoformat() for d in dates],
+        "book": book_key,
         "source_file": None,
         "excel_mtime": None,
         "excel_total_value": None,
+        "bank_balance": None,
+        "portfolio_total": None,
         "bhav_revalued_total": None,
         "total_value": None,
         "holdings": [],
@@ -87,18 +118,20 @@ def build_client_portfolio_dashboard(
         "model_symbols": [],
         "error": None,
     }
-    if book is None:
-        empty["error"] = (
-            "PMS_ClientPortfolio.xlsx not found under Research/Portfolio "
-            "(pin Always keep on this device)."
-        )
+    if loaded is None:
+        empty["error"] = missing_msg
         return empty
     if as_of is None:
-        meta = book_meta(book)
+        meta = book_meta(loaded)
         empty.update(meta)
         empty["total_value"] = meta["excel_total_value"]
-        empty["model_symbols"] = [p.symbol for p in book.model]
-        empty["yearly"] = yearly_as_dicts(book)
+        empty["model_symbols"] = [p.symbol for p in loaded.model]
+        empty["yearly"] = yearly_as_dicts(loaded)
+        if book_key == "sca":
+            empty["bank_balance"] = meta.get("bank_balance")
+            empty["portfolio_total"] = (meta.get("excel_total_value") or 0) + (
+                meta.get("bank_balance") or 0
+            )
         empty["error"] = "No bhav days committed yet — upload on Pivot Point Strategy."
         return empty
 
@@ -109,9 +142,9 @@ def build_client_portfolio_dashboard(
     holdings: list[dict[str, Any]] = []
     missing: list[str] = []
 
-    for pos in book.model:
+    for pos in loaded.model:
         bar = _pick_bar(eq_bars, be_bars, pos.symbol)
-        stocks_qty = book.stocks_qty.get(pos.symbol)
+        stocks_qty = loaded.stocks_qty.get(pos.symbol)
         qty_mismatch = stocks_qty is not None and stocks_qty != pos.qty
         excel_price = float(pos.excel_price) if pos.excel_price is not None else None
         excel_value = float(pos.excel_value) if pos.excel_value is not None else None
@@ -132,6 +165,9 @@ def build_client_portfolio_dashboard(
             "firm_pct": float(pos.firm_pct) if pos.firm_pct is not None else None,
             "target_value": float(pos.target_value) if pos.target_value is not None else None,
             "portfolio_flag": pos.portfolio_flag,
+            "ramprasath_qty": None,
+            "ex_ramprasath_qty": None,
+            "blocked_value": None,
             "series": None,
             "close": None,
             "bhav_value": None,
@@ -152,6 +188,7 @@ def build_client_portfolio_dashboard(
                 missing.append(pos.symbol)
             elif bar is None:
                 missing.append(pos.symbol)
+            _fill_ramprasath(row, pos)
             holdings.append(row)
             continue
 
@@ -176,6 +213,7 @@ def build_client_portfolio_dashboard(
             row["vol_15min"] = float(vol_15)
             row["top50"] = float(vol_15 * Decimal(3))
             row["band_51_300"] = float(vol_15 * Decimal(6))
+        _fill_ramprasath(row, pos)
         holdings.append(row)
 
     total = Decimal(0)
@@ -189,7 +227,7 @@ def build_client_portfolio_dashboard(
                 row["percent"] = float(Decimal(str(row["value"])) / total * Decimal(100))
 
     yearly = _patch_portfolio_ytd(
-        yearly_as_dicts(book), year=as_of.year, total=total_f or 0.0
+        yearly_as_dicts(loaded), year=as_of.year, total=total_f or 0.0
     )
 
     run = latest_committed_run(session, as_of)
@@ -202,25 +240,43 @@ def build_client_portfolio_dashboard(
             "source_filename": run.source_filename,
         }
 
-    meta = book_meta(book)
+    meta = book_meta(loaded)
+    qty_src = (
+        "Quantity!Total Quantity from DailyEditFiles SCA_LLP"
+        if book_key == "sca"
+        else "Model!Qnty from Research PMS_ClientPortfolio.xlsx"
+    )
+    bank = (
+        float(loaded.bank_balance)
+        if book_key == "sca" and loaded.bank_balance is not None
+        else None
+    )
+    portfolio_total = None
+    if book_key == "sca" and (total_f is not None or bank is not None):
+        portfolio_total = (total_f or 0.0) + (bank or 0.0)
     return {
         "as_of": as_of.isoformat(),
         "available_dates": [d.isoformat() for d in dates],
+        "book": book_key,
         "source_file": meta["source_file"],
         "excel_mtime": meta["excel_mtime"],
         "excel_total_value": meta["excel_total_value"],
+        "bank_balance": bank,
+        "portfolio_total": portfolio_total,
         "bhav_revalued_total": total_f,
         "total_value": total_f,
         "holdings": holdings,
         "yearly": yearly,
         "missing_symbols": missing,
-        "model_symbols": [p.symbol for p in book.model],
+        "model_symbols": [p.symbol for p in loaded.model],
         "last_run": last_run,
         "error": None,
         "formulas": {
-            "qty": "Model!Qnty from Research PMS_ClientPortfolio.xlsx",
+            "qty": qty_src,
             "price_value_percent": "Price/Value/Percent/Total_Value from qty × as-of bhav close",
             "yearly_portfolio": "Portfolio current year End/Return/Cum updated from Total_Value",
             "yearly_benchmarks": "BSESmallCap / MidCap / Sensex / BSE500 stay from workbook",
+            "ramprasath": "Quantity!H Ramprasath qty is static; G=D−H; I=H×as-of price",
+            "bank": "Quantity!F Balance with Bank is typed; Total Portfolio = Total_Value + bank",
         },
     }

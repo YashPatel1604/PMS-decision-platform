@@ -659,6 +659,43 @@ export type PivotDashboard = {
   }[];
 };
 
+export type ChartsRangeRow = {
+  name: string;
+  symbol: string;
+  section: "holdings" | "fno";
+  excel_row: number;
+  series: string;
+  high: number | null;
+  low: number | null;
+  difference: number | null;
+  trg_13: number | null;
+  trg_21: number | null;
+  trg_34: number | null;
+  trg_55: number | null;
+  trg_89: number | null;
+  trg_144: number | null;
+  close: number | null;
+  prev_close: number | null;
+  pct_from_lows: number | null;
+  corr_10: number | null;
+  corr_20: number | null;
+  below_trg_89: boolean;
+  weekly_close: number | null;
+  support_resistance: string | null;
+  weekly_close_date: string | null;
+  missing_bhav: boolean;
+};
+
+export type ChartsDashboard = {
+  as_of: string | null;
+  available_dates: string[];
+  source_file: string | null;
+  excel_mtime: string | null;
+  rows: ChartsRangeRow[];
+  missing_symbols: string[];
+  error: string | null;
+};
+
 export type ClientPortfolioHolding = {
   symbol: string;
   qty: number;
@@ -673,6 +710,12 @@ export type ClientPortfolioHolding = {
   firm_pct?: number | null;
   target_value?: number | null;
   portfolio_flag?: string | null;
+  /** Quantity!H — static; never overwritten by bhav */
+  ramprasath_qty?: number | null;
+  /** Quantity!G = Total Quantity − Ramprasath */
+  ex_ramprasath_qty?: number | null;
+  /** Quantity!I = Ramprasath qty × as-of price */
+  blocked_value?: number | null;
   price?: number | null;
   value?: number | null;
   percent?: number | null;
@@ -709,6 +752,8 @@ export type ClientPortfolioDashboard = {
   excel_total_value: number | null;
   bhav_revalued_total: number | null;
   total_value?: number | null;
+  bank_balance?: number | null;
+  portfolio_total?: number | null;
   holdings: ClientPortfolioHolding[];
   yearly?: ClientPortfolioYearlySeries[];
   missing_symbols: string[];
@@ -1300,14 +1345,38 @@ export const api = {
     const query = params.toString();
     return request<PivotDashboard>(`/strategy/pivot/dashboard${query ? `?${query}` : ""}`);
   },
-  getClientPortfolioDashboard: (asOf?: string | null) => {
+  getChartsDashboard: (asOf?: string | null) => {
     const params = new URLSearchParams();
     if (asOf) params.set("as_of", asOf);
+    const query = params.toString();
+    return request<ChartsDashboard>(`/strategy/charts/dashboard${query ? `?${query}` : ""}`);
+  },
+  patchChartsWeekly: (body: {
+    excel_row: number;
+    weekly_close: number | null;
+    support_resistance: string | null;
+    weekly_close_date: string | null;
+  }) =>
+    request<{
+      excel_row: number;
+      weekly_close: number | null;
+      support_resistance: string | null;
+      weekly_close_date: string | null;
+    }>(`/strategy/charts/weekly`, { method: "PATCH", body: JSON.stringify(body) }),
+  getClientPortfolioDashboard: (asOf?: string | null, book: "client" | "sca" = "client") => {
+    const params = new URLSearchParams();
+    if (asOf) params.set("as_of", asOf);
+    if (book && book !== "client") params.set("book", book);
     const query = params.toString();
     return request<ClientPortfolioDashboard>(
       `/strategy/client-portfolio/dashboard${query ? `?${query}` : ""}`,
     );
   },
+  patchScaBankBalance: (amount: number) =>
+    request<{ bank_balance: number }>(
+      `/strategy/client-portfolio/bank-balance?book=sca`,
+      { method: "PATCH", body: JSON.stringify({ amount }) },
+    ),
   fetchNseBhav: (tradeDate?: string | null) => {
     const params = new URLSearchParams();
     if (tradeDate) params.set("trade_date", tradeDate);

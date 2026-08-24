@@ -42,7 +42,9 @@ const navGroups: NavGroup[] = [
     label: "Client",
     links: [
       { href: "/strategy/pivot-point", label: "Pivot Point" },
+      { href: "/strategy/charts", label: "Charts" },
       { href: "/strategy/client-portfolio", label: "Client Portfolio" },
+      { href: "/strategy/sca-llp", label: "SCA LLP" },
     ],
   },
   {

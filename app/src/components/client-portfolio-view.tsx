@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -39,15 +39,19 @@ function apiDetail(err: Error): string {
 
 const PRESELECT_KEY = "pivot-preselect-symbols";
 
-export function ClientPortfolioView() {
+export function ClientPortfolioView({
+  book = "client",
+}: {
+  book?: "client" | "sca";
+}) {
   const queryClient = useQueryClient();
   const [asOf, setAsOf] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [fetchMsg, setFetchMsg] = useState<string | null>(null);
 
   const dashQuery = useQuery({
-    queryKey: ["client-portfolio-dashboard", asOf ?? "latest"],
-    queryFn: () => api.getClientPortfolioDashboard(asOf),
+    queryKey: ["client-portfolio-dashboard", book, asOf ?? "latest"],
+    queryFn: () => api.getClientPortfolioDashboard(asOf, book),
   });
 
   const fetchNseMutation = useMutation({
@@ -82,11 +86,25 @@ export function ClientPortfolioView() {
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
             Strategy
           </p>
-          <h2 className="text-2xl font-semibold text-stone-900">Client Portfolio</h2>
+          <h2 className="text-2xl font-semibold text-stone-900">
+            {book === "sca" ? "SCA LLP Holdings" : "Client Portfolio"}
+          </h2>
           <p className="mt-1 max-w-2xl text-sm text-stone-600">
-            Qnty / Index / Mcap / Date / %Firm from Research{" "}
-            <span className="font-medium">PMS_ClientPortfolio.xlsx</span>. Price, Value,
-            Percent, and Total_Value refresh from the as-of bhav day (qty × close).
+            {book === "sca" ? (
+              <>
+                Qty from DailyEditFiles{" "}
+                <span className="font-medium">SCA_LLP Stock Holding.xlsx</span>. Price,
+                Value, Percent, and Total refresh from the as-of bhav day (qty × close).
+                Ramprasath Reddy qty stays as typed in Excel; Qty − Ramprasath is D−H;
+                Blocked Account is Ramprasath qty × as-of price.
+              </>
+            ) : (
+              <>
+                Qnty / Index / Mcap / Date / %Firm from Research{" "}
+                <span className="font-medium">PMS_ClientPortfolio.xlsx</span>. Price, Value,
+                Percent, and Total_Value refresh from the as-of bhav day (qty × close).
+              </>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
@@ -171,6 +189,14 @@ export function ClientPortfolioView() {
               {num(data.total_value ?? data.bhav_revalued_total, 0)}
             </span>
           </span>
+          {book === "sca" && data.portfolio_total != null ? (
+            <span>
+              Total Portfolio:{" "}
+              <span className="font-medium text-stone-900">
+                {num(data.portfolio_total, 0)}
+              </span>
+            </span>
+          ) : null}
           {data.missing_symbols.length ? (
             <span className="text-amber-800">
               Missing bhav: {data.missing_symbols.length}
@@ -193,7 +219,13 @@ export function ClientPortfolioView() {
       ) : null}
 
       {data ? (
-        <ModelTable rows={holdings} total={data.total_value ?? data.bhav_revalued_total} />
+        <ModelTable
+          rows={holdings}
+          total={data.total_value ?? data.bhav_revalued_total}
+          book={book}
+          bankBalance={data.bank_balance}
+          portfolioTotal={data.portfolio_total}
+        />
       ) : null}
       {data?.yearly?.length ? <YearlySection series={data.yearly} /> : null}
     </div>
@@ -203,28 +235,71 @@ export function ClientPortfolioView() {
 function ModelTable({
   rows,
   total,
+  book,
+  bankBalance,
+  portfolioTotal,
 }: {
   rows: ClientPortfolioDashboard["holdings"];
   total: number | null | undefined;
+  book: "client" | "sca";
+  bankBalance?: number | null;
+  portfolioTotal?: number | null;
 }) {
+  const sca = book === "sca";
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState(
+    bankBalance != null && Number.isFinite(bankBalance) ? String(bankBalance) : "",
+  );
+  useEffect(() => {
+    setDraft(
+      bankBalance != null && Number.isFinite(bankBalance) ? String(bankBalance) : "",
+    );
+  }, [bankBalance]);
+
+  const saveBank = useMutation({
+    mutationFn: (amount: number) => api.patchScaBankBalance(amount),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["client-portfolio-dashboard"] });
+    },
+  });
+
+  const commitBank = () => {
+    const parsed = Number(draft.replace(/,/g, ""));
+    if (!Number.isFinite(parsed)) return;
+    if (bankBalance != null && parsed === bankBalance) return;
+    saveBank.mutate(parsed);
+  };
+
   return (
     <div className="space-y-2">
-      <h3 className="text-sm font-semibold text-stone-700">Model ({rows.length})</h3>
+      <h3 className="text-sm font-semibold text-stone-700">
+        {sca ? "Quantity" : "Model"} ({rows.length})
+      </h3>
       <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
         <table className="min-w-full text-sm">
           <thead className="bg-stone-50 text-left text-xs font-semibold uppercase tracking-[0.06em] text-stone-500">
             <tr>
-              <th className="px-3 py-2">Model</th>
+              <th className="px-3 py-2">{sca ? "Symbol" : "Model"}</th>
               <th className="px-3 py-2 text-right">Qnty</th>
               <th className="px-3 py-2 text-right">Price</th>
               <th className="px-3 py-2 text-right">Value</th>
               <th className="px-3 py-2 text-right">Percent</th>
-              <th className="px-3 py-2">Index</th>
-              <th className="px-3 py-2 text-right">Mcap</th>
-              <th className="px-3 py-2">Date</th>
-              <th className="px-3 py-2 text-right">%Firm</th>
-              <th className="px-3 py-2 text-right">Value</th>
-              <th className="px-3 py-2">Portfolio</th>
+              {sca ? (
+                <>
+                  <th className="px-3 py-2 text-right">Qty − Ramprasath</th>
+                  <th className="px-3 py-2 text-right">Ramprasath Reddy Qtyn</th>
+                  <th className="px-3 py-2 text-right">Blocked Account</th>
+                </>
+              ) : (
+                <>
+                  <th className="px-3 py-2">Index</th>
+                  <th className="px-3 py-2 text-right">Mcap</th>
+                  <th className="px-3 py-2">Date</th>
+                  <th className="px-3 py-2 text-right">%Firm</th>
+                  <th className="px-3 py-2 text-right">Value</th>
+                  <th className="px-3 py-2">Portfolio</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -243,14 +318,32 @@ function ModelTable({
                     ? "—"
                     : num(row.percent ?? row.excel_percent, 2)}
                 </td>
-                <td className="px-3 py-1.5">{row.index_label ?? "—"}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{num(row.mcap, 0)}</td>
-                <td className="px-3 py-1.5 whitespace-nowrap">{row.as_of_label ?? "—"}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">
-                  {row.firm_pct == null ? "—" : num(row.firm_pct, 2)}
-                </td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{num(row.target_value, 0)}</td>
-                <td className="px-3 py-1.5">{row.portfolio_flag ?? "—"}</td>
+                {sca ? (
+                  <>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {num(row.ex_ramprasath_qty, 0)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {num(row.ramprasath_qty, 0)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {num(row.blocked_value, 0)}
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className="px-3 py-1.5">{row.index_label ?? "—"}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{num(row.mcap, 0)}</td>
+                    <td className="px-3 py-1.5 whitespace-nowrap">{row.as_of_label ?? "—"}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {row.firm_pct == null ? "—" : num(row.firm_pct, 2)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {num(row.target_value, 0)}
+                    </td>
+                    <td className="px-3 py-1.5">{row.portfolio_flag ?? "—"}</td>
+                  </>
+                )}
               </tr>
             ))}
             {total != null ? (
@@ -259,15 +352,57 @@ function ModelTable({
                 <td className="px-3 py-1.5" colSpan={2} />
                 <td className="px-3 py-1.5 text-right tabular-nums">{num(total, 0)}</td>
                 <td className="px-3 py-1.5 text-right tabular-nums">100.00</td>
-                <td className="px-3 py-1.5" colSpan={6} />
+                <td className="px-3 py-1.5" colSpan={sca ? 3 : 6} />
               </tr>
+            ) : null}
+            {sca ? (
+              <>
+                <tr className="border-t border-stone-100">
+                  <td className="px-3 py-1.5">Balance with Bank</td>
+                  <td className="px-3 py-1.5" colSpan={2} />
+                  <td className="px-3 py-1.5 text-right">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      aria-label="Balance with Bank"
+                      value={draft}
+                      disabled={saveBank.isPending}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onBlur={commitBank}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      className="w-36 rounded border border-stone-200 bg-white px-2 py-1 text-right tabular-nums outline-none ring-emerald-600/30 focus:ring-2"
+                    />
+                  </td>
+                  <td className="px-3 py-1.5" colSpan={4} />
+                </tr>
+                <tr className="border-t border-stone-200 bg-stone-50 font-medium">
+                  <td className="px-3 py-1.5">Total Portfolio Value</td>
+                  <td className="px-3 py-1.5" colSpan={2} />
+                  <td className="px-3 py-1.5 text-right tabular-nums">
+                    {num(
+                      portfolioTotal ??
+                        (total ?? 0) + (Number(draft.replace(/,/g, "")) || 0),
+                      0,
+                    )}
+                  </td>
+                  <td className="px-3 py-1.5" colSpan={4} />
+                </tr>
+              </>
             ) : null}
           </tbody>
         </table>
       </div>
+      {saveBank.isError ? (
+        <p className="text-sm text-red-700">{(saveBank.error as Error).message}</p>
+      ) : null}
     </div>
   );
 }
+
 
 function YearlySection({ series }: { series: ClientPortfolioYearlySeries[] }) {
   return (

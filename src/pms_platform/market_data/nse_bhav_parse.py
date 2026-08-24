@@ -146,8 +146,9 @@ def _read_tabular(path: Path) -> list[dict[str, Any]]:
         from openpyxl import load_workbook
 
         wb = load_workbook(path, read_only=True, data_only=True)
-        # Prefer sheet named Daily; else first sheet.
-        ws = wb["Daily"] if "Daily" in wb.sheetnames else wb[wb.sheetnames[0]]
+        prefer = ("BhavCopy_NSE_CM", "cmbhavcopy", "Daily")
+        sheet_name = next((n for n in prefer if n in wb.sheetnames), wb.sheetnames[0])
+        ws = wb[sheet_name]
         rows_iter = ws.iter_rows(values_only=True)
         try:
             header_row = next(rows_iter)

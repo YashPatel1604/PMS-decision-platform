@@ -18,6 +18,7 @@ from pms_platform.fundamentals.providers.promoter import refresh_promoter_snapsh
 from pms_platform.fundamentals.providers.valuation import refresh_valuation_snapshots
 from pms_platform.fundamentals.providers.nse import NseTarget, refresh_nse_financials
 from pms_platform.fundamentals.providers.xbrl import XbrlFundamentalsProvider
+from pms_platform.fundamentals.providers.yahoo import YahooFundamentalsProvider
 from pms_platform.market_data.price_returns import refresh_price_returns
 from pms_platform.models.company_fundamentals_quarterly import CompanyFundamentalsQuarterly
 from pms_platform.models.fundamental_snapshot import FundamentalSnapshot

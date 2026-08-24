@@ -11,7 +11,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from pms_platform.market_data.bse_http import bse_headers as _bse_headers
+from pms_platform.market_data.bse_http import bse_headers
 from pms_platform.market_data.bse_stock_quote import (
     BseStockQuote,
     fetch_bse_stock_quote,
@@ -130,7 +130,7 @@ def _fetch_quotes_parallel(
     """Fetch quotes with per-worker clients and a bounded thread pool."""
 
     def _one(code: str) -> tuple[str, BseStockQuote | None]:
-        with httpx.Client(headers=_bse_headers(), follow_redirects=True) as client:
+        with httpx.Client(headers=bse_headers(), follow_redirects=True) as client:
             return code, fetch_bse_stock_quote(code, client=client, force=force)
 
     results: dict[str, BseStockQuote | None] = {}

@@ -44,10 +44,6 @@ class BseIntegratedFinanceFetchError(RuntimeError):
     """Raised when BSE integrated-finance fetch fails."""
 
 
-def _bse_headers() -> dict[str, str]:
-    return bse_headers(referer="https://www.bseindia.com/corporates/results.aspx")
-
-
 def _parse_decimal(text: str) -> Decimal | None:
     cleaned = str(text or "").strip().replace(",", "")
     if not cleaned or cleaned in {"--", "-", "—", "na", "n/a"}:
@@ -357,5 +353,9 @@ def fetch_integrated_finance_quarters(
 
     if client is not None:
         return _run(client)
-    with httpx.Client(headers=_bse_headers(), timeout=timeout, follow_redirects=True) as owned:
+    with httpx.Client(
+        headers=bse_headers(referer="https://www.bseindia.com/corporates/results.aspx"),
+        timeout=timeout,
+        follow_redirects=True,
+    ) as owned:
         return _run(owned)

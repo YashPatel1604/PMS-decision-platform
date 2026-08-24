@@ -8,6 +8,7 @@ from pms_platform.api.routes import (
     auth,
     backtests,
     client_portfolio,
+    charts,
     dashboard,
     episodes,
     health,
@@ -54,4 +55,5 @@ app.include_router(
     prefix="/strategy/client-portfolio",
     tags=["client-portfolio"],
 )
+app.include_router(charts.router, prefix="/strategy/charts", tags=["charts"])
 app.include_router(watchlists.router, prefix="/watchlists", tags=["watchlists"])

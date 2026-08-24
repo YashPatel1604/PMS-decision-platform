@@ -168,6 +168,13 @@ Pivot and Client Portfolio **prices / as-of dates** come from committed rows in 
 
 If download fails: on **Pivot Point Strategy**, upload the CM-UDiFF Common Bhavcopy **Final** zip for that day, then validate/commit.
 
+The same commit also refreshes **DailyEditFiles** (writable, not Research):
+
+- `Charts*.xlsx` → `BhavCopy_NSE_CM` (Pivot-style daily tape)
+- `SCA_LLP*Stock*.xlsx` → `cmbhavcopy` plus Quantity/Stocks PRICE and VALUE
+
+Set `DAILY_EDIT_DIR` in `.env` (Compose default `../DailyEditFiles`). Open **SCA LLP** in the app for holdings × bhav, same as Client Portfolio.
+
 ### 6c — Watchlists + deep annual history
 
 ```powershell

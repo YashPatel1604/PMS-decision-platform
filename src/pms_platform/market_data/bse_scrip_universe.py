@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from pms_platform.market_data.bse_http import bse_headers as _bse_headers
+from pms_platform.market_data.bse_http import bse_headers
 
 _BSE_LIST_URL = "https://api.bseindia.com/BseIndiaAPI/api/ListOfScripData/w"
 _CACHE_TTL_SEC = 24 * 60 * 60
@@ -37,7 +37,7 @@ def refresh_bse_scrip_universe(*, force: bool = False) -> None:
     if not force and _isin_to_code and now - _cache_loaded_at < _CACHE_TTL_SEC:
         return
 
-    with httpx.Client(headers=_bse_headers(), timeout=120.0, follow_redirects=True) as client:
+    with httpx.Client(headers=bse_headers(), timeout=120.0, follow_redirects=True) as client:
         try:
             client.get("https://www.bseindia.com/")
         except Exception:

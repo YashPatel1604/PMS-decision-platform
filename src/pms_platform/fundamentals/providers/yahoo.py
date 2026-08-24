@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from pms_platform.config import settings
 from pms_platform.fundamentals.catalog import CONTRACT_VERSION
-from pms_platform.fundamentals.providers.base import FundamentalsProvider, ProviderImportResult
+from pms_platform.fundamentals.providers.base import ProviderImportResult
 from pms_platform.ingestion.common import make_source_key
 from pms_platform.market_data.identifiers import IdentifierResolver
 from pms_platform.models import ImportBatch, Security
@@ -32,7 +32,7 @@ class YahooQuarterlyRow:
     pat: Decimal | None
 
 
-class YahooFundamentalsProvider(FundamentalsProvider):
+class YahooFundamentalsProvider:
     """Fetch quarterly income statement history from Yahoo quoteSummary."""
 
     name = "yahoo"

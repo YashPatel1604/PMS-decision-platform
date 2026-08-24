@@ -11,7 +11,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from pms_platform.market_data.bse_http import bse_headers as _bse_headers
+from pms_platform.market_data.bse_http import bse_headers
 from pms_platform.market_data.bse_shareholding import (
     BseShareholdingSnapshot,
     fetch_bse_shareholding,
@@ -83,7 +83,7 @@ def _fetch_shareholding_parallel(
     max_workers: int,
 ) -> dict[str, BseShareholdingSnapshot | None]:
     def _one(code: str) -> tuple[str, BseShareholdingSnapshot | None]:
-        with httpx.Client(headers=_bse_headers(), follow_redirects=True) as client:
+        with httpx.Client(headers=bse_headers(), follow_redirects=True) as client:
             return code, fetch_bse_shareholding(code, client=client)
 
     results: dict[str, BseShareholdingSnapshot | None] = {}
