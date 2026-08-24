@@ -67,6 +67,13 @@ export function PivotPointStrategyView() {
 
   const data = dashQuery.data;
 
+  // Julesh-only PCs often have empty episode-based holding_symbols; Client Portfolio Model works.
+  const clientBookQuery = useQuery({
+    queryKey: ["client-portfolio-dashboard", "client", asOf ?? data?.as_of ?? "latest"],
+    queryFn: () =>
+      api.getClientPortfolioDashboard(asOf ?? data?.as_of ?? null, "client"),
+  });
+
   const fetchNseMutation = useMutation({
     mutationFn: () => api.fetchNseBhav(),
     onSuccess: (result) => {
@@ -93,10 +100,23 @@ export function PivotPointStrategyView() {
     }
   }, []);
 
-  const holdingSymbols = useMemo(
-    () => [...(data?.holding_symbols ?? [])].sort(),
-    [data?.holding_symbols],
-  );
+  const holdingSymbols = useMemo(() => {
+    const names = new Set<string>();
+    for (const symbol of data?.holding_symbols ?? []) {
+      if (symbol) names.add(symbol);
+    }
+    for (const row of clientBookQuery.data?.holdings ?? []) {
+      if (row.symbol) names.add(row.symbol);
+    }
+    for (const symbol of clientBookQuery.data?.model_symbols ?? []) {
+      if (symbol) names.add(symbol);
+    }
+    return [...names].sort();
+  }, [
+    data?.holding_symbols,
+    clientBookQuery.data?.holdings,
+    clientBookQuery.data?.model_symbols,
+  ]);
   const holdingSet = useMemo(() => new Set(holdingSymbols), [holdingSymbols]);
   const pivotWatchSymbols = useMemo(
     () => (data?.portfolio ?? []).map((p) => p.symbol).sort(),
