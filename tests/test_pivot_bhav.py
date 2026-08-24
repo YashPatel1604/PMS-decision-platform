@@ -155,7 +155,37 @@ def test_delete_portfolio_symbol_and_known_bhav(session, tmp_path, monkeypatch) 
     assert delete_portfolio_symbol(session, "RELIANCE") is False
 
 
-def test_open_holding_nse_symbols(session, sample_security) -> None:
+def test_open_holding_nse_symbols(session, sample_security, monkeypatch) -> None:
+    from pms_platform.market_data.pivot_dashboard import open_holding_nse_symbols
+    from pms_platform.models.enums import EpisodeStatus
+    from pms_platform.models.episode import InvestmentEpisode
+
+    monkeypatch.setattr(
+        "pms_platform.market_data.client_portfolio_parse.load_client_portfolio_book",
+        lambda: None,
+    )
+    sample_security.current_nse_symbol = "AURIONPRO"
+    session.add(
+        InvestmentEpisode(
+            security_id=sample_security.security_id,
+            episode_number=1,
+            entry_date=date(2024, 1, 1),
+            status=EpisodeStatus.OPEN.value,
+            initial_quantity=10,
+            total_buy_quantity=10,
+            final_quantity=10,
+            max_quantity=10,
+            number_of_buys=1,
+        )
+    )
+    session.commit()
+    assert open_holding_nse_symbols(session) == ["AURIONPRO"]
+
+
+def test_open_holding_unions_client_portfolio(session, sample_security, monkeypatch) -> None:
+    from decimal import Decimal
+
+    from pms_platform.market_data.client_portfolio_parse import ClientPortfolioPosition
     from pms_platform.market_data.pivot_dashboard import open_holding_nse_symbols
     from pms_platform.models.enums import EpisodeStatus
     from pms_platform.models.episode import InvestmentEpisode
@@ -175,7 +205,23 @@ def test_open_holding_nse_symbols(session, sample_security) -> None:
         )
     )
     session.commit()
-    assert open_holding_nse_symbols(session) == ["AURIONPRO"]
+
+    class _Book:
+        model = [
+            ClientPortfolioPosition(
+                symbol="INFY",
+                qty=Decimal("1"),
+                excel_price=None,
+                excel_value=None,
+                excel_percent=None,
+            ),
+        ]
+
+    monkeypatch.setattr(
+        "pms_platform.market_data.client_portfolio_parse.load_client_portfolio_book",
+        lambda: _Book(),
+    )
+    assert open_holding_nse_symbols(session) == ["AURIONPRO", "INFY"]
 
 
 def test_open_holding_falls_back_to_client_portfolio(session, monkeypatch) -> None:

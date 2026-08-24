@@ -486,6 +486,13 @@ export function PivotPointStrategyView() {
               </div>
             ) : null}
           </div>
+          {dailyScope === "portfolio" && daily.length === 0 ? (
+            <p className="text-sm text-amber-800">
+              {holdingSymbols.length === 0
+                ? "Our holdings is empty — no symbols from Client Portfolio yet. Click All to see the full market, or confirm PMS_ClientPortfolio*.xlsx is in DailyEditFiles."
+                : `Our holdings has ${holdingSymbols.length} symbol${holdingSymbols.length === 1 ? "" : "s"}, but none are in today's bhav (${data?.as_of ?? "—"}). Click All to verify bhav, or pull/upload that day's Final.`}
+            </p>
+          ) : null}
         </>
       ) : null}
 

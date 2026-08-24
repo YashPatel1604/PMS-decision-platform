@@ -35,27 +35,27 @@ DAILY_SERIES = frozenset({"EQ", "BE"})
 
 
 def open_holding_nse_symbols(session: Session) -> list[str]:
-    """NSE tickers for Our holdings: open episodes, else Client Portfolio Model."""
+    """NSE tickers for Our holdings: open episodes ∪ Client Portfolio Model."""
+    symbols: set[str] = set()
     rows = session.execute(
         select(Security.current_nse_symbol, Security.historical_nse_symbol)
         .join(InvestmentEpisode, InvestmentEpisode.security_id == Security.security_id)
         .where(InvestmentEpisode.status == EpisodeStatus.OPEN.value)
     ).all()
-    symbols: set[str] = set()
     for current, historical in rows:
         for raw in (current, historical):
             text = str(raw or "").strip().upper()
             if text and text not in {"NAN", "NONE", "NULL"}:
                 symbols.add(text)
-    if symbols:
-        return sorted(symbols)
-    # Julesh-only PCs have no episodes; Model sheet in DailyEditFiles is enough.
+    # Julesh-only PCs have no episodes; Samir may still want Model names too.
     from pms_platform.market_data.client_portfolio_parse import load_client_portfolio_book
 
     book = load_client_portfolio_book()
-    if book is None:
-        return []
-    return sorted({pos.symbol for pos in book.model if pos.symbol})
+    if book is not None:
+        for pos in book.model:
+            if pos.symbol:
+                symbols.add(pos.symbol)
+    return sorted(symbols)
 
 
 def _bar_dict(bar: Any) -> dict[str, Any]:
@@ -90,6 +90,37 @@ def _pivot_from_bar(bar: Any, *, as_of: date) -> dict[str, Any]:
         missing=False,
         **levels,
     ).as_dict()
+
+
+def _daily_row(
+    bar: Any,
+    *,
+    as_of: date,
+    portfolio_a_by_symbol: dict[str, bool],
+    vol_exp_by_symbol: dict[str, Decimal],
+    prev_vol_exp_by_symbol: dict[str, Decimal],
+) -> dict[str, Any]:
+    row = _bar_dict(bar)
+    row["pivot"] = _pivot_from_bar(bar, as_of=as_of)
+    if bar.symbol in portfolio_a_by_symbol:
+        row["portfolio_flag"] = "Y" if portfolio_a_by_symbol[bar.symbol] else "N"
+    else:
+        row["portfolio_flag"] = None
+    prev_ve = prev_vol_exp_by_symbol.get(bar.symbol)
+    row["prev_day_vol_exp"] = float(prev_ve) if prev_ve is not None else None
+    vol_exp = vol_exp_by_symbol.get(bar.symbol)
+    if vol_exp is not None:
+        vol_15 = Decimal(vol_exp) / Decimal(25)
+        row["vol_exp"] = float(vol_exp)
+        row["vol_15min"] = float(vol_15)
+        row["top50"] = float(vol_15 * Decimal(3))
+        row["band_51_300"] = float(vol_15 * Decimal(6))
+    else:
+        row["vol_exp"] = None
+        row["vol_15min"] = None
+        row["top50"] = None
+        row["band_51_300"] = None
+    return row
 
 
 def latest_committed_run(session: Session, trade_date: date | None = None) -> BhavImportRun | None:
@@ -186,37 +217,43 @@ def build_pivot_dashboard(
         )
 
     portfolio_a_by_symbol = {p.symbol: p.portfolio_a for p in portfolio_rows}
+    holding_symbols = open_holding_nse_symbols(session)
+    holding_set = set(holding_symbols)
 
     daily_payload = []
     for bar in daily:
         if bar.series not in DAILY_SERIES:
             continue
-        row = _bar_dict(bar)
-        # Per-row H/L/C so BE and EQ for the same ticker don't share the wrong pivot.
-        row["pivot"] = _pivot_from_bar(bar, as_of=as_of)
-        # Excel: Portfolio = VLOOKUP(Portfolio!PortfolioA)
-        if bar.symbol in portfolio_a_by_symbol:
-            row["portfolio_flag"] = "Y" if portfolio_a_by_symbol[bar.symbol] else "N"
-        else:
-            row["portfolio_flag"] = None
-        prev_ve = prev_vol_exp_by_symbol.get(bar.symbol)
-        row["prev_day_vol_exp"] = float(prev_ve) if prev_ve is not None else None
-        # Excel: Vol Exp; 15minVol=VolExp/25; Top50=15min*3; 51=300=15min*6
-        vol_exp = vol_exp_by_symbol.get(bar.symbol)
-        if vol_exp is not None:
-            vol_15 = Decimal(vol_exp) / Decimal(25)
-            row["vol_exp"] = float(vol_exp)
-            row["vol_15min"] = float(vol_15)
-            row["top50"] = float(vol_15 * Decimal(3))
-            row["band_51_300"] = float(vol_15 * Decimal(6))
-        else:
-            row["vol_exp"] = None
-            row["vol_15min"] = None
-            row["top50"] = None
-            row["band_51_300"] = None
-        daily_payload.append(row)
+        daily_payload.append(
+            _daily_row(
+                bar,
+                as_of=as_of,
+                portfolio_a_by_symbol=portfolio_a_by_symbol,
+                vol_exp_by_symbol=vol_exp_by_symbol,
+                prev_vol_exp_by_symbol=prev_vol_exp_by_symbol,
+            )
+        )
         if len(daily_payload) >= 5000:
             break
+
+    # Cap can drop late-alphabet holdings; pin Our holdings rows back in.
+    present = {(r["symbol"], r["series"]) for r in daily_payload}
+    for bar in daily:
+        if bar.series not in DAILY_SERIES or bar.symbol not in holding_set:
+            continue
+        key = (bar.symbol, bar.series)
+        if key in present:
+            continue
+        daily_payload.append(
+            _daily_row(
+                bar,
+                as_of=as_of,
+                portfolio_a_by_symbol=portfolio_a_by_symbol,
+                vol_exp_by_symbol=vol_exp_by_symbol,
+                prev_vol_exp_by_symbol=prev_vol_exp_by_symbol,
+            )
+        )
+        present.add(key)
 
     run = latest_committed_run(session, as_of)
     last_run = None
@@ -242,7 +279,7 @@ def build_pivot_dashboard(
         "last20": [_bar_dict(b) for b in last20],
         "ranks": [r.as_dict() for r in ranks],
         "portfolio": portfolio_payload,
-        "holding_symbols": open_holding_nse_symbols(session),
+        "holding_symbols": holding_symbols,
         "gainers": [g.as_dict() for g in gainers],
         "formulas": {
             "pivot": "PP=(H+L+C)/3 from same-day bhav (Excel Daily)",
