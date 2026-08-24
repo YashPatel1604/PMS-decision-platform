@@ -193,9 +193,15 @@ export function AppShell({
     queryKey: ["watchlist-alerts-summary"],
     queryFn: () => api.getWatchlistAlertsSummary(),
     refetchInterval: 5 * 60 * 1000,
+    enabled: user?.role !== "client",
   });
 
   const unacknowledgedAlerts = alertsSummaryQuery.data?.unacknowledged ?? 0;
+  const visibleGroups =
+    user?.role === "client"
+      ? navGroups.filter((group) => group.label === "Client" || group.label === "Market")
+      : navGroups;
+  const showChrome = user?.role !== "client";
 
   useEffect(() => {
     setOpenGroup(null);
@@ -228,6 +234,7 @@ export function AppShell({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <nav className="flex flex-wrap items-center gap-1">
+              {showChrome ? (
               <Link
                 href={dashboardLink.href}
                 className={`rounded-lg px-2.5 py-1.5 text-sm font-medium transition hover:bg-stone-100 hover:text-stone-900 ${
@@ -238,7 +245,8 @@ export function AppShell({
               >
                 {dashboardLink.label}
               </Link>
-              {navGroups.map((group) => (
+              ) : null}
+              {visibleGroups.map((group) => (
                 <NavDropdown
                   key={group.label}
                   group={group}
@@ -251,6 +259,7 @@ export function AppShell({
                 />
               ))}
             </nav>
+            {showChrome ? (
             <button
               type="button"
               disabled={refreshMutation.isPending}
@@ -263,6 +272,7 @@ export function AppShell({
             >
               {refreshMutation.isPending ? "Refreshing…" : "Refresh data"}
             </button>
+            ) : null}
             {user ? (
               <div className="flex items-center gap-2 border-l border-stone-200 pl-2">
                 <span className="text-sm text-stone-600">{user.display_name}</span>

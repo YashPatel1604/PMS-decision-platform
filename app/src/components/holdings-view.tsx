@@ -13,6 +13,7 @@ import {
   formatDate,
   formatDays,
   formatInr,
+  formatNum,
   formatPct,
   formatPnL,
   formatPp,
@@ -475,9 +476,7 @@ export function HoldingsView() {
                         <p className="text-xs text-stone-500">{formatDays(row.period_days)}</p>
                       </td>
                       <td className="px-3 py-3 text-right tabular-nums">
-                        {row.mcap == null
-                          ? "—"
-                          : Math.round(row.mcap).toLocaleString("en-IN")}
+                        {row.mcap == null ? "—" : formatNum(row.mcap)}
                       </td>
                       <td className="px-3 py-3 text-right tabular-nums">
                         {formatPct(row.position_weight_pct)}
@@ -727,7 +726,7 @@ export function HoldingsView() {
                 Mcap{" "}
                 {selected.mcap == null
                   ? "—"
-                  : `${Math.round(selected.mcap).toLocaleString("en-IN")} Cr`}{" "}
+                  : `${formatNum(selected.mcap)} Cr`}{" "}
                 · Portfolio weight {formatPct(selected.position_weight_pct)} · Unrealized{" "}
                 {formatPct(selected.unrealized_pnl_pct)} ({formatPnL(selected.unrealized_pnl)}) ·
                 qty {selected.quantity}

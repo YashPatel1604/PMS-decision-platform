@@ -55,6 +55,13 @@ def auth_db(monkeypatch, auth_enabled):
         display_name="Member",
         role="member",
     )
+    create_user(
+        session,
+        email="julesh@local",
+        password="1234",
+        display_name="Julesh",
+        role="client",
+    )
     session.commit()
     session.close()
     return factory
@@ -137,6 +144,34 @@ def test_admin_can_create_user(auth_db) -> None:
     )
     assert response.status_code == 201
     assert response.json()["user"]["email"] == "new@firm.com"
+
+
+def test_username_login_and_client_role_scope(auth_db) -> None:
+    client = TestClient(app)
+    login = client.post("/auth/login", json={"email": "julesh", "password": "1234"})
+    assert login.status_code == 200
+    assert login.json()["user"]["role"] == "client"
+
+    charts = client.get("/strategy/charts/dashboard")
+    assert charts.status_code != 401
+    assert charts.status_code != 403
+
+    insider = client.get("/market-data/insider-trading/today")
+    assert insider.status_code != 401
+    assert insider.status_code != 403
+
+    blocked = client.get("/dashboard/summary")
+    assert blocked.status_code == 403
+
+    admin = TestClient(app)
+    ok = admin.post(
+        "/auth/login",
+        json={"email": "admin@firm.com", "password": "password123"},
+    )
+    assert ok.status_code == 200
+    summary = admin.get("/dashboard/summary")
+    assert summary.status_code != 401
+    assert summary.status_code != 403
 
 
 def test_auth_disabled_allows_anonymous(monkeypatch) -> None:

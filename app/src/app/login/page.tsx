@@ -9,7 +9,7 @@ import { ApiError, api } from "@/lib/api";
 export default function LoginPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -19,12 +19,12 @@ export default function LoginPage() {
     setError(null);
     setPending(true);
     try {
-      await api.login(email.trim(), password);
+      const result = await api.login(username.trim(), password);
       await queryClient.invalidateQueries({ queryKey: ["auth-me"] });
-      router.replace("/");
+      router.replace(result.user.role === "client" ? "/strategy/pivot-point" : "/");
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(err.status === 401 ? "Invalid email or password" : err.message);
+        setError(err.status === 401 ? "Invalid username or password" : err.message);
       } else {
         setError("Login failed");
       }
@@ -45,13 +45,13 @@ export default function LoginPage() {
           className="space-y-4 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm"
         >
           <label className="block text-sm">
-            <span className="mb-1 block font-medium text-stone-700">Email</span>
+            <span className="mb-1 block font-medium text-stone-700">Username</span>
             <input
-              type="email"
+              type="text"
               autoComplete="username"
               required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="w-full rounded-lg border border-stone-300 px-3 py-2 text-stone-900 outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
             />
           </label>
@@ -76,7 +76,7 @@ export default function LoginPage() {
           </button>
         </form>
         <p className="mt-4 text-center text-xs text-stone-500">
-          Invite-only accounts. Ask an admin if you need access.
+          Use your username to sign in.
         </p>
       </div>
     </div>

@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api, type WatchlistAlert } from "@/lib/api";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatNum, formatPct } from "@/lib/format";
 
 function kindLabel(kind: string): string {
   return kind === "insider" ? "Insider" : "SAST";
@@ -38,9 +38,9 @@ function AlertCard({
           <p className="mt-1 text-xs text-stone-500">
             {alert.category}
             {alert.pct_pre != null && alert.pct_post != null
-              ? ` · ${alert.pct_pre}% → ${alert.pct_post}%`
+              ? ` · ${formatPct(alert.pct_pre, 2, { signed: false })} → ${formatPct(alert.pct_post, 2, { signed: false })}`
               : ""}
-            {alert.market_cap_cr != null ? ` · MCap ₹${Math.round(alert.market_cap_cr)} Cr` : ""}
+            {alert.market_cap_cr != null ? ` · MCap ₹${formatNum(alert.market_cap_cr)} Cr` : ""}
           </p>
         </div>
         {!alert.acknowledged ? (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { api, type CorporateDisclosure, type TodayCorporateDisclosures } from "@/lib/api";
@@ -62,7 +62,8 @@ function formatMarketCapCr(value: number | string | null | undefined): string {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return "—";
   return new Intl.NumberFormat("en-IN", {
-    maximumFractionDigits: n >= 100 ? 0 : 2,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(n);
 }
 
@@ -71,6 +72,11 @@ function formatPctValue(value: number | string | null | undefined): string {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return "—";
   return formatPct(n);
+}
+
+function txnLabel(value: string | null | undefined): string {
+  const text = (value ?? "").trim();
+  return text || "(blank)";
 }
 
 
@@ -100,13 +106,14 @@ export function InsiderTradingView() {
 function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
   const copy = KIND_COPY[kind];
   const [query, setQuery] = useState("");
-  const [minMarketCapCr, setMinMarketCapCr] = useState("");
+  const [minMarketCapCr, setMinMarketCapCr] = useState("2000");
   const [maxMarketCapCr, setMaxMarketCapCr] = useState("");
   const [hideArb, setHideArb] = useState(true);
+  const [txnFilter, setTxnFilter] = useState<string[] | null>(null);
   const [page, setPage] = useState(1);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [viewMonth, setViewMonth] = useState<string | null>(null);
-  const [refreshFromBse, setRefreshFromBse] = useState(false);
+  const refreshFromBse = useRef(false);
 
   const disclosuresQuery = useQuery({
     queryKey: [
@@ -115,15 +122,18 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
       viewMonth ?? "auto",
       kind,
     ],
-    queryFn: () => fetchDisclosures(kind, selectedDate, viewMonth, refreshFromBse),
+    queryFn: () => fetchDisclosures(kind, selectedDate, viewMonth, refreshFromBse.current),
     refetchOnWindowFocus: false,
     placeholderData: keepPreviousData,
   });
 
   const handleRefresh = async () => {
-    if (kind === "insider") setRefreshFromBse(true);
-    await disclosuresQuery.refetch();
-    setRefreshFromBse(false);
+    refreshFromBse.current = kind === "insider";
+    try {
+      await disclosuresQuery.refetch();
+    } finally {
+      refreshFromBse.current = false;
+    }
   };
 
   useEffect(() => {
@@ -159,11 +169,31 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
     return Number.isFinite(n) && n > 0 ? n : null;
   }, [maxMarketCapCr]);
 
+  const txnOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const row of disclosuresQuery.data?.rows ?? []) {
+      names.add(txnLabel(row.transaction_type));
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, "en"));
+  }, [disclosuresQuery.data?.rows]);
+
+  useEffect(() => {
+    setTxnFilter((current) => {
+      if (current === null) return null;
+      const allowed = new Set(txnOptions);
+      const next = current.filter((name) => allowed.has(name));
+      if (next.length === 0 || next.length === txnOptions.length) return null;
+      return next;
+    });
+  }, [txnOptions]);
+
   const filtered = useMemo(() => {
     const rows = disclosuresQuery.data?.rows ?? [];
     const q = query.trim().toLowerCase();
+    const txnAllowed = txnFilter === null ? null : new Set(txnFilter);
     return rows.filter((row) => {
       if (kind === "insider" && hideArb && row.is_arbitrage) return false;
+      if (txnAllowed && !txnAllowed.has(txnLabel(row.transaction_type))) return false;
       const cap =
         row.market_cap_cr == null || !Number.isFinite(Number(row.market_cap_cr))
           ? null
@@ -185,11 +215,11 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [disclosuresQuery.data?.rows, query, minCap, maxCap, hideArb, kind]);
+  }, [disclosuresQuery.data?.rows, query, minCap, maxCap, hideArb, kind, txnFilter]);
 
   useEffect(() => {
     setPage(1);
-  }, [selectedDate, query, minCap, maxCap, hideArb, kind]);
+  }, [selectedDate, query, minCap, maxCap, hideArb, kind, txnFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
@@ -300,8 +330,9 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
               {filtered.length > PAGE_SIZE
                 ? ` · page ${safePage}/${pageCount}`
                 : ""}
-              {minCap != null ? ` · mcap ≥ ${minCap.toLocaleString("en-IN")} Cr` : ""}
-              {maxCap != null ? ` · mcap ≤ ${maxCap.toLocaleString("en-IN")} Cr` : ""}
+              {minCap != null ? ` · mcap ≥ ${minCap.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr` : ""}
+              {maxCap != null ? ` · mcap ≤ ${maxCap.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr` : ""}
+              {txnFilter != null ? ` · ${txnFilter.length} txn type${txnFilter.length === 1 ? "" : "s"}` : ""}
               {" · "}
               {formatDate(data.as_of_date)}
             </p>
@@ -339,7 +370,13 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
                   <th className="px-4 py-3 text-right">Mcap (₹ Cr)</th>
                   <th className="px-4 py-3">Person</th>
                   <th className="px-4 py-3">Category</th>
-                  <th className="px-4 py-3">Txn</th>
+                  <th className="px-4 py-3">
+                    <TxnTypeFilter
+                      options={txnOptions}
+                      selected={txnFilter}
+                      onChange={setTxnFilter}
+                    />
+                  </th>
                   <th className="px-4 py-3 text-right">Qty</th>
                   <th className="px-4 py-3 text-right">Value</th>
                   <th className="px-4 py-3 text-right">% pre→post</th>
@@ -381,6 +418,109 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
           ) : null}
         </div>
       )}
+    </div>
+  );
+}
+
+function TxnTypeFilter({
+  options,
+  selected,
+  onChange,
+}: {
+  options: string[];
+  selected: string[] | null;
+  onChange: (next: string[] | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const enabled = selected === null ? options : selected;
+  const enabledSet = useMemo(() => new Set(enabled), [enabled]);
+  const narrowed = selected !== null;
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function toggle(name: string) {
+    const next = new Set(enabledSet);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    if (next.size === 0 || next.size === options.length) onChange(null);
+    else onChange([...next]);
+  }
+
+  return (
+    <div ref={rootRef} className="relative inline-flex">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-haspopup="true"
+        className={`inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-left text-xs font-semibold uppercase tracking-[0.08em] transition hover:bg-stone-200/70 ${
+          narrowed || open ? "text-emerald-800" : "text-stone-500"
+        }`}
+      >
+        Txn
+        <svg
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          aria-hidden
+          className={`h-3 w-3 shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+        >
+          <path
+            fillRule="evenodd"
+            d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 10.94l3.71-3.71a.75.75 0 1 1 1.06 1.06l-4.24 4.24a.75.75 0 0 1-1.06 0L5.21 8.29a.75.75 0 0 1 .02-1.08Z"
+            clipRule="evenodd"
+          />
+        </svg>
+      </button>
+      {open ? (
+        <div
+          role="group"
+          aria-label="Filter by transaction type"
+          className="absolute left-0 top-full z-30 mt-1 max-h-64 min-w-[16rem] overflow-y-auto rounded-lg border border-stone-200 bg-white py-1 shadow-lg"
+        >
+          <label className="flex cursor-pointer items-center gap-2 border-b border-stone-100 px-3 py-2 text-xs font-medium text-stone-700 hover:bg-stone-50">
+            <input
+              type="checkbox"
+              checked={!narrowed}
+              onChange={() => onChange(null)}
+              className="rounded border-stone-300 text-emerald-700 focus:ring-emerald-600"
+            />
+            All types
+          </label>
+          {options.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-stone-500">No types on this day</p>
+          ) : (
+            options.map((name) => (
+              <label
+                key={name}
+                className="flex cursor-pointer items-start gap-2 px-3 py-1.5 text-xs font-normal normal-case tracking-normal text-stone-700 hover:bg-stone-50"
+              >
+                <input
+                  type="checkbox"
+                  checked={enabledSet.has(name)}
+                  onChange={() => toggle(name)}
+                  className="mt-0.5 rounded border-stone-300 text-emerald-700 focus:ring-emerald-600"
+                />
+                <span className="leading-snug">{name}</span>
+              </label>
+            ))
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -88,3 +88,14 @@ def test_liquid_transactions_not_in_securities(session) -> None:
     session.commit()
     names = {security.portfolio_name for security in session.scalars(select(Security)).all()}
     assert "LiquidCase" not in names
+
+
+def test_empty_security_master_is_an_error(session) -> None:
+    """A missing master is a hard fail; a non-empty master is not gated on a fixed count."""
+    from pms_platform.ingestion.validators import ValidationSeverity, validate_securities
+
+    empty = validate_securities(session)
+    assert any(
+        issue.code == "SECURITY_COUNT_MISMATCH" and issue.severity == ValidationSeverity.ERROR
+        for issue in empty
+    )

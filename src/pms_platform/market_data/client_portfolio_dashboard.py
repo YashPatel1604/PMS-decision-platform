@@ -97,8 +97,8 @@ def build_client_portfolio_dashboard(
     else:
         loaded = load_client_portfolio_book()
         missing_msg = (
-            "PMS_ClientPortfolio.xlsx not found under Research/Portfolio "
-            "(pin Always keep on this device)."
+            "PMS_ClientPortfolio.xlsx not found under DailyEditFiles "
+            "(set DAILY_EDIT_DIR / pin Always keep on this device)."
         )
 
     empty = {
@@ -244,7 +244,7 @@ def build_client_portfolio_dashboard(
     qty_src = (
         "Quantity!Total Quantity from DailyEditFiles SCA_LLP"
         if book_key == "sca"
-        else "Model!Qnty from Research PMS_ClientPortfolio.xlsx"
+        else "Model!Qnty from DailyEditFiles PMS_ClientPortfolio.xlsx"
     )
     bank = (
         float(loaded.bank_balance)

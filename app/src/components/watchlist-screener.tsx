@@ -45,19 +45,22 @@ function persistView(view: SavedView) {
 function formatMetric(value: number | null | undefined, format: string): string {
   if (value === null || value === undefined) return "—";
   if (format === "currency_cr") {
-    return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(value);
+    return new Intl.NumberFormat("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
   }
   if (format === "percent" || format === "percent_signed") {
-    return formatPct(value, 1, { signed: format === "percent_signed" });
+    return formatPct(value, 2, { signed: format === "percent_signed" });
   }
   if (format === "pp_signed") {
-    return formatPp(value, 1);
+    return formatPp(value);
   }
   if (format === "number") {
-    if (Math.abs(value) >= 1000) {
-      return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(value);
-    }
-    return new Intl.NumberFormat("en-IN", { minimumFractionDigits: 1, maximumFractionDigits: 2 }).format(value);
+    return new Intl.NumberFormat("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
   }
   return String(value);
 }

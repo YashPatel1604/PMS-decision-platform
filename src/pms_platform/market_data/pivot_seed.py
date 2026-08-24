@@ -1,4 +1,4 @@
-"""Seed pivot portfolio (+ optional history) from the Research workbook."""
+"""Seed pivot portfolio (+ optional history) from DailyEditFiles, else Research."""
 
 from __future__ import annotations
 
@@ -22,10 +22,14 @@ from pms_platform.research_paths import research_dir
 
 
 def default_pivot_workbook() -> Path | None:
+    from pms_platform.market_data.daily_edit_bhav import pivot_workbook_daily_edit_path
+
+    hit = pivot_workbook_daily_edit_path()
+    if hit is not None:
+        return hit
     root = research_dir()
     if root is None:
         return None
-    # Prefer exact known name; else first PivotPoints*.xlsx
     preferred = root / "PivotPointsStrategy_New -Backup 17.07.2024 8PM - Copy.xlsx"
     if preferred.is_file():
         return preferred
@@ -146,7 +150,9 @@ def seed_pivot_from_research(
     """Seed portfolio symbols; optionally ingest Daily + Last20Days sheets as bhav days."""
     path = workbook or default_pivot_workbook()
     if path is None or not path.is_file():
-        raise FileNotFoundError("Pivot strategy workbook not found under Research/")
+        raise FileNotFoundError(
+            "PivotPoints*.xlsx not found under DailyEditFiles (or Research/)"
+        )
 
     portfolio_n = seed_portfolio_from_workbook(session, path)
     days_committed = 0

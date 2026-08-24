@@ -11,6 +11,16 @@ from pms_platform.auth.session import SESSION_COOKIE, read_session_user_id
 from pms_platform.config import settings
 from pms_platform.db.base import get_session_factory
 
+_CLIENT_PREFIXES = (
+    "/strategy/pivot",
+    "/strategy/charts",
+    "/strategy/client-portfolio",
+    "/market-data/block-deals",
+    "/market-data/bulk-deals",
+    "/market-data/sast",
+    "/market-data/insider-trading",
+)
+
 
 def _is_public(path: str, method: str) -> bool:
     if method == "OPTIONS":
@@ -59,6 +69,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     content={"detail": "Authentication required"},
                 )
             request.state.user = user
+            if user.role == "client":
+                path = request.url.path
+                if not (
+                    path.startswith("/auth/")
+                    or any(path.startswith(prefix) for prefix in _CLIENT_PREFIXES)
+                ):
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "This account can only use Client and Market pages."},
+                    )
         finally:
             session.close()
 

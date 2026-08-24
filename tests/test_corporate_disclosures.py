@@ -621,3 +621,50 @@ def test_insider_page_keeps_older_days_from_store(session) -> None:
     assert date(2026, 8, 18) in latest.available_dates
     assert older.as_of_date == date(2026, 8, 11)
     assert len(older.rows) == 3
+
+
+def test_insider_page_fetches_missing_days_without_refresh(session) -> None:
+    """Page load fills calendar days that were never cached (stale cache after 20 Aug)."""
+    session.add(
+        InsiderDisclosureDay(
+            disclosure_date=date(2026, 8, 20),
+            rows=_insider_raw(date(2026, 8, 20), 2),
+            row_count=2,
+            truncated=False,
+            fetched_at=datetime(2026, 8, 20, tzinfo=timezone.utc),
+        )
+    )
+    session.commit()
+    calls: list[date] = []
+
+    def fake(from_date: date, to_date: date, scrip_code: str = "") -> list[dict]:
+        calls.append(from_date)
+        if scrip_code:
+            return []
+        if from_date >= date(2026, 8, 21):
+            return _insider_raw(from_date, 2)
+        return []
+
+    with (
+        patch("pms_platform.market_data.insider_store.fetch_insider_rows", side_effect=fake),
+        patch(
+            "pms_platform.market_data.insider_store.insider_backfill_bse_codes",
+            return_value=frozenset(),
+        ),
+        patch(
+            "pms_platform.market_data.bse_corporate_disclosures._today_ist",
+            return_value=date(2026, 8, 24),
+        ),
+    ):
+        result = fetch_corporate_disclosures(
+            "insider",
+            session,
+            calendar_month="2026-08",
+            enrich_market_cap=False,
+        )
+
+    assert date(2026, 8, 20) not in calls
+    assert date(2026, 8, 21) in calls
+    assert date(2026, 8, 24) in calls
+    assert date(2026, 8, 24) in result.available_dates
+    assert session.get(InsiderDisclosureDay, date(2026, 8, 24)) is not None

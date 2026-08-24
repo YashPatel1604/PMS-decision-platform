@@ -42,8 +42,8 @@ export function FormattedPct({
 
   const display = below
     ? value > 0
-      ? `−${Math.abs(value).toFixed(1)}%`
-      : `${value.toFixed(1)}%`
+      ? `−${Math.abs(value).toFixed(2)}%`
+      : `${value.toFixed(2)}%`
     : formatPct(value);
   const tone = below ? (value > 0 ? "negative" : "neutral") : valueTone(value);
 

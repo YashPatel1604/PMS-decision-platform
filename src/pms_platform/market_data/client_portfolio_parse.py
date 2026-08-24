@@ -1,6 +1,6 @@
-"""Parse Research/Portfolio/PMS_ClientPortfolio.xlsx (Model + Stocks).
+"""Parse PMS_ClientPortfolio.xlsx (Model + Stocks).
 
-Read-only. Never writes back into Research.
+DailyEditFiles first, then Research/Portfolio. Never writes Research.
 """
 
 from __future__ import annotations
@@ -76,6 +76,11 @@ class ClientPortfolioBook:
 
 
 def client_portfolio_workbook_path() -> Path | None:
+    from pms_platform.market_data.daily_edit_bhav import client_portfolio_daily_edit_path
+
+    hit = client_portfolio_daily_edit_path()
+    if hit is not None:
+        return hit
     portfolio = research_portfolio_dir()
     if portfolio is None:
         return None

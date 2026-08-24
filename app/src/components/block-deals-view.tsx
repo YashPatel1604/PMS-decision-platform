@@ -253,8 +253,8 @@ function DisclosedDealsView({ kind }: { kind: DealKind }) {
             <p className="text-sm text-stone-500">
               Showing {filtered.length} of {data.deal_count}
               {arbHidden > 0 ? ` · ${arbHidden} arb deals hidden` : ""}
-              {minCap != null ? ` · mcap ≥ ${minCap.toLocaleString("en-IN")} Cr` : ""}
-              {maxCap != null ? ` · mcap ≤ ${maxCap.toLocaleString("en-IN")} Cr` : ""}
+              {minCap != null ? ` · mcap ≥ ${minCap.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr` : ""}
+              {maxCap != null ? ` · mcap ≤ ${maxCap.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr` : ""}
               {" · "}
               {formatDate(data.as_of_date)}
             </p>
@@ -317,7 +317,8 @@ function formatMarketCapCr(value: number | string | null | undefined): string {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return "—";
   return new Intl.NumberFormat("en-IN", {
-    maximumFractionDigits: n >= 100 ? 0 : 2,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(n);
 }
 

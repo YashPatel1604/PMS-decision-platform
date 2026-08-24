@@ -12,6 +12,25 @@ type AuthState = {
   user: AuthUser | null;
 };
 
+const CLIENT_PATHS = [
+  "/strategy/pivot-point",
+  "/strategy/charts",
+  "/strategy/client-portfolio",
+  "/strategy/sca-llp",
+  "/block-deals",
+  "/bulk-deals",
+  "/sast",
+  "/insider-trading",
+];
+
+function clientHome(role: string | undefined): string {
+  return role === "client" ? "/strategy/pivot-point" : "/";
+}
+
+function isClientOnlyPath(pathname: string): boolean {
+  return CLIENT_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+}
+
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -53,9 +72,12 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       router.replace("/login");
     }
     if (user && isLogin) {
-      router.replace("/");
+      router.replace(clientHome(user.role));
     }
-  }, [meQuery.isSuccess, meQuery.data, isLogin, router]);
+    if (user?.role === "client" && !isLogin && !isClientOnlyPath(pathname)) {
+      router.replace("/strategy/pivot-point");
+    }
+  }, [meQuery.isSuccess, meQuery.data, isLogin, pathname, router]);
 
   if (meQuery.isLoading) {
     return (
@@ -70,7 +92,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-screen items-center justify-center bg-stone-50 px-6 text-center text-sm text-stone-600">
         Cannot reach API. Is it running on{" "}
         <code className="mx-1 rounded bg-stone-200 px-1">
-          {process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000"}
+          {process.env.NEXT_PUBLIC_API_URL ?? "/backend"}
         </code>
         ?
       </div>

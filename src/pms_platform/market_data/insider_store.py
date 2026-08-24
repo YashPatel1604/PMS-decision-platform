@@ -60,9 +60,17 @@ def _merge_insider_rows(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return merged
 
 
-def _needs_fetch(row: InsiderDisclosureDay | None, day: date, today: date) -> bool:
+def _needs_fetch(
+    row: InsiderDisclosureDay | None,
+    day: date,
+    today: date,
+    *,
+    refresh_recent: bool,
+) -> bool:
     if row is None:
         return True
+    if not refresh_recent:
+        return False
     if (today - day).days <= _RECENT_REFRESH_DAYS:
         return True
     return bool(row.truncated)
@@ -117,6 +125,7 @@ def sync_insider_days(
     *,
     today: date | None = None,
     scrip_backfill: bool = True,
+    refresh_recent: bool = True,
 ) -> int:
     """Fetch missing/recent insider days from BSE and upsert. Returns days fetched."""
     today = today or date.today()
@@ -133,7 +142,11 @@ def sync_insider_days(
             )
         )
     }
-    pending = [day for day in days if _needs_fetch(existing.get(day), day, today)]
+    pending = [
+        day
+        for day in days
+        if _needs_fetch(existing.get(day), day, today, refresh_recent=refresh_recent)
+    ]
     if not pending:
         return 0
 

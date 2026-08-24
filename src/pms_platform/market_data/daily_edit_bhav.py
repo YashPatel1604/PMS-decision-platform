@@ -71,6 +71,16 @@ def sca_llp_workbook_path(folder: Path | None = None) -> Path | None:
     return _newest_xlsx(root, "sca") or _newest_xlsx(root, "llp", "stock")
 
 
+def client_portfolio_daily_edit_path(folder: Path | None = None) -> Path | None:
+    root = folder or daily_edit_dir()
+    return None if root is None else _newest_xlsx(root, "pms", "client")
+
+
+def pivot_workbook_daily_edit_path(folder: Path | None = None) -> Path | None:
+    root = folder or daily_edit_dir()
+    return None if root is None else _newest_xlsx(root, "pivot")
+
+
 def _csv_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
     with path.open(newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)

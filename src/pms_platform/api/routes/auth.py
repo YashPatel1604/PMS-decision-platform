@@ -46,7 +46,7 @@ def login(
     response: Response,
     session: Session = Depends(get_db),
 ) -> dict[str, object]:
-    """Sign in with email + password (invite-only accounts)."""
+    """Sign in with username or email + password."""
     if settings.auth_disabled:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -56,7 +56,7 @@ def login(
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail="Invalid username or password",
         )
     session.commit()
     _set_session_cookie(response, user.user_id)

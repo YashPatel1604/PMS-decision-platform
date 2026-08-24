@@ -1,6 +1,6 @@
 # Full stack for Dad laptop / local Docker: postgres + api + ui
-# Requires RESEARCH_DIR in .env pointing at the host Research folder
-# (the directory that contains Portfolio/).
+# RESEARCH_DIR optional (Client-only PCs can omit it). Default empty mount.
+# DailyEditFiles holds Charts, SCA, PMS_ClientPortfolio, PivotPoints.
 
 services:
   postgres:
@@ -42,13 +42,13 @@ services:
       UPLOAD_DIR: /data/uploads
       YAHOO_FINANCE_BASE_URL: ${YAHOO_FINANCE_BASE_URL:-https://query1.finance.yahoo.com}
       FUNDAMENTALS_PROVIDER: ${FUNDAMENTALS_PROVIDER:-manual}
-      AUTH_DISABLED: ${AUTH_DISABLED:-1}
-      AUTH_SECRET: ${AUTH_SECRET:-}
+      AUTH_DISABLED: ${AUTH_DISABLED:-0}
+      AUTH_SECRET: ${AUTH_SECRET:-local-dev-pms-auth-secret-change-me}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-0}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
     volumes:
       - type: bind
-        source: ${RESEARCH_DIR:?Set RESEARCH_DIR in .env to your Research folder}
+        source: ${RESEARCH_DIR:-./docker/empty_research}
         target: /data/research
         read_only: true
       - type: bind
@@ -86,12 +86,14 @@ services:
       context: ./app
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://127.0.0.1:8000}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/backend}
+        API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
       NODE_ENV: production
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
     depends_on:
       - api
 

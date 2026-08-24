@@ -10,7 +10,18 @@ from sqlalchemy.orm import Session
 from pms_platform.auth.passwords import hash_password, verify_password
 from pms_platform.models.user import User
 
-VALID_ROLES = frozenset({"admin", "member"})
+VALID_ROLES = frozenset({"admin", "member", "client"})
+_LOCAL_USERS = (
+    ("julesh@local", "Julesh", "client", "1234"),
+    ("samir@local", "Samir", "admin", "1234"),
+)
+
+
+def login_identifier_to_email(identifier: str) -> str:
+    text = identifier.strip().lower()
+    if not text:
+        return text
+    return text if "@" in text else f"{text}@local"
 
 
 def normalize_email(email: str) -> str:
@@ -37,8 +48,8 @@ def create_user(
     normalized = normalize_email(email)
     if not normalized or "@" not in normalized:
         raise ValueError("Valid email is required")
-    if len(password) < 8:
-        raise ValueError("Password must be at least 8 characters")
+    if len(password) < 4:
+        raise ValueError("Password must be at least 4 characters")
     name = display_name.strip()
     if not name:
         raise ValueError("Display name is required")
@@ -62,7 +73,7 @@ def create_user(
 
 def authenticate(session: Session, email: str, password: str) -> User | None:
     """Return the active user if credentials match."""
-    user = get_user_by_email(session, email)
+    user = get_user_by_email(session, login_identifier_to_email(email))
     if user is None or not user.is_active:
         return None
     if not verify_password(user.password_hash, password):
@@ -85,3 +96,16 @@ def user_public_dict(user: User) -> dict[str, object]:
 
 def count_users(session: Session) -> int:
     return int(session.scalar(select(func.count()).select_from(User)) or 0)
+
+
+def ensure_builtin_users(session: Session) -> None:
+    """Create Julesh (client) and Samir (admin) if missing."""
+    for email, name, role, password in _LOCAL_USERS:
+        if get_user_by_email(session, email) is None:
+            create_user(
+                session,
+                email=email,
+                password=password,
+                display_name=name,
+                role=role,
+            )

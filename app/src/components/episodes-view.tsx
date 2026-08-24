@@ -132,7 +132,7 @@ export function EpisodeDetailView({ episodeId }: { episodeId: number }) {
     { label: "Total return (%)", value: formatPct(episode.total_return_pct) },
     { label: "XIRR (% p.a.)", value: formatXirr(episode.stock_xirr) },
     { label: "Portfolio return (%)", value: formatPct(episode.portfolio_return_pct) },
-    { label: "BSE SmallCap return (%)", value: formatPct(episode.smallcap_return_pct, 1, { signed: false }) },
+    { label: "BSE SmallCap return (%)", value: formatPct(episode.smallcap_return_pct, 2, { signed: false }) },
     {
       label: "Excess vs BSE SmallCap (%)",
       value: formatExcessLabel(episode.excess_vs_smallcap),
@@ -152,13 +152,13 @@ export function EpisodeDetailView({ episodeId }: { episodeId: number }) {
       label: "Missed vs peak (%)",
       value:
         episode.missed_upside_vs_peak_pct !== null && episode.missed_upside_vs_peak_pct > 0
-          ? `−${Math.abs(episode.missed_upside_vs_peak_pct).toFixed(1)}%`
+          ? `−${Math.abs(episode.missed_upside_vs_peak_pct).toFixed(2)}%`
           : "—",
       sublabel: "How far below the in-hold peak we sold",
     },
     {
       label: "Max drawdown (%)",
-      value: episode.max_drawdown !== null ? formatPct(-Math.abs(episode.max_drawdown), 1, { signed: true }) : "—",
+      value: episode.max_drawdown !== null ? formatPct(-Math.abs(episode.max_drawdown), 2, { signed: true }) : "—",
       sublabel: "From in-hold peak",
     },
     {
@@ -385,11 +385,11 @@ export function EpisodeDetailView({ episodeId }: { episodeId: number }) {
             />
             <Metric
               label="Portfolio after exit (%) · provisional"
-              value={formatPct(postExit.portfolio_return_after_exit, 1, { signed: false })}
+              value={formatPct(postExit.portfolio_return_after_exit, 2, { signed: false })}
             />
             <Metric
               label="BSE SmallCap after exit (%)"
-              value={formatPct(postExit.smallcap_return_after_exit, 1, { signed: false })}
+              value={formatPct(postExit.smallcap_return_after_exit, 2, { signed: false })}
             />
             <Metric
               label="Excess vs BSE SmallCap (%)"
@@ -435,7 +435,7 @@ function ReinvestmentScenario({
   scenario: EqualWeightReinvestment;
 }) {
   const advantage = scenario.reinvestment_advantage_pct;
-  const absoluteAdvantage = advantage === null ? null : `${Math.abs(advantage).toFixed(1)} pp`;
+  const absoluteAdvantage = advantage === null ? null : `${Math.abs(advantage).toFixed(2)} pp`;
 
   return (
     <div className="mt-6 rounded-lg border border-stone-200 bg-white p-5">

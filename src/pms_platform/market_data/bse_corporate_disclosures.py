@@ -469,11 +469,16 @@ def fetch_corporate_disclosures(
                     sync_insider_days,
                 )
 
-                if refresh_insider:
-                    sync_insider_days(
-                        session, start, end, today=today, scrip_backfill=False
-                    )
-                    session.commit()
+                # Always fill missing calendar days. Refresh re-pulls the last 14 days.
+                sync_insider_days(
+                    session,
+                    start,
+                    end,
+                    today=today,
+                    scrip_backfill=False,
+                    refresh_recent=refresh_insider,
+                )
+                session.commit()
                 raw_rows = load_insider_raw_rows(session, start, end)
             else:
                 raw_rows = fetch_insider_rows(start, end)

@@ -16,7 +16,8 @@ export function toneClass(tone: ValueTone): string {
 const inrFormatter = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
-  maximumFractionDigits: 0,
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 });
 
 const inrPriceFormatter = new Intl.NumberFormat("en-IN", {
@@ -28,9 +29,17 @@ const inrPriceFormatter = new Intl.NumberFormat("en-IN", {
 
 const numberFormatter = new Intl.NumberFormat("en-IN");
 
+export function formatNum(value: number | null | undefined, digits = 2): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return value.toLocaleString("en-IN", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
 export function formatPct(
   value: number | null | undefined,
-  digits = 1,
+  digits = 2,
   options?: { signed?: boolean },
 ): string {
   if (value === null || value === undefined) return "—";
@@ -39,7 +48,7 @@ export function formatPct(
   return `${prefix}${value.toFixed(digits)}%`;
 }
 
-export function formatPp(value: number | null | undefined, digits = 1): string {
+export function formatPp(value: number | null | undefined, digits = 2): string {
   if (value === null || value === undefined) return "—";
   const prefix = value > 0 ? "+" : "";
   return `${prefix}${value.toFixed(digits)} pp`;
@@ -49,7 +58,7 @@ export function formatXirr(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   const pct = value * 100;
   const prefix = pct > 0 ? "+" : "";
-  return `${prefix}${pct.toFixed(1)}% p.a.`;
+  return `${prefix}${pct.toFixed(2)}% p.a.`;
 }
 
 export function formatInr(value: number | null | undefined): string {
@@ -72,7 +81,7 @@ export function formatPnL(value: number | null | undefined): string {
   return abs;
 }
 
-export function formatYears(value: number | null | undefined, digits = 1): string {
+export function formatYears(value: number | null | undefined, digits = 2): string {
   if (value === null || value === undefined) return "—";
   const unit = Math.abs(value) === 1 ? "yr" : "yrs";
   return `${value.toFixed(digits)} ${unit}`;
@@ -83,7 +92,7 @@ export function formatDays(value: number | null | undefined): string {
   return `${numberFormatter.format(value)} days`;
 }
 
-export function formatYearsFromDays(days: number | null | undefined, digits = 1): string {
+export function formatYearsFromDays(days: number | null | undefined, digits = 2): string {
   if (days === null || days === undefined) return "—";
   const years = days / 365.25;
   const unit = Math.abs(years) === 1 ? "yr" : "yrs";

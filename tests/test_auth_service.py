@@ -1,7 +1,13 @@
 """Unit tests for invite-only auth service."""
 
 from pms_platform.auth.passwords import hash_password, verify_password
-from pms_platform.auth.service import authenticate, create_user, get_user_by_email
+from pms_platform.auth.service import (
+    authenticate,
+    count_users,
+    create_user,
+    ensure_builtin_users,
+    get_user_by_email,
+)
 from pms_platform.auth.session import issue_session_token, read_session_user_id
 from pms_platform.config import settings
 
@@ -32,6 +38,31 @@ def test_create_and_authenticate(session, monkeypatch) -> None:
     assert ok.last_login_at is not None
 
     assert authenticate(session, "admin@firm.com", "nope") is None
+
+
+def test_username_login_and_short_password(session) -> None:
+    user = create_user(
+        session,
+        email="julesh@local",
+        password="1234",
+        display_name="Julesh",
+        role="client",
+    )
+    session.commit()
+    ok = authenticate(session, "julesh", "1234")
+    assert ok is not None
+    assert ok.user_id == user.user_id
+    assert ok.role == "client"
+
+
+def test_ensure_builtin_users(session) -> None:
+    ensure_builtin_users(session)
+    session.commit()
+    assert authenticate(session, "julesh", "1234") is not None
+    assert authenticate(session, "samir", "1234") is not None
+    assert get_user_by_email(session, "samir@local").role == "admin"
+    ensure_builtin_users(session)
+    assert count_users(session) == 2
 
 
 def test_duplicate_email_rejected(session) -> None:

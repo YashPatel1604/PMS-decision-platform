@@ -130,13 +130,13 @@ function OutlierAnalysis({ data }: { data: ContinuousLossStrategy }) {
             <div className="flex items-center justify-between gap-4 py-3">
               <dt className="text-sm text-stone-600">Largest single contribution</dt>
               <dd className="font-semibold tabular-nums">
-                {formatPct(data.top_episode_contribution_pct, 1, { signed: false })}
+                {formatPct(data.top_episode_contribution_pct, 2, { signed: false })}
               </dd>
             </div>
             <div className="flex items-center justify-between gap-4 py-3">
               <dt className="text-sm text-stone-600">Top three contributions</dt>
               <dd className="font-semibold tabular-nums">
-                {formatPct(data.top_three_contribution_pct, 1, { signed: false })}
+                {formatPct(data.top_three_contribution_pct, 2, { signed: false })}
               </dd>
             </div>
             <div className="flex items-center justify-between gap-4 py-3">
@@ -182,7 +182,7 @@ function OutlierAnalysis({ data }: { data: ContinuousLossStrategy }) {
                     {formatPp(row.return_uplift_pct)}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums">
-                    {formatPct(row.absolute_contribution_share_pct, 1, { signed: false })}
+                    {formatPct(row.absolute_contribution_share_pct, 2, { signed: false })}
                   </td>
                   <td className="px-3 py-3 text-right">
                     <span
@@ -419,20 +419,20 @@ export function ContinuousLossStrategyView() {
             <Metric
               label="Rule triggered"
               value={`${data.triggered_episodes} of ${data.closed_episodes}`}
-              detail={`${formatPct(data.trigger_rate_pct, 1, { signed: false })} of closed episodes`}
+              detail={`${formatPct(data.trigger_rate_pct, 2, { signed: false })} of closed episodes`}
             />
           </div>
           <div className="sm:px-6">
             <Metric
               label="Win / tie / loss"
               value={`${data.positive_episodes} of ${data.triggered_episodes}`}
-              detail={`${formatPct(data.positive_episode_rate_pct, 1, { signed: false })} wins · ${
+              detail={`${formatPct(data.positive_episode_rate_pct, 2, { signed: false })} wins · ${
                 data.tie_episode_rate_pct === null
                   ? "— ties"
-                  : `${formatPct(data.tie_episode_rate_pct, 1, { signed: false })} ties`
+                  : `${formatPct(data.tie_episode_rate_pct, 2, { signed: false })} ties`
               } · ${formatPct(
                 (data.negative_episodes / data.triggered_episodes) * 100,
-                1,
+                2,
                 { signed: false },
               )} losses`}
             />
@@ -466,7 +466,7 @@ export function ContinuousLossStrategyView() {
               value={
                 data.loo_positive_fraction_pct === null
                   ? "—"
-                  : formatPct(data.loo_positive_fraction_pct, 1, { signed: false })
+                  : formatPct(data.loo_positive_fraction_pct, 2, { signed: false })
               }
               detail="Share of episodes where mean remains positive after removal"
             />

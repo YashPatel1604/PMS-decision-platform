@@ -6,7 +6,13 @@ from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 
-from pms_platform.market_data.daily_edit_bhav import apply_bhav_csv_to_daily_edit_files
+from pms_platform.market_data.daily_edit_bhav import (
+    apply_bhav_csv_to_daily_edit_files,
+    client_portfolio_daily_edit_path,
+    pivot_workbook_daily_edit_path,
+)
+from pms_platform.market_data.client_portfolio_parse import client_portfolio_workbook_path
+from pms_platform.market_data.pivot_seed import default_pivot_workbook
 
 
 def test_apply_bhav_updates_charts_and_sca(tmp_path: Path) -> None:
@@ -75,3 +81,18 @@ def test_apply_bhav_updates_charts_and_sca(tmp_path: Path) -> None:
     assert qty_ws["H2"].value == 3
     assert qty_ws["I2"].value == "=H2*E2"
     sca_wb.close()
+
+
+def test_finds_client_and_pivot_workbooks_in_daily_edit(tmp_path: Path, monkeypatch) -> None:
+    client = tmp_path / "PMS_ClientPortfolio copy.xlsx"
+    pivot = tmp_path / "PivotPointsStrategy_New - Copy.xlsx"
+    client.write_bytes(b"PK")
+    pivot.write_bytes(b"PK")
+    monkeypatch.setattr(
+        "pms_platform.market_data.daily_edit_bhav.daily_edit_dir",
+        lambda: tmp_path,
+    )
+    assert client_portfolio_daily_edit_path().name == client.name
+    assert pivot_workbook_daily_edit_path().name == pivot.name
+    assert client_portfolio_workbook_path() == client
+    assert default_pivot_workbook() == pivot

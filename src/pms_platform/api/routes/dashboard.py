@@ -217,7 +217,7 @@ def list_exit_insights(session: Session = Depends(get_db)) -> list[ExitInsightRo
                     if post_exit and post_exit.comparison_date
                     else None
                 ),
-                holding_years=round(perf.holding_days / 365.25, 1),
+                holding_years=round(perf.holding_days / 365.25, 2),
                 exit_price=_float(exit_price),
                 peak_price=_float(perf.peak_price_during_hold),
                 peak_price_date=(

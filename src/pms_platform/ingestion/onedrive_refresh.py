@@ -222,13 +222,11 @@ def reimport_from_raw(session: Session, *, raw_dir: Path | None = None) -> Reimp
     issues = validate_imported_data(session)
     errors = [i for i in issues if i.severity == ValidationSeverity.ERROR]
     if errors:
-        session.commit()
+        # Don't persist a wipe without rebuilt episodes/snapshots.
+        session.rollback()
         return ReimportResult(
-            securities_inserted=sec.inserted,
-            equity_txns_inserted=txn.equity_inserted,
-            liquid_txns_inserted=txn.liquid_inserted,
             validation_errors=len(errors),
-            notes=[f"Validation failed with {len(errors)} error(s)"],
+            notes=[f"Validation failed with {len(errors)} error(s); import rolled back"],
         )
 
     episodes, decisions = build_episodes(session)

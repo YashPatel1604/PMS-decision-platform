@@ -15,7 +15,7 @@ function num(value: number | null | undefined, digits = 2): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return value.toLocaleString("en-IN", {
     maximumFractionDigits: digits,
-    minimumFractionDigits: 0,
+    minimumFractionDigits: digits,
   });
 }
 
@@ -186,14 +186,14 @@ export function ClientPortfolioView({
           <span>
             Total_Value:{" "}
             <span className="font-medium text-stone-900">
-              {num(data.total_value ?? data.bhav_revalued_total, 0)}
+              {num(data.total_value ?? data.bhav_revalued_total)}
             </span>
           </span>
           {book === "sca" && data.portfolio_total != null ? (
             <span>
               Total Portfolio:{" "}
               <span className="font-medium text-stone-900">
-                {num(data.portfolio_total, 0)}
+                {num(data.portfolio_total)}
               </span>
             </span>
           ) : null}
@@ -311,7 +311,7 @@ function ModelTable({
                   {num(row.price ?? row.close ?? row.excel_price)}
                 </td>
                 <td className="px-3 py-1.5 text-right tabular-nums">
-                  {num(row.value ?? row.bhav_value ?? row.excel_value, 0)}
+                  {num(row.value ?? row.bhav_value ?? row.excel_value)}
                 </td>
                 <td className="px-3 py-1.5 text-right tabular-nums">
                   {row.percent == null && row.excel_percent == null
@@ -327,19 +327,19 @@ function ModelTable({
                       {num(row.ramprasath_qty, 0)}
                     </td>
                     <td className="px-3 py-1.5 text-right tabular-nums">
-                      {num(row.blocked_value, 0)}
+                      {num(row.blocked_value)}
                     </td>
                   </>
                 ) : (
                   <>
                     <td className="px-3 py-1.5">{row.index_label ?? "—"}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{num(row.mcap, 0)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{num(row.mcap)}</td>
                     <td className="px-3 py-1.5 whitespace-nowrap">{row.as_of_label ?? "—"}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       {row.firm_pct == null ? "—" : num(row.firm_pct, 2)}
                     </td>
                     <td className="px-3 py-1.5 text-right tabular-nums">
-                      {num(row.target_value, 0)}
+                      {num(row.target_value)}
                     </td>
                     <td className="px-3 py-1.5">{row.portfolio_flag ?? "—"}</td>
                   </>
@@ -350,7 +350,7 @@ function ModelTable({
               <tr className="border-t border-stone-200 bg-stone-50 font-medium">
                 <td className="px-3 py-1.5">Total_Value</td>
                 <td className="px-3 py-1.5" colSpan={2} />
-                <td className="px-3 py-1.5 text-right tabular-nums">{num(total, 0)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{num(total)}</td>
                 <td className="px-3 py-1.5 text-right tabular-nums">100.00</td>
                 <td className="px-3 py-1.5" colSpan={sca ? 3 : 6} />
               </tr>
@@ -386,7 +386,6 @@ function ModelTable({
                     {num(
                       portfolioTotal ??
                         (total ?? 0) + (Number(draft.replace(/,/g, "")) || 0),
-                      0,
                     )}
                   </td>
                   <td className="px-3 py-1.5" colSpan={4} />
@@ -439,8 +438,8 @@ function YearlyTable({ block }: { block: ClientPortfolioYearlySeries }) {
           {block.rows.map((row) => (
             <tr key={row.year} className="border-t border-stone-100">
               <td className="px-3 py-1.5 tabular-nums">{row.year}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums">{num(row.start, 0)}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums">{num(row.end, 0)}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums">{num(row.start)}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums">{num(row.end)}</td>
               <td className="px-3 py-1.5 text-right tabular-nums">{pct(row.return_pct)}</td>
               <td className="px-3 py-1.5 text-right tabular-nums">{pct(row.cum_pct)}</td>
             </tr>

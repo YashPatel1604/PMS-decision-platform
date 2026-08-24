@@ -21,14 +21,14 @@ function num(value: number | null | undefined, digits = 2): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return value.toLocaleString("en-IN", {
     maximumFractionDigits: digits,
-    minimumFractionDigits: 0,
+    minimumFractionDigits: digits,
   });
 }
 
 function pivotNum(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return value.toLocaleString("en-IN", {
-    maximumFractionDigits: 4,
+    maximumFractionDigits: 2,
     minimumFractionDigits: 2,
   });
 }
@@ -702,11 +702,11 @@ function DailySheetTable({
                     {miss ? "—" : pivotNum(p?.r4_03)}
                   </td>
                   <td className="px-3 py-1.5 text-right tabular-nums">
-                    {num(volValue, 0)}
+                    {num(volValue)}
                   </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{num(vol15, 0)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{num(top50, 0)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{num(band51300, 0)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{num(vol15)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{num(top50)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{num(band51300)}</td>
                 </tr>
               );
             })}

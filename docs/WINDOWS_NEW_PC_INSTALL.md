@@ -152,7 +152,7 @@ Run these from `$HOME\Apps\PMS-decision-platform` with Docker up and internet av
 docker compose exec -T api uv run pms-platform seed-pivot-from-research
 ```
 
-Needs a readable `PivotPoints*.xlsx` under `/data/research` (your `RESEARCH_DIR`).
+Needs `PivotPoints*.xlsx` under DailyEditFiles (`DAILY_EDIT_DIR`). Research is a fallback only.
 
 ### 6b — Latest NSE bhav (as-of dates for Pivot + Client Portfolio)
 
@@ -170,10 +170,11 @@ If download fails: on **Pivot Point Strategy**, upload the CM-UDiFF Common Bhavc
 
 The same commit also refreshes **DailyEditFiles** (writable, not Research):
 
-- `Charts*.xlsx` → `BhavCopy_NSE_CM` (Pivot-style daily tape)
+- `Charts*.xlsx` → `BhavCopy_NSE_CM`
 - `SCA_LLP*Stock*.xlsx` → `cmbhavcopy` plus Quantity/Stocks PRICE and VALUE
+- Client Portfolio / Pivot **read** `PMS_ClientPortfolio*.xlsx` and `PivotPoints*.xlsx` from this folder (qty/names stay in Excel)
 
-Set `DAILY_EDIT_DIR` in `.env` (Compose default `../DailyEditFiles`). Open **SCA LLP** in the app for holdings × bhav, same as Client Portfolio.
+Set `DAILY_EDIT_DIR` in `.env` (Compose default `../DailyEditFiles`). `RESEARCH_DIR` is optional for a Client-only PC.
 
 ### 6c — Watchlists + deep annual history
 

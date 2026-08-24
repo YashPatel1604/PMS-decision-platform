@@ -1273,7 +1273,7 @@ def main() -> None:
     create_user_parser.add_argument("--name", required=True, help="Display name")
     create_user_parser.add_argument(
         "--role",
-        choices=["admin", "member"],
+        choices=["admin", "member", "client"],
         default="member",
     )
     create_user_parser.add_argument(
@@ -1321,13 +1321,13 @@ def main() -> None:
 
     seed_pivot_parser = subparsers.add_parser(
         "seed-pivot-from-research",
-        help="Seed pivot portfolio (+ optional history) from Research PivotPoints workbook",
+        help="Seed pivot portfolio (+ optional history) from DailyEditFiles/Research PivotPoints workbook",
     )
     seed_pivot_parser.add_argument(
         "--file",
         type=Path,
         default=None,
-        help="Workbook path (default: Research/PivotPointsStrategy_*.xlsx)",
+        help="Workbook path (default: DailyEditFiles PivotPoints*.xlsx)",
     )
     seed_pivot_parser.add_argument(
         "--portfolio-only",

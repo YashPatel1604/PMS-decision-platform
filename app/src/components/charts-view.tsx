@@ -10,7 +10,7 @@ function num(value: number | null | undefined, digits = 2): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return value.toLocaleString("en-IN", {
     maximumFractionDigits: digits,
-    minimumFractionDigits: 0,
+    minimumFractionDigits: digits,
   });
 }
 

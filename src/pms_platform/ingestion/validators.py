@@ -53,12 +53,12 @@ def validate_securities(session: Session) -> list[ValidationIssue]:
     """Validate security master contents."""
     issues: list[ValidationIssue] = []
     securities = list(session.scalars(select(Security)).all())
-    if len(securities) != 75:
+    if len(securities) == 0:
         issues.append(
             ValidationIssue(
                 severity=ValidationSeverity.ERROR,
                 code="SECURITY_COUNT_MISMATCH",
-                message=f"Expected 75 securities, found {len(securities)}",
+                message="No securities found in Security Master",
             )
         )
 
