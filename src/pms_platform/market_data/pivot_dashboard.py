@@ -35,7 +35,7 @@ DAILY_SERIES = frozenset({"EQ", "BE"})
 
 
 def open_holding_nse_symbols(session: Session) -> list[str]:
-    """NSE tickers for currently open investment episodes (our holdings)."""
+    """NSE tickers for Our holdings: open episodes, else Client Portfolio Model."""
     rows = session.execute(
         select(Security.current_nse_symbol, Security.historical_nse_symbol)
         .join(InvestmentEpisode, InvestmentEpisode.security_id == Security.security_id)
@@ -47,7 +47,15 @@ def open_holding_nse_symbols(session: Session) -> list[str]:
             text = str(raw or "").strip().upper()
             if text and text not in {"NAN", "NONE", "NULL"}:
                 symbols.add(text)
-    return sorted(symbols)
+    if symbols:
+        return sorted(symbols)
+    # Julesh-only PCs have no episodes; Model sheet in DailyEditFiles is enough.
+    from pms_platform.market_data.client_portfolio_parse import load_client_portfolio_book
+
+    book = load_client_portfolio_book()
+    if book is None:
+        return []
+    return sorted({pos.symbol for pos in book.model if pos.symbol})
 
 
 def _bar_dict(bar: Any) -> dict[str, Any]:

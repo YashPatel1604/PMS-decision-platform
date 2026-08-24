@@ -178,6 +178,37 @@ def test_open_holding_nse_symbols(session, sample_security) -> None:
     assert open_holding_nse_symbols(session) == ["AURIONPRO"]
 
 
+def test_open_holding_falls_back_to_client_portfolio(session, monkeypatch) -> None:
+    from decimal import Decimal
+
+    from pms_platform.market_data.client_portfolio_parse import ClientPortfolioPosition
+    from pms_platform.market_data.pivot_dashboard import open_holding_nse_symbols
+
+    class _Book:
+        model = [
+            ClientPortfolioPosition(
+                symbol="INFY",
+                qty=Decimal("1"),
+                excel_price=None,
+                excel_value=None,
+                excel_percent=None,
+            ),
+            ClientPortfolioPosition(
+                symbol="RELIANCE",
+                qty=Decimal("2"),
+                excel_price=None,
+                excel_value=None,
+                excel_percent=None,
+            ),
+        ]
+
+    monkeypatch.setattr(
+        "pms_platform.market_data.client_portfolio_parse.load_client_portfolio_book",
+        lambda: _Book(),
+    )
+    assert open_holding_nse_symbols(session) == ["INFY", "RELIANCE"]
+
+
 def test_bhav_validate_commit_reconcile_loop(session, tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         "pms_platform.market_data.nse_bhav_store.settings.upload_dir",
