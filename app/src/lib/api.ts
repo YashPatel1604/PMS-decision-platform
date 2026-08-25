@@ -1377,6 +1377,11 @@ export const api = {
       `/strategy/client-portfolio/bank-balance?book=sca`,
       { method: "PATCH", body: JSON.stringify({ amount }) },
     ),
+  patchBseSmallcapYear: (body: { year: number; start?: number | null; end?: number | null }) =>
+    request<{ year: number; start: number | null; end: number | null }>(
+      `/strategy/client-portfolio/bse-smallcap-year`,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
   fetchNseBhav: (tradeDate?: string | null) => {
     const params = new URLSearchParams();
     if (tradeDate) params.set("trade_date", tradeDate);

@@ -177,7 +177,7 @@ def _is_midcap_header(row: tuple[Any, ...]) -> bool:
 
 
 def _parse_yearly_series(rows: list[tuple[Any, ...]]) -> list[YearlyReturnSeries]:
-    """Pull Portfolio / benchmark year blocks from the Model sheet layout."""
+    """Pull Portfolio + BSESmallCap year blocks from the Model sheet layout."""
     series: list[YearlyReturnSeries] = []
 
     def add(name: str, year_col: int, block: list[tuple[Any, ...]]) -> None:
@@ -186,38 +186,76 @@ def _parse_yearly_series(rows: list[tuple[Any, ...]]) -> list[YearlyReturnSeries
             series.append(YearlyReturnSeries(name=name, rows=tuple(parsed)))
 
     mid_idx = next((i for i, row in enumerate(rows) if _is_midcap_header(row)), None)
-    bse500_idx = next(
-        (
-            i
-            for i, row in enumerate(rows)
-            if str(_cell(row, 10) or "").strip().upper() == "BSE500"
-        ),
-        None,
-    )
     top = rows if mid_idx is None else rows[:mid_idx]
-    if mid_idx is None:
-        bottom: list[tuple[Any, ...]] = []
-    elif bse500_idx is not None and bse500_idx > mid_idx:
-        bottom = rows[mid_idx:bse500_idx]
-    else:
-        bottom = rows[mid_idx:]
 
     # Header: Portfolio years @ col 11, BSESmallCap @ col 16/17
     add("Portfolio", 11, top)
     small_name = _label_at(rows[0], 16) if rows else None
     add(small_name or "BSESmallCap", 17, top)
-
-    if bottom:
-        mid_name = _label_at(bottom[0], 10) or "BSEMidCap"
-        add(mid_name, 11, bottom)
-        sensex = _label_at(bottom[0], 16)
-        add(sensex or "Sensex", 17, bottom)
-
-    # BSE500 sits under the Portfolio/MidCap columns (label @ col 10, year @ 11).
-    if bse500_idx is not None:
-        add("BSE500", 11, rows[bse500_idx:])
-
+    # MidCap / Sensex / BSE500 stay in Excel; UI only needs Portfolio + SmallCap.
     return series
+
+
+def write_bse_smallcap_year(
+    *,
+    year: int,
+    start: Decimal | None = None,
+    end: Decimal | None = None,
+    path: Path | None = None,
+) -> dict[str, float | int | None]:
+    """Write Model BSESmallCap Start/End for ``year`` (cols R/S); refresh Return/Cum."""
+    resolved = path or client_portfolio_workbook_path()
+    if resolved is None or not resolved.is_file():
+        raise FileNotFoundError("PMS_ClientPortfolio.xlsx not found under DailyEditFiles")
+    if start is None and end is None:
+        raise ValueError("Provide start and/or end")
+
+    wb = openpyxl.load_workbook(resolved)
+    try:
+        if "Model" not in wb.sheetnames:
+            raise FileNotFoundError("Model sheet missing")
+        ws = wb["Model"]
+        year_col = 18  # 1-based: Q=Portfolio year, R=SmallCap year
+        start_col, end_col, ret_col, cum_col = 19, 20, 21, 22
+        row_i = None
+        for r in range(1, (ws.max_row or 1) + 1):
+            if _as_year(ws.cell(r, year_col).value) == year:
+                row_i = r
+                break
+        if row_i is None:
+            raise ValueError(f"No BSESmallCap row for year {year}")
+
+        if start is not None:
+            ws.cell(row_i, start_col, float(start))
+        if end is not None:
+            ws.cell(row_i, end_col, float(end))
+
+        start_v = _to_decimal(ws.cell(row_i, start_col).value)
+        end_v = _to_decimal(ws.cell(row_i, end_col).value)
+        if start_v is not None and end_v is not None and start_v != 0:
+            ws.cell(row_i, ret_col, float(end_v / start_v - 1))
+
+        first_start = None
+        for r in range(1, (ws.max_row or 1) + 1):
+            y = _as_year(ws.cell(r, year_col).value)
+            if y is None:
+                continue
+            s = _to_decimal(ws.cell(r, start_col).value)
+            if s is not None:
+                first_start = s
+                break
+        if first_start is not None and first_start != 0 and end_v is not None:
+            ws.cell(row_i, cum_col, float(end_v / first_start - 1))
+
+        wb.save(resolved)
+        clear_client_portfolio_cache()
+        return {
+            "year": year,
+            "start": float(start_v) if start_v is not None else None,
+            "end": float(end_v) if end_v is not None else None,
+        }
+    finally:
+        wb.close()
 
 
 def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:

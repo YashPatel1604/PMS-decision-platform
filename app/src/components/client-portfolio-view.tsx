@@ -159,7 +159,8 @@ export function ClientPortfolioView({
         <p className="text-sm text-stone-500">
           Marks from bhav{" "}
           <span className="font-medium text-stone-800">{formatDate(data.as_of)}</span>.
-          Benchmark yearly tables stay from the workbook.
+          Benchmark yearly tables show Portfolio + BSE SmallCap (Start/End editable for the
+          current year).
         </p>
       ) : null}
 
@@ -227,7 +228,12 @@ export function ClientPortfolioView({
           portfolioTotal={data.portfolio_total}
         />
       ) : null}
-      {data?.yearly?.length ? <YearlySection series={data.yearly} /> : null}
+      {data?.yearly?.length ? (
+        <YearlySection
+          series={data.yearly}
+          currentYear={Number((asOf ?? data.as_of ?? "").slice(0, 4)) || new Date().getFullYear()}
+        />
+      ) : null}
     </div>
   );
 }
@@ -403,20 +409,82 @@ function ModelTable({
 }
 
 
-function YearlySection({ series }: { series: ClientPortfolioYearlySeries[] }) {
+function isSmallCap(name: string): boolean {
+  const key = name.replace(/\s+/g, "").toUpperCase();
+  return key.includes("SMALLCAP") || key === "BSESMALLCAP";
+}
+
+function YearlySection({
+  series,
+  currentYear,
+}: {
+  series: ClientPortfolioYearlySeries[];
+  currentYear: number;
+}) {
+  const shown = series.filter(
+    (block) => block.name === "Portfolio" || isSmallCap(block.name),
+  );
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-stone-700">Yearly returns</h3>
       <div className="grid gap-4 xl:grid-cols-2">
-        {series.map((block) => (
-          <YearlyTable key={block.name} block={block} />
+        {shown.map((block) => (
+          <YearlyTable
+            key={block.name}
+            block={block}
+            editableYear={isSmallCap(block.name) ? currentYear : null}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function YearlyTable({ block }: { block: ClientPortfolioYearlySeries }) {
+function YearlyTable({
+  block,
+  editableYear,
+}: {
+  block: ClientPortfolioYearlySeries;
+  editableYear: number | null;
+}) {
+  const queryClient = useQueryClient();
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const save = useMutation({
+    mutationFn: (body: { year: number; start?: number; end?: number }) =>
+      api.patchBseSmallcapYear(body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["client-portfolio-dashboard"] });
+    },
+  });
+
+  const draftKey = (year: number, field: "start" | "end") => `${year}:${field}`;
+  const display = (year: number, field: "start" | "end", value: number | null) => {
+    const key = draftKey(year, field);
+    if (key in drafts) return drafts[key];
+    return value == null || !Number.isFinite(value) ? "" : String(value);
+  };
+
+  const commit = (year: number, field: "start" | "end", raw: string, previous: number | null) => {
+    const parsed = Number(raw.replace(/,/g, ""));
+    if (!Number.isFinite(parsed)) {
+      setDrafts((d) => {
+        const next = { ...d };
+        delete next[draftKey(year, field)];
+        return next;
+      });
+      return;
+    }
+    if (previous != null && parsed === previous) {
+      setDrafts((d) => {
+        const next = { ...d };
+        delete next[draftKey(year, field)];
+        return next;
+      });
+      return;
+    }
+    save.mutate({ year, [field]: parsed });
+  };
+
   return (
     <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
       <table className="min-w-full text-sm">
@@ -424,6 +492,11 @@ function YearlyTable({ block }: { block: ClientPortfolioYearlySeries }) {
           <tr>
             <th className="px-3 py-2" colSpan={5}>
               {block.name}
+              {editableYear != null ? (
+                <span className="ml-2 font-normal normal-case tracking-normal text-stone-500">
+                  (edit Start/End for {editableYear})
+                </span>
+              ) : null}
             </th>
           </tr>
           <tr>
@@ -435,17 +508,63 @@ function YearlyTable({ block }: { block: ClientPortfolioYearlySeries }) {
           </tr>
         </thead>
         <tbody>
-          {block.rows.map((row) => (
-            <tr key={row.year} className="border-t border-stone-100">
-              <td className="px-3 py-1.5 tabular-nums">{row.year}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums">{num(row.start)}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums">{num(row.end)}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums">{pct(row.return_pct)}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums">{pct(row.cum_pct)}</td>
-            </tr>
-          ))}
+          {block.rows.map((row) => {
+            const canEdit = editableYear != null && row.year === editableYear;
+            return (
+              <tr key={row.year} className="border-t border-stone-100">
+                <td className="px-3 py-1.5 tabular-nums">{row.year}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">
+                  {canEdit ? (
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      aria-label={`${block.name} ${row.year} start`}
+                      value={display(row.year, "start", row.start)}
+                      disabled={save.isPending}
+                      onChange={(e) =>
+                        setDrafts((d) => ({ ...d, [draftKey(row.year, "start")]: e.target.value }))
+                      }
+                      onBlur={(e) => commit(row.year, "start", e.target.value, row.start)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur();
+                      }}
+                      className="w-28 rounded border border-stone-200 bg-white px-2 py-1 text-right tabular-nums outline-none ring-emerald-600/30 focus:ring-2"
+                    />
+                  ) : (
+                    num(row.start)
+                  )}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums">
+                  {canEdit ? (
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      aria-label={`${block.name} ${row.year} end`}
+                      value={display(row.year, "end", row.end)}
+                      disabled={save.isPending}
+                      onChange={(e) =>
+                        setDrafts((d) => ({ ...d, [draftKey(row.year, "end")]: e.target.value }))
+                      }
+                      onBlur={(e) => commit(row.year, "end", e.target.value, row.end)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur();
+                      }}
+                      className="w-28 rounded border border-stone-200 bg-white px-2 py-1 text-right tabular-nums outline-none ring-emerald-600/30 focus:ring-2"
+                    />
+                  ) : (
+                    num(row.end)
+                  )}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{pct(row.return_pct)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{pct(row.cum_pct)}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
+      {save.isError ? (
+        <p className="px-3 py-2 text-sm text-red-700">{(save.error as Error).message}</p>
+      ) : null}
     </div>
   );
 }

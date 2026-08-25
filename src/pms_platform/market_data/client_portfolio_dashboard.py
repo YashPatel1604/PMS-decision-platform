@@ -275,7 +275,7 @@ def build_client_portfolio_dashboard(
             "qty": qty_src,
             "price_value_percent": "Price/Value/Percent/Total_Value from qty × as-of bhav close",
             "yearly_portfolio": "Portfolio current year End/Return/Cum updated from Total_Value",
-            "yearly_benchmarks": "BSESmallCap / MidCap / Sensex / BSE500 stay from workbook",
+            "yearly_benchmarks": "Portfolio + BSESmallCap only; SmallCap Start/End editable for current year",
             "ramprasath": "Quantity!H Ramprasath qty is static; G=D−H; I=H×as-of price",
             "bank": "Quantity!F Balance with Bank is typed; Total Portfolio = Total_Value + bank",
         },
