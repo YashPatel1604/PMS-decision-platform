@@ -13,7 +13,7 @@ from pms_platform.models.user import User
 VALID_ROLES = frozenset({"admin", "member", "client"})
 _LOCAL_USERS = (
     ("julesh@local", "Julesh", "client", "1234"),
-    ("samir@local", "Samir", "admin", "1234"),
+    ("samir@local", "Samir", "admin", "samir@1234"),
 )
 
 
@@ -99,9 +99,10 @@ def count_users(session: Session) -> int:
 
 
 def ensure_builtin_users(session: Session) -> None:
-    """Create Julesh (client) and Samir (admin) if missing."""
+    """Create Julesh (client) and Samir (admin) if missing; keep seed passwords."""
     for email, name, role, password in _LOCAL_USERS:
-        if get_user_by_email(session, email) is None:
+        existing = get_user_by_email(session, email)
+        if existing is None:
             create_user(
                 session,
                 email=email,
@@ -109,3 +110,6 @@ def ensure_builtin_users(session: Session) -> None:
                 display_name=name,
                 role=role,
             )
+            continue
+        if not verify_password(existing.password_hash, password):
+            existing.password_hash = hash_password(password)

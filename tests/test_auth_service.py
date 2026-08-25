@@ -59,8 +59,13 @@ def test_ensure_builtin_users(session) -> None:
     ensure_builtin_users(session)
     session.commit()
     assert authenticate(session, "julesh", "1234") is not None
-    assert authenticate(session, "samir", "1234") is not None
+    assert authenticate(session, "samir", "samir@1234") is not None
     assert get_user_by_email(session, "samir@local").role == "admin"
+    samir = get_user_by_email(session, "samir@local")
+    samir.password_hash = hash_password("old-temp")
+    session.flush()
+    ensure_builtin_users(session)
+    assert authenticate(session, "samir", "samir@1234") is not None
     ensure_builtin_users(session)
     assert count_users(session) == 2
 
