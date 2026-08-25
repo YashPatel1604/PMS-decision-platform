@@ -314,10 +314,10 @@ def test_bhav_validate_commit_reconcile_loop(session, tmp_path, monkeypatch) -> 
     assert abs(daily_rel["pivot"]["pp"] - 1418.3333333333333) < 1e-9
     assert daily_rel["vol_exp"] is not None
     assert abs(daily_rel["vol_15min"] - daily_rel["vol_exp"] / 25) < 1e-6
-    # Prev day Vol Exp = what Daily printed on 2026-08-18 for RELIANCE.
+    # Prev day vol = prior bhav TtlTradgVol (not Last20 Vol Exp).
     prior_dash = build_pivot_dashboard(session, as_of=date(2026, 8, 18))
     prior_rel = next(r for r in prior_dash["daily"] if r["symbol"] == "RELIANCE")
-    assert daily_rel["prev_day_vol_exp"] == prior_rel["vol_exp"]
+    assert daily_rel["prev_day_volume"] == prior_rel["volume"] == 1000
 
     gainers = dash["gainers"]
     assert gainers

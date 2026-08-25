@@ -603,7 +603,7 @@ export type PivotBar = {
   turnover: number | null;
   pivot?: PivotLevel | null;
   portfolio_flag?: string | null;
-  prev_day_vol_exp?: number | null;
+  prev_day_volume?: number | null;
   vol_exp?: number | null;
   vol_15min?: number | null;
   top50?: number | null;

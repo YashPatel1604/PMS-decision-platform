@@ -53,7 +53,7 @@ export function PivotPointStrategyView() {
   const [query, setQuery] = useState("");
   const [dailyScope, setDailyScope] = useState<DailyScope>("portfolio");
   const [seriesScope, setSeriesScope] = useState<SeriesScope>("both");
-  const [showPrevDayVolExp, setShowPrevDayVolExp] = useState(false);
+  const [showPrevDayVol, setShowPrevDayVol] = useState(false);
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
   const [newFirm, setNewFirm] = useState("");
   const [addFirmError, setAddFirmError] = useState<string | null>(null);
@@ -373,15 +373,15 @@ export function PivotPointStrategyView() {
             <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-700">
               <input
                 type="checkbox"
-                checked={showPrevDayVolExp}
-                onChange={(e) => setShowPrevDayVolExp(e.target.checked)}
+                checked={showPrevDayVol}
+                onChange={(e) => setShowPrevDayVol(e.target.checked)}
                 className="rounded border-stone-300 text-emerald-700 focus:ring-emerald-600"
               />
-              Prev day Vol Exp
+              Prev day vol
             </label>
-            {showPrevDayVolExp ? (
+            {showPrevDayVol ? (
               <span className="text-xs text-stone-500">
-                Yesterday&apos;s Daily Vol Exp (Last20 avg ×1.1/×1.2 from that day&apos;s snapshot).
+                Yesterday&apos;s traded volume (prior bhav TtlTradgVol); 15min bands use vol ÷ 25.
               </span>
             ) : null}
             {dailyScope === "selected" ? (
@@ -545,7 +545,7 @@ export function PivotPointStrategyView() {
         <DailySheetTable
           title={`Daily (${daily.length})`}
           rows={daily}
-          showPrevDayVolExp={showPrevDayVolExp}
+          showPrevDayVol={showPrevDayVol}
         />
       ) : null}
     </div>
@@ -652,11 +652,11 @@ function UploadPanel({
 function DailySheetTable({
   title,
   rows,
-  showPrevDayVolExp,
+  showPrevDayVol,
 }: {
   title: string;
   rows: PivotDashboard["daily"];
-  showPrevDayVolExp: boolean;
+  showPrevDayVol: boolean;
 }) {
   return (
     <div className="space-y-2">
@@ -678,7 +678,7 @@ function DailySheetTable({
               <th className="px-3 py-2 text-right">R3+0.3</th>
               <th className="px-3 py-2 text-right">R4+0.3</th>
               <th className="px-3 py-2 text-right">
-                {showPrevDayVolExp ? "Prev Vol Exp" : "Vol Exp"}
+                {showPrevDayVol ? "Prev vol" : "Vol Exp"}
               </th>
               <th className="px-3 py-2 text-right">15minVol</th>
               <th className="px-3 py-2 text-right">Top50</th>
@@ -689,7 +689,7 @@ function DailySheetTable({
             {rows.slice(0, 500).map((row) => {
               const p = row.pivot;
               const miss = !p || p.missing;
-              const volValue = showPrevDayVolExp ? row.prev_day_vol_exp : row.vol_exp;
+              const volValue = showPrevDayVol ? row.prev_day_volume : row.vol_exp;
               const vol15 = volValue != null ? volValue / 25 : null;
               const top50 = vol15 != null ? vol15 * 3 : null;
               const band51300 = vol15 != null ? vol15 * 6 : null;
@@ -729,10 +729,10 @@ function DailySheetTable({
                     {miss ? "—" : pivotNum(p?.r4_03)}
                   </td>
                   <td className="px-3 py-1.5 text-right tabular-nums">
-                    {num(volValue)}
+                    {num(volValue, 0)}
                   </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{num(vol15)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{num(top50)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{num(vol15, 0)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{num(top50, 0)}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums">{num(band51300)}</td>
                 </tr>
               );

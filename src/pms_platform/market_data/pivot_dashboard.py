@@ -98,7 +98,7 @@ def _daily_row(
     as_of: date,
     portfolio_a_by_symbol: dict[str, bool],
     vol_exp_by_symbol: dict[str, Decimal],
-    prev_vol_exp_by_symbol: dict[str, Decimal],
+    prev_day_volume: int | None,
 ) -> dict[str, Any]:
     row = _bar_dict(bar)
     row["pivot"] = _pivot_from_bar(bar, as_of=as_of)
@@ -106,8 +106,7 @@ def _daily_row(
         row["portfolio_flag"] = "Y" if portfolio_a_by_symbol[bar.symbol] else "N"
     else:
         row["portfolio_flag"] = None
-    prev_ve = prev_vol_exp_by_symbol.get(bar.symbol)
-    row["prev_day_vol_exp"] = float(prev_ve) if prev_ve is not None else None
+    row["prev_day_volume"] = prev_day_volume
     vol_exp = vol_exp_by_symbol.get(bar.symbol)
     if vol_exp is not None:
         vol_15 = Decimal(vol_exp) / Decimal(25)
@@ -165,9 +164,6 @@ def build_pivot_dashboard(
     # Daily Vol Exp = Last20 avg×1.1/1.2 snapshotted for this as_of (Excel Last20Days roll).
     vol_exp_by_symbol = load_vol_exp_map(session, as_of)
     prior_date = prior_session_date(session, as_of)
-    prev_vol_exp_by_symbol = (
-        load_vol_exp_map(session, prior_date) if prior_date is not None else {}
-    )
 
     portfolio_rows = list(
         session.scalars(select(PivotPortfolioSymbol).order_by(PivotPortfolioSymbol.symbol)).all()
@@ -178,8 +174,12 @@ def build_pivot_dashboard(
     for bar in load_day_bars(session, as_of, series="BE"):
         last_map.setdefault(bar.symbol, bar)
     prior_map: dict[str, Any] = {}
+    prev_day_volume_by_key: dict[tuple[str, str], int] = {}
     if prior_date:
         prior_day_bars = load_day_bars(session, prior_date, series=None)
+        for bar in prior_day_bars:
+            if bar.series in DAILY_SERIES:
+                prev_day_volume_by_key[(bar.symbol, bar.series)] = int(bar.volume or 0)
         prior_map = bars_by_symbol([b for b in prior_day_bars if b.series == "EQ"])
         for bar in prior_day_bars:
             if bar.series == "BE":
@@ -230,7 +230,7 @@ def build_pivot_dashboard(
                 as_of=as_of,
                 portfolio_a_by_symbol=portfolio_a_by_symbol,
                 vol_exp_by_symbol=vol_exp_by_symbol,
-                prev_vol_exp_by_symbol=prev_vol_exp_by_symbol,
+                prev_day_volume=prev_day_volume_by_key.get((bar.symbol, bar.series)),
             )
         )
         if len(daily_payload) >= 5000:
@@ -250,7 +250,7 @@ def build_pivot_dashboard(
                 as_of=as_of,
                 portfolio_a_by_symbol=portfolio_a_by_symbol,
                 vol_exp_by_symbol=vol_exp_by_symbol,
-                prev_vol_exp_by_symbol=prev_vol_exp_by_symbol,
+                prev_day_volume=prev_day_volume_by_key.get((bar.symbol, bar.series)),
             )
         )
         present.add(key)
@@ -287,7 +287,7 @@ def build_pivot_dashboard(
             "r4": "H+3*(PP-L); R3=H+2*(PP-L); R2=PP+(H-L); R1=2*PP-L",
             "bands": "Sx-0.3=Sx*(1-0.003); Rx+0.3=Rx*(1+0.003)",
             "vol_exp": "Last20 avg EQ vol ×1.1 (top 50 turnover) or ×1.2 (rest), snapshotted on commit",
-            "prev_day_vol_exp": "Vol Exp snapshot from the prior bhav day (what Daily showed yesterday)",
+            "prev_day_volume": "Prior bhav day TtlTradgVol for same symbol + series",
             "vol_15min": "VolExp/25",
             "top50": "15minVol*3",
             "band_51_300": "15minVol*6",
