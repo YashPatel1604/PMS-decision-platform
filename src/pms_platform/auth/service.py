@@ -12,7 +12,7 @@ from pms_platform.models.user import User
 
 VALID_ROLES = frozenset({"admin", "member", "client"})
 _LOCAL_USERS = (
-    ("julesh@local", "Julesh", "client", "1234"),
+    ("julesh@local", "Julesh", "client", "julesh@2602"),
     ("samir@local", "Samir", "admin", "samir@1510"),
 )
 

@@ -44,12 +44,12 @@ def test_username_login_and_short_password(session) -> None:
     user = create_user(
         session,
         email="julesh@local",
-        password="1234",
+        password="julesh@2602",
         display_name="Julesh",
         role="client",
     )
     session.commit()
-    ok = authenticate(session, "julesh", "1234")
+    ok = authenticate(session, "julesh", "julesh@2602")
     assert ok is not None
     assert ok.user_id == user.user_id
     assert ok.role == "client"
@@ -58,7 +58,7 @@ def test_username_login_and_short_password(session) -> None:
 def test_ensure_builtin_users(session) -> None:
     ensure_builtin_users(session)
     session.commit()
-    assert authenticate(session, "julesh", "1234") is not None
+    assert authenticate(session, "julesh", "julesh@2602") is not None
     assert authenticate(session, "samir", "samir@1510") is not None
     assert get_user_by_email(session, "samir@local").role == "admin"
     samir = get_user_by_email(session, "samir@local")
