@@ -20,7 +20,12 @@ export default function LoginPage() {
     setPending(true);
     try {
       const result = await api.login(username.trim(), password);
-      await queryClient.invalidateQueries({ queryKey: ["auth-me"] });
+      await queryClient.refetchQueries({ queryKey: ["auth-me"] });
+      const me = queryClient.getQueryData<{ user: { role: string } | null }>(["auth-me"]);
+      if (!me?.user) {
+        setError("Signed in, but the session cookie was not stored. Use http://localhost:3000 (not 127.0.0.1) and hard-refresh.");
+        return;
+      }
       router.replace(result.user.role === "client" ? "/strategy/pivot-point" : "/");
     } catch (err) {
       if (err instanceof ApiError) {
