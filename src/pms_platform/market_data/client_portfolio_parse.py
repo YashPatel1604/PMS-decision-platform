@@ -140,19 +140,27 @@ def _pct_points(raw: object) -> Decimal | None:
 def _parse_year_block(
     rows: list[tuple[Any, ...]], *, year_col: int
 ) -> list[YearlyReturnRow]:
-    out: list[YearlyReturnRow] = []
+    raw: list[tuple[int, Decimal | None, Decimal | None, Decimal | None, Decimal | None]] = []
     for row in rows:
         year = _as_year(_cell(row, year_col))
         if year is None:
             continue
+        start = _to_decimal(_cell(row, year_col + 1))
+        end = _to_decimal(_cell(row, year_col + 2))
+        ret = _pct_points(_cell(row, year_col + 3))
+        cum = _pct_points(_cell(row, year_col + 4))
+        # openpyxl save clears Excel formula caches → Return/Cum often None; recompute.
+        if ret is None and start is not None and end is not None and start != 0:
+            ret = (end / start - 1) * Decimal(100)
+        raw.append((year, start, end, ret, cum))
+
+    first_start = next((s for _, s, _, _, _ in raw if s is not None), None)
+    out: list[YearlyReturnRow] = []
+    for year, start, end, ret, cum in raw:
+        if cum is None and first_start is not None and first_start != 0 and end is not None:
+            cum = (end / first_start - 1) * Decimal(100)
         out.append(
-            YearlyReturnRow(
-                year=year,
-                start=_to_decimal(_cell(row, year_col + 1)),
-                end=_to_decimal(_cell(row, year_col + 2)),
-                return_pct=_pct_points(_cell(row, year_col + 3)),
-                cum_pct=_pct_points(_cell(row, year_col + 4)),
-            )
+            YearlyReturnRow(year=year, start=start, end=end, return_pct=ret, cum_pct=cum)
         )
     return out
 
@@ -196,6 +204,33 @@ def _parse_yearly_series(rows: list[tuple[Any, ...]]) -> list[YearlyReturnSeries
     return series
 
 
+def _rewrite_year_block_metrics(
+    ws: Any,
+    *,
+    year_col: int,
+    start_col: int,
+    end_col: int,
+    ret_col: int,
+    cum_col: int,
+) -> None:
+    """Replace Return/Cum formulas with values so openpyxl save does not blank them."""
+    rows: list[tuple[int, Decimal | None, Decimal | None]] = []
+    first_start: Decimal | None = None
+    for r in range(1, (ws.max_row or 1) + 1):
+        if _as_year(ws.cell(r, year_col).value) is None:
+            continue
+        start = _to_decimal(ws.cell(r, start_col).value)
+        end = _to_decimal(ws.cell(r, end_col).value)
+        if first_start is None and start is not None:
+            first_start = start
+        rows.append((r, start, end))
+    for r, start, end in rows:
+        if start is not None and end is not None and start != 0:
+            ws.cell(r, ret_col, float(end / start - 1))
+        if first_start is not None and first_start != 0 and end is not None:
+            ws.cell(r, cum_col, float(end / first_start - 1))
+
+
 def write_bse_smallcap_year(
     *,
     year: int,
@@ -230,23 +265,26 @@ def write_bse_smallcap_year(
         if end is not None:
             ws.cell(row_i, end_col, float(end))
 
+        # Saving clears Excel formula result caches; write metrics as values for both blocks.
+        _rewrite_year_block_metrics(
+            ws,
+            year_col=year_col,
+            start_col=start_col,
+            end_col=end_col,
+            ret_col=ret_col,
+            cum_col=cum_col,
+        )
+        _rewrite_year_block_metrics(
+            ws,
+            year_col=12,
+            start_col=13,
+            end_col=14,
+            ret_col=15,
+            cum_col=16,
+        )
+
         start_v = _to_decimal(ws.cell(row_i, start_col).value)
         end_v = _to_decimal(ws.cell(row_i, end_col).value)
-        if start_v is not None and end_v is not None and start_v != 0:
-            ws.cell(row_i, ret_col, float(end_v / start_v - 1))
-
-        first_start = None
-        for r in range(1, (ws.max_row or 1) + 1):
-            y = _as_year(ws.cell(r, year_col).value)
-            if y is None:
-                continue
-            s = _to_decimal(ws.cell(r, start_col).value)
-            if s is not None:
-                first_start = s
-                break
-        if first_start is not None and first_start != 0 and end_v is not None:
-            ws.cell(row_i, cum_col, float(end_v / first_start - 1))
-
         wb.save(resolved)
         clear_client_portfolio_cache()
         return {
