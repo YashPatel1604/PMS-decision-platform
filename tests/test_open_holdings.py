@@ -139,11 +139,81 @@ def test_open_holding_from_date_window(
     assert row.period_start_date == date(2020, 3, 31)
     assert row.from_price == Decimal("110")
     assert row.first_buy_price == Decimal("100")
-    # Period window: 143/110 - 1 = 30% (not inception 143/100)
+    # Period window: current / period-start mark = 143/110 - 1 = 30%
     assert row.stock_return_pct == Decimal("30")
+    assert row.as_of_price == Decimal("143")
     # benchmark 1155/1050 - 1 = 10%
     assert row.benchmarks[0].total_return_pct == Decimal("10")
     assert row.benchmarks[0].excess_vs_stock_pp == Decimal("20")
+
+
+def test_open_holding_from_date_uses_adjusted_start_not_adj_times_factor(
+    session, import_batch, sample_security, monkeypatch
+) -> None:
+    """Period start price is adjusted close (same series as as-of adj), not adj×CA."""
+    for target in (
+        "pms_platform.analytics.open_holdings.lookup_research_portfolio_value",
+        "pms_platform.analytics.open_holdings.load_client_portfolio_book",
+        "pms_platform.episodes.model_reconcile.load_client_portfolio_book",
+        "pms_platform.analytics.open_holdings.latest_research_book_date",
+        "pms_platform.analytics.open_holdings.latest_bhav_trade_date",
+    ):
+        monkeypatch.setattr(target, lambda *_a, **_k: None)
+
+    sid = sample_security.security_id
+    add_transaction(
+        session, import_batch, sid, date(2020, 1, 2), EventType.BUY, 10, 1, Decimal("100")
+    )
+    session.add(
+        DailyPrice(
+            security_id=sid,
+            identifier_type="SECURITY_ID",
+            identifier=sid,
+            trade_date=date(2020, 3, 31),
+            close=Decimal("200"),
+            adjusted_close=Decimal("100"),
+            adjustment_basis="SPLIT_ONLY",
+            volume=None,
+            currency="INR",
+            source="fixture",
+            source_file="fixture.csv",
+            source_row=1,
+            source_key=f"fixture|{sid}|2020-03-31",
+            import_batch_id=import_batch.import_batch_id,
+        )
+    )
+    session.add(
+        DailyPrice(
+            security_id=sid,
+            identifier_type="SECURITY_ID",
+            identifier=sid,
+            trade_date=date(2020, 6, 30),
+            close=Decimal("260"),
+            adjusted_close=Decimal("130"),
+            adjustment_basis="SPLIT_ONLY",
+            volume=None,
+            currency="INR",
+            source="fixture",
+            source_file="fixture.csv",
+            source_row=2,
+            source_key=f"fixture|{sid}|2020-06-30",
+            import_batch_id=import_batch.import_batch_id,
+        )
+    )
+    add_transaction(
+        session, import_batch, sid, date(2020, 5, 1), EventType.SPLIT, 10, 2
+    )
+    session.flush()
+    build_episodes(session)
+    session.flush()
+
+    row = analyze_open_holdings(
+        session,
+        as_of_date=date(2020, 6, 30),
+        from_date=date(2020, 3, 31),
+    ).holdings[0]
+    assert row.from_price == Decimal("100")
+    assert row.stock_return_pct == Decimal("30")
 
 
 def test_open_holding_missing_price_is_insufficient(

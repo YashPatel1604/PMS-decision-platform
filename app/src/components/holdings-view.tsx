@@ -561,8 +561,7 @@ export function HoldingsView() {
                   <p className={`font-semibold tabular-nums ${toneClass(valueTone(selected.stock_return_pct))}`}>
                     {formatPct(selected.stock_return_pct)}
                   </p>
-                  {data.from_date &&
-                  selected.period_start_date !== selected.entry_date ? (
+                  {data.from_date ? (
                     <p className="mt-1 text-xs text-stone-500">
                       Period start{" "}
                       <span className="tabular-nums text-stone-700">

@@ -252,14 +252,33 @@ def _stock_return_pct(
     )
     end_close: Decimal | None = end.adjusted_close if end is not None else None
     end_date_obs: date | None = end.trade_date if end is not None else None
+    if start is None:
+        if end_close is None:
+            bhav = _bhav_close_for_security(session, security, as_of_date)
+            if bhav is not None:
+                end_date_obs = as_of_date
+        return None, None, end_date_obs, None, "Missing period-start price"
     if end_close is None:
         # ponytail: raw bhav CMP when daily_prices lag the latest bhav session
         bhav = _bhav_close_for_security(session, security, as_of_date)
         if bhav is not None:
             end_close, _series = bhav
             end_date_obs = as_of_date
-    if start is None:
-        return None, None, end_date_obs, None, "Missing period-start price"
+            # Bhav is current-share face value; scale start raw close the same way.
+            start_factor = cumulative_split_bonus_factor_after(
+                session, security_id, start.trade_date
+            )
+            start_mark = start.close * start_factor
+            if start_mark <= 0:
+                return (
+                    None,
+                    start.trade_date,
+                    end_date_obs,
+                    start.adjusted_close,
+                    "Non-positive period-start price",
+                )
+            total = ((end_close / start_mark) - _ONE) * _HUNDRED
+            return total, start.trade_date, end_date_obs, start.adjusted_close, None
     if end_close is None:
         return None, start.trade_date, None, start.adjusted_close, "Missing as-of price"
     if start.adjusted_close <= 0:
@@ -507,11 +526,13 @@ def _analyze_open_episode(
         session, episode.security_id, as_of_date
     )
     as_of_price = as_of_adj * as_of_factor if as_of_adj is not None else None
+    used_bhav_mark = False
     bhav_mark = _bhav_close_for_security(session, security, as_of_date)
     if bhav_mark is not None:
         # Bhav CMP is already on current share count — prefer it when present.
         as_of_price, _bhav_series = bhav_mark
         as_of_price_date = as_of_date
+        used_bhav_mark = True
 
     market_value = (
         as_of_price * Decimal(quantity) if as_of_price is not None and quantity > 0 else None
@@ -535,8 +556,7 @@ def _analyze_open_episode(
         else None
     )
 
-    # Since entry: Stock % = 1st buy → current. Period window (3M/6M/YTD/custom after
-    # entry): Stock % = period-start close → as-of (same window as Portfolio / BSE).
+    # Period return helper (adj/adj, or bhav vs scaled raw start).
     period_ret, from_price_date, _, from_adj, period_note = _stock_return_pct(
         session,
         episode.security_id,
@@ -551,16 +571,47 @@ def _analyze_open_episode(
     elif first_buy <= 0:
         notes.append("Non-positive first-buy price")
 
-    from_factor = cumulative_split_bonus_factor_after(
-        session, episode.security_id, period_start
+    start_price_sid = resolve_price_security_id(session, episode.security_id, period_start)
+    start_obs = lookup_daily_price(
+        session, start_price_sid, period_start, allow_live=False
     )
-    from_price = from_adj * from_factor if from_adj is not None else None
+    if start_obs is not None:
+        from_price_date = start_obs.trade_date
+        if used_bhav_mark:
+            # Match bhav: face value that day × later CA factor → current shares.
+            from_factor = cumulative_split_bonus_factor_after(
+                session, episode.security_id, start_obs.trade_date
+            )
+            from_price = start_obs.close * from_factor
+        else:
+            # Match adjusted as-of series — do not multiply adj by CA factor again.
+            from_price = start_obs.adjusted_close
+    elif from_adj is not None:
+        from_price = from_adj
+    else:
+        from_price = None
 
-    period_window = from_date is not None and period_start > episode.entry_date
+    # Any From date → market path for that window. Since entry (no From) → 1st buy.
+    period_window = from_date is not None
     if period_window:
-        stock_return = period_ret
-        if period_note:
-            notes.append(period_note)
+        if (
+            used_bhav_mark
+            and from_price is not None
+            and from_price > 0
+            and as_of_price is not None
+        ):
+            stock_return = ((as_of_price / from_price) - _ONE) * _HUNDRED
+        elif (
+            not used_bhav_mark
+            and from_price is not None
+            and from_price > 0
+            and as_of_adj is not None
+        ):
+            stock_return = ((as_of_adj / from_price) - _ONE) * _HUNDRED
+        else:
+            stock_return = period_ret
+            if period_note:
+                notes.append(period_note)
     elif first_buy is not None and first_buy > 0 and as_of_price is not None:
         stock_return = ((as_of_price / first_buy) - _ONE) * _HUNDRED
     else:
