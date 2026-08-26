@@ -212,8 +212,10 @@ export function AppShell({
     onSuccess: (result) => {
       void queryClient.invalidateQueries();
       if (result.ok && result.reimport) {
+        const extra = (result.notes ?? []).filter(Boolean).join(" · ");
         setMessage(
-          `Synced ${result.sync.snapshot_count} snapshots · ${result.reimport.episodes} episodes`,
+          `Synced ${result.sync.snapshot_count} snapshots · ${result.reimport.episodes} episodes` +
+            (extra ? ` · ${extra}` : ""),
         );
       } else {
         setMessage(result.error ?? "Refresh finished with errors");

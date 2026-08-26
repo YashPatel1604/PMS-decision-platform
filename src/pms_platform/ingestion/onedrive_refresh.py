@@ -108,6 +108,7 @@ class OnedriveRefreshResult:
     analysis: AnalysisRefreshResult | None = None
     ok: bool = True
     error: str | None = None
+    notes: list[str] = field(default_factory=list)
 
 
 def _copy_ro(src: Path, dest: Path) -> None:
@@ -325,8 +326,32 @@ def import_market_and_analyze(session: Session) -> tuple[MarketDataRefreshResult
     )
 
 
+def _refresh_nse_bhav_best_effort(session: Session) -> list[str]:
+    """Pull latest NSE Final bhav (look back a few days) and refresh DailyEdit Excel.
+
+    Failures are notes only — Research reimport already succeeded.
+    """
+    from pms_platform.market_data.nse_bhav_fetch import (
+        BhavFetchError,
+        fetch_and_commit_cm_udiff_bhav,
+    )
+
+    try:
+        result = fetch_and_commit_cm_udiff_bhav(session, lookback_days=5)
+        session.commit()
+        clear_client_portfolio_cache()
+        clear_research_portfolio_value_cache()
+        return [f"NSE bhav: {result.get('message')}"]
+    except BhavFetchError as exc:
+        session.rollback()
+        return [f"NSE bhav skipped: {exc}"]
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        return [f"NSE bhav skipped: {exc}"]
+
+
 def refresh_from_onedrive(session: Session) -> OnedriveRefreshResult:
-    """Full refresh: sync raw + reimport + market import + analysis."""
+    """Full refresh: sync raw + reimport + market import + analysis + NSE bhav."""
     try:
         sync = sync_raw_from_onedrive()
     except Exception as exc:  # noqa: BLE001
@@ -364,6 +389,7 @@ def refresh_from_onedrive(session: Session) -> OnedriveRefreshResult:
             error=f"Market-data import or analysis failed: {exc}",
         )
 
+    extra = _refresh_nse_bhav_best_effort(session)
     return OnedriveRefreshResult(
         sync=sync,
         reimport=reimport,
@@ -371,4 +397,5 @@ def refresh_from_onedrive(session: Session) -> OnedriveRefreshResult:
         analysis=analysis,
         ok=True,
         error=None,
+        notes=extra,
     )

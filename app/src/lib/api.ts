@@ -870,6 +870,7 @@ export type OnedriveRefreshResult = {
     post_exit_insufficient: number;
     cash_flow_rows: number;
   } | null;
+  notes?: string[];
 };
 
 export type Watchlist = {

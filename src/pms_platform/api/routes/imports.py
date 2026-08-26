@@ -74,15 +74,17 @@ class OnedriveRefreshResponse(BaseModel):
     reimport: ReimportResponse | None = None
     market_data: MarketDataRefreshResponse | None = None
     analysis: AnalysisRefreshResponse | None = None
+    notes: list[str] = []
 
 
 @router.post("/refresh-from-onedrive", response_model=OnedriveRefreshResponse)
 def refresh_data_from_onedrive(
     session: Session = Depends(get_db),
 ) -> OnedriveRefreshResponse:
-    """Copy latest Research/OneDrive workbooks into data/raw and fully reimport.
+    """Copy latest Research workbooks into data/raw, reimport, market CSVs, analysis, NSE bhav.
 
-    Does not watch OneDrive automatically — call this after source files change.
+    Reads the local RESEARCH_DIR mount (OneDrive files already on disk). Does not
+    call the OneDrive cloud API — pin folders "Always keep on this device" first.
     """
     result = refresh_from_onedrive(session)
     reimport = None
@@ -141,6 +143,7 @@ def refresh_data_from_onedrive(
         reimport=reimport,
         market_data=market_data,
         analysis=analysis,
+        notes=list(result.notes),
     )
     return response
 

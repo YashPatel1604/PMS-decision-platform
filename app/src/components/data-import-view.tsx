@@ -180,6 +180,9 @@ export function DataImportView() {
                 {refreshResult.analysis.post_exit_insufficient}.
               </p>
             ) : null}
+            {refreshResult.notes?.length ? (
+              <p className="mt-1">{refreshResult.notes.join(" · ")}</p>
+            ) : null}
           </div>
         ) : null}
       </section>
