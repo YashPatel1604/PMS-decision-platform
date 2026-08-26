@@ -1,6 +1,16 @@
 import { type NextRequest } from "next/server";
 
-const API = process.env.API_INTERNAL_URL || "http://127.0.0.1:8000";
+/** Inside the UI container, localhost is the UI — never the API. */
+function apiBase(): string {
+  const raw = (process.env.API_INTERNAL_URL || "").trim().replace(/\/$/, "");
+  const isLoopback =
+    !raw ||
+    /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(raw);
+  if (isLoopback) {
+    return process.env.NODE_ENV === "production" ? "http://api:8000" : "http://127.0.0.1:8000";
+  }
+  return raw;
+}
 
 const DROP = new Set([
   "connection",
@@ -14,18 +24,31 @@ const DROP = new Set([
 
 async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
   const { path } = await ctx.params;
+  const API = apiBase();
   const dest = `${API}/${path.join("/")}${req.nextUrl.search}`;
   const headers = new Headers();
   req.headers.forEach((value, key) => {
     if (!DROP.has(key.toLowerCase())) headers.set(key, value);
   });
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
-  const upstream = await fetch(dest, {
-    method: req.method,
-    headers,
-    body: hasBody ? await req.arrayBuffer() : undefined,
-    redirect: "manual",
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(dest, {
+      method: req.method,
+      headers,
+      body: hasBody ? await req.arrayBuffer() : undefined,
+      redirect: "manual",
+      signal: AbortSignal.timeout(12_000),
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return Response.json(
+      {
+        detail: `API unreachable (${API}): ${detail}. Set API_INTERNAL_URL=http://api:8000 in .env and recreate ui.`,
+      },
+      { status: 502 },
+    );
+  }
   const out = new Headers();
   upstream.headers.forEach((value, key) => {
     if (!DROP.has(key.toLowerCase()) && key.toLowerCase() !== "set-cookie") {

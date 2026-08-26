@@ -440,6 +440,34 @@ function YearlySection({
   );
 }
 
+function parseLocalNum(raw: string | undefined, fallback: number | null): number | null {
+  if (raw == null) return fallback;
+  const n = Number(raw.replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+const SMALLCAP_EDITS_KEY = "pms-bse-smallcap-edits";
+
+type SmallcapYearEdit = { start?: string; end?: string };
+
+function loadSmallcapEdits(): Record<string, SmallcapYearEdit> {
+  try {
+    const raw = localStorage.getItem(SMALLCAP_EDITS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, SmallcapYearEdit>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSmallcapYearEdit(year: number, edit: SmallcapYearEdit | null) {
+  const all = loadSmallcapEdits();
+  if (edit == null || (edit.start == null && edit.end == null)) delete all[String(year)];
+  else all[String(year)] = edit;
+  localStorage.setItem(SMALLCAP_EDITS_KEY, JSON.stringify(all));
+}
+
 function YearlyTable({
   block,
   editableYear,
@@ -449,22 +477,50 @@ function YearlyTable({
 }) {
   const queryClient = useQueryClient();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const save = useMutation({
-    mutationFn: (body: { year: number; start?: number; end?: number }) =>
-      api.patchBseSmallcapYear(body),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["client-portfolio-dashboard"] });
-    },
-  });
-
+  const [ready, setReady] = useState(false);
+  const [saveNote, setSaveNote] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const draftKey = (year: number, field: "start" | "end") => `${year}:${field}`;
+
+  useEffect(() => {
+    if (editableYear == null) {
+      setReady(true);
+      return;
+    }
+    const stored = loadSmallcapEdits()[String(editableYear)];
+    const next: Record<string, string> = {};
+    if (stored?.start != null) next[draftKey(editableYear, "start")] = stored.start;
+    if (stored?.end != null) next[draftKey(editableYear, "end")] = stored.end;
+    setDrafts(next);
+    if (stored?.start != null || stored?.end != null) {
+      setSaveNote("Using browser-saved values (Excel write was unavailable earlier).");
+    }
+    setReady(true);
+  }, [editableYear]);
+
   const display = (year: number, field: "start" | "end", value: number | null) => {
     const key = draftKey(year, field);
     if (key in drafts) return drafts[key];
     return value == null || !Number.isFinite(value) ? "" : String(value);
   };
+  const valueAt = (year: number, field: "start" | "end", fallback: number | null) =>
+    parseLocalNum(drafts[draftKey(year, field)], fallback);
 
-  const commit = (year: number, field: "start" | "end", raw: string, previous: number | null) => {
+  let firstStart: number | null = null;
+  for (const r of block.rows) {
+    const s = valueAt(r.year, "start", r.start);
+    if (s != null) {
+      firstStart = s;
+      break;
+    }
+  }
+
+  const commit = async (
+    year: number,
+    field: "start" | "end",
+    raw: string,
+    previous: number | null,
+  ) => {
     const parsed = Number(raw.replace(/,/g, ""));
     if (!Number.isFinite(parsed)) {
       setDrafts((d) => {
@@ -474,16 +530,36 @@ function YearlyTable({
       });
       return;
     }
-    if (previous != null && parsed === previous) {
+    if (previous != null && parsed === previous && !(draftKey(year, field) in drafts)) return;
+
+    setSaving(true);
+    setSaveNote(null);
+    try {
+      await api.patchBseSmallcapYear({ year, [field]: parsed });
       setDrafts((d) => {
         const next = { ...d };
         delete next[draftKey(year, field)];
         return next;
       });
-      return;
+      const stored = loadSmallcapEdits()[String(year)] ?? {};
+      const cleaned = { ...stored };
+      delete cleaned[field];
+      saveSmallcapYearEdit(year, cleaned.start == null && cleaned.end == null ? null : cleaned);
+      setSaveNote("Saved to Excel.");
+      void queryClient.invalidateQueries({ queryKey: ["client-portfolio-dashboard"] });
+    } catch (err) {
+      const text = String(parsed);
+      setDrafts((d) => ({ ...d, [draftKey(year, field)]: text }));
+      const stored = loadSmallcapEdits()[String(year)] ?? {};
+      saveSmallcapYearEdit(year, { ...stored, [field]: text });
+      const detail = err instanceof Error ? apiDetail(err) : "Excel save failed";
+      setSaveNote(`Could not save to Excel (${detail}). Kept in this browser instead.`);
+    } finally {
+      setSaving(false);
     }
-    save.mutate({ year, [field]: parsed });
   };
+
+  if (!ready) return null;
 
   return (
     <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
@@ -494,7 +570,7 @@ function YearlyTable({
               {block.name}
               {editableYear != null ? (
                 <span className="ml-2 font-normal normal-case tracking-normal text-stone-500">
-                  (edit Start/End for {editableYear})
+                  (edit Start/End for {editableYear} — Excel first, browser backup)
                 </span>
               ) : null}
             </th>
@@ -510,6 +586,16 @@ function YearlyTable({
         <tbody>
           {block.rows.map((row) => {
             const canEdit = editableYear != null && row.year === editableYear;
+            const start = canEdit ? valueAt(row.year, "start", row.start) : row.start;
+            const end = canEdit ? valueAt(row.year, "end", row.end) : row.end;
+            const returnPct =
+              canEdit && start != null && end != null && start !== 0
+                ? (end / start - 1) * 100
+                : row.return_pct;
+            const cumPct =
+              canEdit && firstStart != null && firstStart !== 0 && end != null
+                ? (end / firstStart - 1) * 100
+                : row.cum_pct;
             return (
               <tr key={row.year} className="border-t border-stone-100">
                 <td className="px-3 py-1.5 tabular-nums">{row.year}</td>
@@ -520,11 +606,11 @@ function YearlyTable({
                       inputMode="decimal"
                       aria-label={`${block.name} ${row.year} start`}
                       value={display(row.year, "start", row.start)}
-                      disabled={save.isPending}
+                      disabled={saving}
                       onChange={(e) =>
                         setDrafts((d) => ({ ...d, [draftKey(row.year, "start")]: e.target.value }))
                       }
-                      onBlur={(e) => commit(row.year, "start", e.target.value, row.start)}
+                      onBlur={(e) => void commit(row.year, "start", e.target.value, row.start)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") e.currentTarget.blur();
                       }}
@@ -541,11 +627,11 @@ function YearlyTable({
                       inputMode="decimal"
                       aria-label={`${block.name} ${row.year} end`}
                       value={display(row.year, "end", row.end)}
-                      disabled={save.isPending}
+                      disabled={saving}
                       onChange={(e) =>
                         setDrafts((d) => ({ ...d, [draftKey(row.year, "end")]: e.target.value }))
                       }
-                      onBlur={(e) => commit(row.year, "end", e.target.value, row.end)}
+                      onBlur={(e) => void commit(row.year, "end", e.target.value, row.end)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") e.currentTarget.blur();
                       }}
@@ -555,16 +641,14 @@ function YearlyTable({
                     num(row.end)
                   )}
                 </td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{pct(row.return_pct)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{pct(row.cum_pct)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{pct(returnPct)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{pct(cumPct)}</td>
               </tr>
             );
           })}
         </tbody>
       </table>
-      {save.isError ? (
-        <p className="px-3 py-2 text-sm text-red-700">{(save.error as Error).message}</p>
-      ) : null}
+      {saveNote ? <p className="px-3 py-2 text-sm text-stone-600">{saveNote}</p> : null}
     </div>
   );
 }

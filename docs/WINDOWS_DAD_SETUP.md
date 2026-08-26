@@ -72,8 +72,11 @@ In Notepad, set these lines (use **your** Research path; forward slashes are OK)
 ```env
 POSTGRES_PASSWORD=choose-a-long-password
 RESEARCH_DIR=C:/Users/YourName/OneDrive/Some/Folders/Research
-NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_API_URL=/backend
+API_INTERNAL_URL=http://api:8000
 ```
+
+(`NEXT_PUBLIC_API_URL=/backend` is required so login cookies work through the UI proxy. Do **not** use `http://127.0.0.1:8000` for the UI.)
 
 Save and close Notepad.
 

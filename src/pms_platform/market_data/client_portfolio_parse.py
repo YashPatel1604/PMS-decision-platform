@@ -5,7 +5,9 @@ DailyEditFiles first, then Research/Portfolio. Never writes Research.
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
@@ -87,6 +89,18 @@ def client_portfolio_workbook_path() -> Path | None:
     path = portfolio / "PMS_ClientPortfolio.xlsx"
     return path if path.is_file() else None
 
+
+def client_portfolio_write_path() -> Path:
+    """Writable DailyEditFiles workbook only (Research is read-only in Docker)."""
+    from pms_platform.market_data.daily_edit_bhav import client_portfolio_daily_edit_path
+
+    hit = client_portfolio_daily_edit_path()
+    if hit is not None and hit.is_file():
+        return hit
+    raise FileNotFoundError(
+        "PMS_ClientPortfolio*.xlsx not found in DailyEditFiles. "
+        "Copy the workbook there (Research is read-only in Docker)."
+    )
 
 # ponytail: only literal a-b-c (WELENT Total Quantity), not cell refs
 _NUMERIC_SUB = re.compile(r"^=\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)+$")
@@ -212,11 +226,12 @@ def _rewrite_year_block_metrics(
     end_col: int,
     ret_col: int,
     cum_col: int,
+    max_row: int,
 ) -> None:
     """Replace Return/Cum formulas with values so openpyxl save does not blank them."""
     rows: list[tuple[int, Decimal | None, Decimal | None]] = []
     first_start: Decimal | None = None
-    for r in range(1, (ws.max_row or 1) + 1):
+    for r in range(1, max_row + 1):
         if _as_year(ws.cell(r, year_col).value) is None:
             continue
         start = _to_decimal(ws.cell(r, start_col).value)
@@ -239,9 +254,7 @@ def write_bse_smallcap_year(
     path: Path | None = None,
 ) -> dict[str, float | int | None]:
     """Write Model BSESmallCap Start/End for ``year`` (cols R/S); refresh Return/Cum."""
-    resolved = path or client_portfolio_workbook_path()
-    if resolved is None or not resolved.is_file():
-        raise FileNotFoundError("PMS_ClientPortfolio.xlsx not found under DailyEditFiles")
+    resolved = path or client_portfolio_write_path()
     if start is None and end is None:
         raise ValueError("Provide start and/or end")
 
@@ -250,13 +263,26 @@ def write_bse_smallcap_year(
         if "Model" not in wb.sheetnames:
             raise FileNotFoundError("Model sheet missing")
         ws = wb["Model"]
-        year_col = 18  # 1-based: Q=Portfolio year, R=SmallCap year
+        year_col = 18
         start_col, end_col, ret_col, cum_col = 19, 20, 21, 22
-        row_i = None
-        for r in range(1, (ws.max_row or 1) + 1):
-            if _as_year(ws.cell(r, year_col).value) == year:
-                row_i = r
-                break
+        mid_row = next(
+            (
+                r
+                for r in range(1, (ws.max_row or 1) + 1)
+                if _is_midcap_header(
+                    tuple(ws.cell(r, c).value for c in range(1, max(ws.max_column or 1, 20) + 1))
+                )
+            ),
+            (ws.max_row or 1) + 1,
+        )
+        row_i = next(
+            (
+                r
+                for r in range(1, mid_row)
+                if _as_year(ws.cell(r, year_col).value) == year
+            ),
+            None,
+        )
         if row_i is None:
             raise ValueError(f"No BSESmallCap row for year {year}")
 
@@ -265,7 +291,6 @@ def write_bse_smallcap_year(
         if end is not None:
             ws.cell(row_i, end_col, float(end))
 
-        # Saving clears Excel formula result caches; write metrics as values for both blocks.
         _rewrite_year_block_metrics(
             ws,
             year_col=year_col,
@@ -273,6 +298,7 @@ def write_bse_smallcap_year(
             end_col=end_col,
             ret_col=ret_col,
             cum_col=cum_col,
+            max_row=mid_row - 1,
         )
         _rewrite_year_block_metrics(
             ws,
@@ -281,11 +307,23 @@ def write_bse_smallcap_year(
             end_col=14,
             ret_col=15,
             cum_col=16,
+            max_row=mid_row - 1,
         )
 
         start_v = _to_decimal(ws.cell(row_i, start_col).value)
         end_v = _to_decimal(ws.cell(row_i, end_col).value)
-        wb.save(resolved)
+
+        # Temp + replace: more reliable on Windows bind mounts than in-place save.
+        fd, tmp_name = tempfile.mkstemp(suffix=resolved.suffix, dir=resolved.parent)
+        os.close(fd)
+        tmp = Path(tmp_name)
+        try:
+            wb.save(tmp)
+            tmp.replace(resolved)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
+
         clear_client_portfolio_cache()
         return {
             "year": year,

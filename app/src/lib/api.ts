@@ -19,6 +19,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
     cache: "no-store",
+    // Avoid infinite "Checking session…" when API/proxy is unreachable.
+    signal: init?.signal ?? AbortSignal.timeout(12_000),
   });
   if (!response.ok) {
     const text = await response.text();

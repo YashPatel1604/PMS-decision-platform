@@ -95,9 +95,12 @@ Set at least:
 ```env
 POSTGRES_PASSWORD=choose-a-long-password
 RESEARCH_DIR=C:/Users/YourName/OneDrive/Some/Folders/Research
-NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_API_URL=/backend
+API_INTERNAL_URL=http://api:8000
 FUNDAMENTALS_PROVIDER=xbrl
 ```
+
+(`NEXT_PUBLIC_API_URL=/backend` is required for login cookies via the UI proxy.)
 
 Notes:
 

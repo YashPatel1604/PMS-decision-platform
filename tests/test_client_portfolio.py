@@ -12,6 +12,7 @@ from pms_platform.market_data.client_portfolio_dashboard import (
 from pms_platform.market_data.client_portfolio_parse import (
     clear_client_portfolio_cache,
     parse_client_portfolio_workbook,
+    write_bse_smallcap_year,
 )
 from pms_platform.market_data.nse_bhav_store import sync_bhav_file, upsert_portfolio_symbols
 from pms_platform.market_data.pivot_derived import floor_pivot_levels
@@ -139,5 +140,44 @@ def test_write_sca_bank_balance_updates_quantity_f(tmp_path: Path) -> None:
     assert book.bank_balance == Decimal("123456.78")
     wb2 = load_workbook(path, data_only=True)
     assert wb2["Quantity"]["F3"].value == 123456.78
+    wb2.close()
+
+
+def test_write_bse_smallcap_year_updates_workbook(tmp_path: Path) -> None:
+    from openpyxl import Workbook, load_workbook
+
+    path = tmp_path / "PMS_ClientPortfolio_New.xlsx"
+    wb = Workbook()
+    model = wb.active
+    model.title = "Model"
+    model.cell(1, 12, "Portfolio")
+    model.cell(1, 18, "BSESmallCap")
+    model.cell(2, 12, 2025)
+    model.cell(2, 13, 1000)
+    model.cell(2, 14, 1100)
+    model.cell(2, 18, 2025)
+    model.cell(2, 19, 5000)
+    model.cell(2, 20, 5500)
+    model.cell(3, 12, 2026)
+    model.cell(3, 13, 1100)
+    model.cell(3, 14, 1200)
+    model.cell(3, 18, 2026)
+    model.cell(3, 19, 5500)
+    model.cell(3, 20, 6000)
+    model.cell(17, 11, "BSEMidCap")
+    wb.create_sheet("Stocks")
+    wb.save(path)
+    wb.close()
+
+    result = write_bse_smallcap_year(
+        year=2026,
+        start=Decimal("5600"),
+        end=Decimal("6100"),
+        path=path,
+    )
+    assert result == {"year": 2026, "start": 5600.0, "end": 6100.0}
+    wb2 = load_workbook(path, data_only=True)
+    assert wb2["Model"].cell(3, 19).value == 5600.0
+    assert wb2["Model"].cell(3, 20).value == 6100.0
     wb2.close()
 

@@ -46,6 +46,13 @@ def patch_bse_smallcap_year(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Workbook is locked or read-only. Close Excel and retry.",
+        ) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail=f"Could not save workbook: {exc}") from exc
 
 
 @router.patch("/bank-balance")

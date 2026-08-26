@@ -541,12 +541,22 @@ export function HoldingsView() {
                   <p className={`font-semibold tabular-nums ${toneClass(valueTone(selected.stock_return_pct))}`}>
                     {formatPct(selected.stock_return_pct)}
                   </p>
-                  <p className="mt-1 text-xs text-stone-500">
-                    1st buy{" "}
-                    <span className="tabular-nums text-stone-700">
-                      {formatPrice(selected.first_buy_price)}
-                    </span>
-                  </p>
+                  {data.from_date &&
+                  selected.period_start_date !== selected.entry_date ? (
+                    <p className="mt-1 text-xs text-stone-500">
+                      Period start{" "}
+                      <span className="tabular-nums text-stone-700">
+                        {formatPrice(selected.from_price)}
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-stone-500">
+                      1st buy{" "}
+                      <span className="tabular-nums text-stone-700">
+                        {formatPrice(selected.first_buy_price)}
+                      </span>
+                    </p>
+                  )}
                   <p className="text-xs text-stone-500">
                     Avg buy{" "}
                     <span className="tabular-nums text-stone-700">

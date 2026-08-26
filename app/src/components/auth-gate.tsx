@@ -80,6 +80,10 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }, [meQuery.isSuccess, meQuery.data, isLogin, pathname, router]);
 
   if (meQuery.isLoading) {
+    // Login page can render while session check runs (avoids blank forever on slow API).
+    if (isLogin) {
+      return <>{children}</>;
+    }
     return (
       <div className="flex min-h-screen items-center justify-center bg-stone-50 text-sm text-stone-500">
         Checking session…
@@ -88,13 +92,34 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   if (meQuery.isError) {
+    if (isLogin) {
+      return <>{children}</>;
+    }
     return (
-      <div className="flex min-h-screen items-center justify-center bg-stone-50 px-6 text-center text-sm text-stone-600">
-        Cannot reach API. Is it running on{" "}
-        <code className="mx-1 rounded bg-stone-200 px-1">
-          {process.env.NEXT_PUBLIC_API_URL ?? "/backend"}
-        </code>
-        ?
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-stone-50 px-6 text-center text-sm text-stone-600">
+        <p>
+          Cannot reach API via{" "}
+          <code className="mx-1 rounded bg-stone-200 px-1">
+            {process.env.NEXT_PUBLIC_API_URL ?? "/backend"}
+          </code>
+          . Is Docker <code className="mx-1 rounded bg-stone-200 px-1">api</code> running?
+        </p>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white"
+            onClick={() => void meQuery.refetch()}
+          >
+            Retry
+          </button>
+          <button
+            type="button"
+            className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-800"
+            onClick={() => router.replace("/login")}
+          >
+            Go to login
+          </button>
+        </div>
       </div>
     );
   }

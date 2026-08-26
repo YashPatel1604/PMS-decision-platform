@@ -535,9 +535,9 @@ def _analyze_open_episode(
         else None
     )
 
-    # Period market path still fills from_price for diagnostics; headline Stock %
-    # is 1st buy → current (not avg buy, not period-start close).
-    _, from_price_date, _, from_adj, period_note = _stock_return_pct(
+    # Since entry: Stock % = 1st buy → current. Period window (3M/6M/YTD/custom after
+    # entry): Stock % = period-start close → as-of (same window as Portfolio / BSE).
+    period_ret, from_price_date, _, from_adj, period_note = _stock_return_pct(
         session,
         episode.security_id,
         period_start,
@@ -556,7 +556,12 @@ def _analyze_open_episode(
     )
     from_price = from_adj * from_factor if from_adj is not None else None
 
-    if first_buy is not None and first_buy > 0 and as_of_price is not None:
+    period_window = from_date is not None and period_start > episode.entry_date
+    if period_window:
+        stock_return = period_ret
+        if period_note:
+            notes.append(period_note)
+    elif first_buy is not None and first_buy > 0 and as_of_price is not None:
         stock_return = ((as_of_price / first_buy) - _ONE) * _HUNDRED
     else:
         stock_return = None

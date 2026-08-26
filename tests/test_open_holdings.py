@@ -138,12 +138,12 @@ def test_open_holding_from_date_window(
     assert result.portfolio_value_source == "RECONSTRUCTED"
     assert row.period_start_date == date(2020, 3, 31)
     assert row.from_price == Decimal("110")
-    # 1st buy ₹100 → as-of ₹143 (not period-start ₹110)
     assert row.first_buy_price == Decimal("100")
-    assert row.stock_return_pct == Decimal("43")
+    # Period window: 143/110 - 1 = 30% (not inception 143/100)
+    assert row.stock_return_pct == Decimal("30")
     # benchmark 1155/1050 - 1 = 10%
     assert row.benchmarks[0].total_return_pct == Decimal("10")
-    assert row.benchmarks[0].excess_vs_stock_pp == Decimal("33")
+    assert row.benchmarks[0].excess_vs_stock_pp == Decimal("20")
 
 
 def test_open_holding_missing_price_is_insufficient(
