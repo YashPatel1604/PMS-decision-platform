@@ -433,8 +433,8 @@ export function HoldingsView() {
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-        <section className="space-y-4">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] xl:items-start">
+        <section className="space-y-4 min-w-0">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-2xl font-semibold tracking-tight">Open positions</h2>
@@ -451,9 +451,9 @@ export function HoldingsView() {
             />
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
+          <div className="max-h-[min(70vh,52rem)] overflow-auto rounded-xl border border-stone-200 bg-white">
             <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-stone-200 bg-stone-50 text-xs uppercase tracking-wide text-stone-500">
+              <thead className="sticky top-0 z-10 border-b border-stone-200 bg-stone-50 text-xs uppercase tracking-wide text-stone-500">
                 <tr>
                   <th className="px-3 py-3 font-semibold">Stock</th>
                   <th className="px-3 py-3 font-semibold">Period</th>
@@ -539,7 +539,7 @@ export function HoldingsView() {
           </div>
         </section>
 
-        <aside className="space-y-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+        <aside className="space-y-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:self-start">
           {!selected ? (
             <p className="text-sm text-stone-500">Select a holding to compare.</p>
           ) : (
