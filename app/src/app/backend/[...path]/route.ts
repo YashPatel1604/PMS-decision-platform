@@ -38,7 +38,7 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
       headers,
       body: hasBody ? await req.arrayBuffer() : undefined,
       redirect: "manual",
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(120_000),
     });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);

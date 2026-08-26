@@ -11,6 +11,8 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Auth needs a short fail-fast; holdings / refresh can take well over 12s.
+  const defaultMs = path.startsWith("/auth/") ? 12_000 : 120_000;
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     credentials: "include",
@@ -19,8 +21,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
     cache: "no-store",
-    // Avoid infinite "Checking session…" when API/proxy is unreachable.
-    signal: init?.signal ?? AbortSignal.timeout(12_000),
+    signal: init?.signal ?? AbortSignal.timeout(defaultMs),
   });
   if (!response.ok) {
     const text = await response.text();

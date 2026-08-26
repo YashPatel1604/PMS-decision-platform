@@ -274,12 +274,32 @@ export function HoldingsView() {
   }
 
   if (holdingsQuery.isError || !holdingsQuery.data) {
+    const err = holdingsQuery.error as Error | null;
+    let detail = err?.message ?? "";
+    try {
+      const parsed = JSON.parse(detail) as { detail?: unknown };
+      if (typeof parsed.detail === "string") detail = parsed.detail;
+    } catch {
+      /* plain text */
+    }
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-900">
         <p className="font-semibold">Could not load holdings.</p>
         <p className="mt-2 text-sm">
           Confirm the API is running and market prices are imported, then refresh.
         </p>
+        {detail ? (
+          <p className="mt-3 break-words rounded bg-red-100/80 px-3 py-2 font-mono text-xs text-red-950">
+            {detail}
+          </p>
+        ) : null}
+        <button
+          type="button"
+          className="mt-4 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white"
+          onClick={() => void holdingsQuery.refetch()}
+        >
+          Retry
+        </button>
       </div>
     );
   }
