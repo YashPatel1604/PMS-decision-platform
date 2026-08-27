@@ -120,7 +120,11 @@ def approve_request(
         return req
     if req.status != "submitted":
         raise ApprovalError(f"cannot approve from status {req.status}")
-    from pms_platform.approval.handlers import client_position, import_run  # noqa: F401 — register handlers
+    from pms_platform.approval.handlers import (  # noqa: F401 — register handlers
+        client_position,
+        import_run,
+        pivot_selection,
+    )
     from pms_platform.approval.handlers.registry import get_handler
 
     ops = sorted(req.operations, key=lambda o: o.operation_order)
@@ -253,6 +257,67 @@ def upsert_client_position_qty_draft(
                 after_state=op_payload["after_state"],
             )
         )
+    return draft
+
+
+def upsert_pivot_selection_draft(
+    session: Session,
+    *,
+    proposer: User,
+    symbols: list[str],
+    base_row_version: int,
+) -> ChangeRequest:
+    """Replace firm pivot selection on the user's active pivot draft."""
+    from pms_platform.domain.pivot_selection import official_selection
+
+    before = official_selection(session)
+    clean = []
+    seen: set[str] = set()
+    for sym in symbols:
+        key = sym.strip().upper()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        clean.append(key)
+    op_payload = {
+        "entity_kind": "pivot_firm_selection",
+        "entity_id": "firm_selection",
+        "operation_type": "replace",
+        "base_row_version": base_row_version,
+        "before_state": {"symbols": before},
+        "after_state": {"symbols": clean},
+    }
+    draft = get_user_draft(session, user_id=proposer.user_id, domain="pivot")
+    if draft is None:
+        return create_draft(
+            session,
+            proposer=proposer,
+            title="Update Pivot firm selection",
+            domain="pivot",
+            operations=[op_payload],
+        )
+    replaced = False
+    for op in draft.operations:
+        if op.entity_kind == "pivot_firm_selection":
+            op.after_state = op_payload["after_state"]
+            op.before_state = op_payload["before_state"]
+            op.base_row_version = base_row_version
+            replaced = True
+            break
+    if not replaced:
+        session.add(
+            ChangeOperation(
+                change_request_id=draft.change_request_id,
+                operation_order=len(draft.operations),
+                entity_kind="pivot_firm_selection",
+                entity_id="firm_selection",
+                operation_type="replace",
+                base_row_version=base_row_version,
+                before_state=op_payload["before_state"],
+                after_state=op_payload["after_state"],
+            )
+        )
+    session.flush()
     return draft
 
 

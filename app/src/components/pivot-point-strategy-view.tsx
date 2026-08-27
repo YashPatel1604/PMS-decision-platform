@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api, type BhavRun, type PivotDashboard } from "@/lib/api";
+import { api, type BhavRun, type PivotDashboard, type PortfolioView } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { DraftTray } from "@/components/draft-tray";
+import { ViewModeToggle } from "@/components/view-mode-toggle";
 
 type TabId = "upload" | "daily";
 type DailyScope = "all" | "portfolio" | "selected";
@@ -68,6 +70,7 @@ export function PivotPointStrategyView() {
   const [seriesScope, setSeriesScope] = useState<SeriesScope>("both");
   const [showPrevDayVol, setShowPrevDayVol] = useState(false);
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>(loadSelectedFirms);
+  const [selectionView, setSelectionView] = useState<PortfolioView>("official");
   const selectedHydrated = useRef(false);
   const [newFirm, setNewFirm] = useState("");
   const [addFirmError, setAddFirmError] = useState<string | null>(null);
@@ -78,6 +81,22 @@ export function PivotPointStrategyView() {
     queryKey: ["pivot-dashboard", asOf ?? "latest"],
     queryFn: () => api.getPivotDashboard(asOf),
   });
+  const approvalWorkflow = Boolean(dashQuery.data?.approval_workflow);
+
+  const selectionQuery = useQuery({
+    queryKey: ["pivot-selection", selectionView],
+    queryFn: () => api.getPivotSelection(selectionView),
+    enabled: approvalWorkflow,
+  });
+
+  const draftQuery = useQuery({
+    queryKey: ["change-requests", "pivot-draft"],
+    queryFn: () => api.listChangeRequests("draft"),
+    enabled: approvalWorkflow && selectionView === "mine",
+  });
+
+  const pivotDraft = draftQuery.data?.find((d) => d.domain === "pivot");
+
 
   const data = dashQuery.data;
 
@@ -141,15 +160,32 @@ export function PivotPointStrategyView() {
   const selectedSet = useMemo(() => new Set(selectedSymbols), [selectedSymbols]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(SELECTED_FIRMS_KEY, JSON.stringify(selectedSymbols));
-    } catch {
-      /* ignore */
+    if (!approvalWorkflow) {
+      try {
+        localStorage.setItem(SELECTED_FIRMS_KEY, JSON.stringify(selectedSymbols));
+      } catch {
+        /* ignore */
+      }
+      return;
     }
-  }, [selectedSymbols]);
+    const t = window.setTimeout(() => {
+      void api.putPivotSelection(selectedSymbols).then(() => {
+        void queryClient.invalidateQueries({ queryKey: ["pivot-selection"] });
+        void queryClient.invalidateQueries({ queryKey: ["change-requests"] });
+      });
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [selectedSymbols, approvalWorkflow, queryClient]);
+
+  useEffect(() => {
+    if (!approvalWorkflow || !selectionQuery.data) return;
+    setSelectedSymbols(selectionQuery.data.symbols);
+    selectedHydrated.current = true;
+  }, [approvalWorkflow, selectionQuery.data]);
 
   // After refresh: keep checked firms still in the watchlist; if none, check all.
   useEffect(() => {
+    if (approvalWorkflow) return;
     if (!pivotWatchSymbols.length) return;
     const watch = new Set(pivotWatchSymbols);
     setSelectedSymbols((prev) => {
@@ -313,6 +349,9 @@ export function PivotPointStrategyView() {
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
+          {approvalWorkflow ? (
+            <ViewModeToggle view={selectionView} onChange={setSelectionView} />
+          ) : null}
           <label className="flex flex-col gap-1 text-sm text-stone-600">
             As-of date
             <select
@@ -368,6 +407,10 @@ export function PivotPointStrategyView() {
         >
           {fetchMsg}
         </p>
+      ) : null}
+
+      {approvalWorkflow && selectionView === "mine" ? (
+        <DraftTray draft={pivotDraft} domain="pivot" />
       ) : null}
 
       <div className="flex flex-wrap gap-2">

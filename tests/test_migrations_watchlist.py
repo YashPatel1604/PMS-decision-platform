@@ -40,7 +40,7 @@ def test_watchlist_migrations_are_chained_to_head() -> None:
     """Upgrade path: watchlist migrations link d0 → … → current head."""
     script = ScriptDirectory.from_config(Config("alembic.ini"))
     head = script.get_current_head()
-    assert head == "z3a4b5c6d7e8"
+    assert head == "a4b5c6d7e8f0"
 
     watchlist_chain = [
         "d0e1f2a3b4c5",

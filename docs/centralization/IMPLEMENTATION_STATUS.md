@@ -10,7 +10,7 @@ Master plan: [`../CURSOR_CENTRALIZATION_MASTER_PLAN.md`](../CURSOR_CENTRALIZATIO
 | 2 — Schema and approval engine | complete | Migration `x1y2z3a4b5c6`, models, `approval/service.py`, handler registry, `test_approval_service.py` | Domain handlers beyond client qty (Phase 5) |
 | 3 — Working/official APIs and UI | complete | `client_positions` migration, view-aware dashboard, `/change-requests` API, qty PATCH, Official/My Working UI, draft tray, approvals inbox | Enable `FEATURE_APPROVAL_WORKFLOW=1` locally to exercise; production deploy still blocked |
 | 4 — Incremental jobs, storage and imports | complete | `storage/adapter.py`, source lineage migration, `staged_import.py`, job worker + outbox, `/imports/staged` API, `test_staged_import.py` | Domain DB writes on apply deferred to Phase 5 |
-| 5 — Domain migrations | not_started | — | Pivot → Charts → Client → SCA → Bhav → Research → Watchlists |
+| 5 — Domain migrations | in_progress | Pivot firm selection in `pivot_firm_selection` + `/strategy/pivot/selection` API; localStorage retired when `FEATURE_APPROVAL_WORKFLOW=1` | Charts, Client, SCA, Bhav, Research, Watchlists |
 | 6 — Reconciliation tooling | not_started | — | — |
 | 7 — Deployment preparation | not_started | — | Railway/Supabase runbooks (no prod deploy without auth) |
 | 8 — Migration rehearsal | not_started | — | — |

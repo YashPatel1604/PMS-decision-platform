@@ -4,11 +4,24 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from pms_platform.api.deps_read_context import read_context_from_query
 from pms_platform.api.routes.episodes import get_db
+from pms_platform.approval.service import (
+    ApprovalError,
+    submit_request,
+    upsert_pivot_selection_draft,
+)
+from pms_platform.domain.pivot_selection import (
+    replace_official_selection,
+    resolve_selection,
+    selection_row_version,
+)
+from pms_platform.feature_flags import approval_workflow_enabled
+from pms_platform.read_context import ReadContext
 from pms_platform.market_data.nse_bhav_fetch import (
     BhavFetchError,
     fetch_and_commit_cm_udiff_bhav,
@@ -63,6 +76,14 @@ class PortfolioReplaceRequest(BaseModel):
 
 class AddFirmRequest(BaseModel):
     symbol: str
+
+
+class SelectionReplaceRequest(BaseModel):
+    symbols: list[str] = Field(default_factory=list)
+
+
+def _user(request: Request):
+    return getattr(request.state, "user", None)
 
 
 def _run_response(run) -> BhavRunResponse:
@@ -170,7 +191,90 @@ def pivot_dashboard(
     as_of: date | None = Query(default=None),
     session: Session = Depends(get_db),
 ) -> dict:
-    return build_pivot_dashboard(session, as_of=as_of)
+    payload = build_pivot_dashboard(session, as_of=as_of)
+    payload["approval_workflow"] = approval_workflow_enabled()
+    return payload
+
+
+@router.get("/selection")
+def get_pivot_selection(
+    request: Request,
+    session: Session = Depends(get_db),
+    read_context: ReadContext = Depends(read_context_from_query),
+) -> dict:
+    portfolio_symbols = [
+        r.symbol
+        for r in session.scalars(
+            select(PivotPortfolioSymbol).order_by(
+                PivotPortfolioSymbol.sort_order, PivotPortfolioSymbol.symbol
+            )
+        ).all()
+    ]
+    ctx = read_context if approval_workflow_enabled() else None
+    return resolve_selection(
+        session, ctx, fallback_portfolio_symbols=portfolio_symbols
+    )
+
+
+@router.put("/selection")
+def put_pivot_selection(
+    body: SelectionReplaceRequest,
+    request: Request,
+    session: Session = Depends(get_db),
+) -> dict:
+    user = _user(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    base_v = selection_row_version(session)
+    if approval_workflow_enabled():
+        try:
+            draft = upsert_pivot_selection_draft(
+                session,
+                proposer=user,
+                symbols=body.symbols,
+                base_row_version=base_v,
+            )
+            session.commit()
+        except ApprovalError as exc:
+            session.rollback()
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return {
+            "symbols": body.symbols,
+            "status": draft.status,
+            "change_request_id": str(draft.change_request_id),
+        }
+    replace_official_selection(
+        session,
+        body.symbols,
+        base_row_version=base_v,
+        updated_by=user.user_id,
+    )
+    session.commit()
+    return {"symbols": body.symbols, "status": "applied"}
+
+
+@router.post("/selection/submit")
+def submit_pivot_selection(
+    request: Request,
+    session: Session = Depends(get_db),
+) -> dict:
+    if not approval_workflow_enabled():
+        raise HTTPException(status_code=400, detail="Approval workflow disabled")
+    user = _user(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    from pms_platform.approval.service import get_user_draft
+
+    draft = get_user_draft(session, user_id=user.user_id, domain="pivot")
+    if draft is None:
+        raise HTTPException(status_code=404, detail="No draft change request")
+    try:
+        req = submit_request(session, actor=user, change_request_id=draft.change_request_id)
+        session.commit()
+    except ApprovalError as exc:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"change_request_id": str(req.change_request_id), "status": req.status}
 
 
 @router.get("/portfolio")

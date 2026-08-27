@@ -2,6 +2,8 @@
 
 from pms_platform.models.annual_fundamentals_snapshot import AnnualFundamentalsSnapshot
 from pms_platform.models.change_request import AuditEvent, ChangeOperation, ChangeRequest, Job, OutboxEvent, UserPermission
+from pms_platform.models.client_position import ClientPosition
+from pms_platform.models.pivot_selection import PivotFirmSelection
 from pms_platform.models.source_lineage import ImportIssue, ImportRun, SourceFile, SourceFileVersion
 from pms_platform.models.benchmark_tri import BenchmarkTri
 from pms_platform.models.company_fundamentals_quarterly import CompanyFundamentalsQuarterly
@@ -56,6 +58,7 @@ __all__ = [
     "NseBhavBar",
     "PivotPortfolioSymbol",
     "PivotVolExp",
+    "PivotFirmSelection",
     "PortfolioSnapshotRecord",
     "PostExitPerformance",
     "PostExitHorizonPerformance",
