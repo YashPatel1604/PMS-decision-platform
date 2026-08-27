@@ -228,6 +228,7 @@ def reconcile_cutover(
     julesh_url: str,
     output_dir: Path,
     research_dir: Path | None = None,
+    fail_on_conflict: bool = False,
 ) -> int:
     """Compare Samir vs Julesh Postgres snapshots (read-only)."""
     from sqlalchemy import create_engine
@@ -261,6 +262,9 @@ def reconcile_cutover(
         if bundle_path is not None:
             print(f"  Bundle: {bundle_path.resolve()}")
         print(f"  Value conflicts (row-level): {conflicts}")
+        if fail_on_conflict and conflicts:
+            print("Aborting: unresolved value conflicts (use --fail-on-conflict only for gates).", file=sys.stderr)
+            return 1
         return 0
     except Exception as exc:
         print(f"Cutover reconciliation failed: {exc}", file=sys.stderr)
@@ -270,6 +274,127 @@ def reconcile_cutover(
         julesh.close()
         samir_engine.dispose()
         julesh_engine.dispose()
+
+
+def import_migration_bundle_cmd(
+    bundle_path: Path,
+    *,
+    dry_run: bool = False,
+    verify: bool = True,
+    bhav_source_url: str | None = None,
+) -> int:
+    """Import migration_bundle.json into DATABASE_URL."""
+    import json
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from pms_platform.reconciliation.copy_bhav import bhav_bar_count, copy_bhav_bars
+    from pms_platform.reconciliation.import_bundle import import_migration_bundle
+    from pms_platform.reconciliation.verify import verify_rehearsal_import
+
+    if not bundle_path.is_file():
+        print(f"Bundle not found: {bundle_path}", file=sys.stderr)
+        return 1
+
+    _ensure_schema()
+    session = get_session_factory()()
+    expected_bhav: int | None = None
+    try:
+        result = import_migration_bundle(session, bundle_path, dry_run=dry_run)
+        if bhav_source_url:
+            src_engine = create_engine(bhav_source_url)
+            SrcSession = sessionmaker(bind=src_engine)
+            src = SrcSession()
+            try:
+                if not dry_run:
+                    copy = copy_bhav_bars(src, session, dry_run=False)
+                    print(
+                        f"Bhav copy: {copy.inserted} inserted, "
+                        f"{copy.skipped_existing} skipped ({copy.source_count} source rows)"
+                    )
+                expected_bhav = bhav_bar_count(src)
+            finally:
+                src.close()
+                src_engine.dispose()
+        if not dry_run:
+            session.commit()
+        print(json.dumps(result.as_dict(), indent=2))
+        if verify and not dry_run:
+            verification = verify_rehearsal_import(
+                session, bundle_path, expected_bhav_count=expected_bhav
+            )
+            print(json.dumps(verification.as_dict(), indent=2))
+            if not verification.passed:
+                print("Verification failed.", file=sys.stderr)
+                return 1
+        return 0
+    except Exception as exc:
+        session.rollback()
+        print(f"Bundle import failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
+def verify_rehearsal_cmd(
+    bundle_path: Path,
+    *,
+    bhav_source_url: str | None = None,
+) -> int:
+    """Verify DATABASE_URL matches migration bundle expectations."""
+    import json
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from pms_platform.reconciliation.copy_bhav import bhav_bar_count
+    from pms_platform.reconciliation.verify import verify_rehearsal_import
+
+    if not bundle_path.is_file():
+        print(f"Bundle not found: {bundle_path}", file=sys.stderr)
+        return 1
+
+    expected_bhav: int | None = None
+    if bhav_source_url:
+        src_engine = create_engine(bhav_source_url)
+        SrcSession = sessionmaker(bind=src_engine)
+        src = SrcSession()
+        try:
+            expected_bhav = bhav_bar_count(src)
+        finally:
+            src.close()
+            src_engine.dispose()
+
+    session = get_session_factory()()
+    try:
+        verification = verify_rehearsal_import(
+            session, bundle_path, expected_bhav_count=expected_bhav
+        )
+        print(json.dumps(verification.as_dict(), indent=2))
+        return 0 if verification.passed else 1
+    finally:
+        session.close()
+
+
+def rehearsal_capacity_cmd(
+    *,
+    research_dir: Path | None,
+    ceiling_mb: int,
+) -> int:
+    """Report private storage + Research footprint vs 500 MB ceiling."""
+    import json
+
+    from pms_platform.reconciliation.capacity import build_capacity_report
+
+    report = build_capacity_report(
+        private_storage_dir=settings.private_storage_dir,
+        research_dir=research_dir or settings.research_dir,
+        upload_dir=settings.upload_dir,
+        ceiling_mb=ceiling_mb,
+    )
+    print(json.dumps(report.as_dict(), indent=2))
+    return 0 if report.within_ceiling else 1
 
 
 def reconcile_snapshots(snapshot_dir: Path | None = None, export_dir: Path | None = None) -> int:
@@ -1206,6 +1331,70 @@ def main() -> None:
         default=None,
         help="Research tree for file checksum manifest (default: RESEARCH_DIR)",
     )
+    cutover_parser.add_argument(
+        "--fail-on-conflict",
+        action="store_true",
+        help="Exit 1 when value_conflict rows exist (rehearsal gate)",
+    )
+
+    import_bundle_parser = subparsers.add_parser(
+        "import-migration-bundle",
+        help="Import migration_bundle.json into DATABASE_URL (Phase 8 rehearsal)",
+    )
+    import_bundle_parser.add_argument(
+        "--bundle",
+        type=Path,
+        required=True,
+        help="Path to migration_bundle.json from reconcile-cutover",
+    )
+    import_bundle_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report planned upserts without writing",
+    )
+    import_bundle_parser.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="Skip post-import verification",
+    )
+    import_bundle_parser.add_argument(
+        "--bhav-source-url",
+        default=None,
+        help="Copy nse_bhav_bars from this legacy DB URL after bundle import",
+    )
+
+    verify_rehearsal_parser = subparsers.add_parser(
+        "verify-rehearsal",
+        help="Verify DATABASE_URL matches migration bundle counts/totals",
+    )
+    verify_rehearsal_parser.add_argument(
+        "--bundle",
+        type=Path,
+        required=True,
+        help="Path to migration_bundle.json",
+    )
+    verify_rehearsal_parser.add_argument(
+        "--bhav-source-url",
+        default=None,
+        help="Expected bhav bar count from this legacy DB URL",
+    )
+
+    capacity_parser = subparsers.add_parser(
+        "rehearsal-capacity",
+        help="Report storage footprint vs 500 MB ceiling",
+    )
+    capacity_parser.add_argument(
+        "--research-dir",
+        type=Path,
+        default=None,
+        help="Research tree (default: RESEARCH_DIR)",
+    )
+    capacity_parser.add_argument(
+        "--ceiling-mb",
+        type=int,
+        default=500,
+        help="Capacity ceiling in megabytes (default: 500)",
+    )
 
     migrate_parser = subparsers.add_parser(
         "migrate",
@@ -1547,6 +1736,30 @@ def main() -> None:
                 julesh_url=args.julesh_url,
                 output_dir=args.output_dir,
                 research_dir=args.research_dir,
+                fail_on_conflict=args.fail_on_conflict,
+            )
+        )
+    if args.command == "import-migration-bundle":
+        raise SystemExit(
+            import_migration_bundle_cmd(
+                args.bundle,
+                dry_run=args.dry_run,
+                verify=not args.no_verify,
+                bhav_source_url=args.bhav_source_url,
+            )
+        )
+    if args.command == "verify-rehearsal":
+        raise SystemExit(
+            verify_rehearsal_cmd(
+                args.bundle,
+                bhav_source_url=args.bhav_source_url,
+            )
+        )
+    if args.command == "rehearsal-capacity":
+        raise SystemExit(
+            rehearsal_capacity_cmd(
+                research_dir=args.research_dir,
+                ceiling_mb=args.ceiling_mb,
             )
         )
     if args.command == "migrate":
