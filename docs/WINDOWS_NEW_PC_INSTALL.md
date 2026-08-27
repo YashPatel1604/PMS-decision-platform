@@ -95,12 +95,31 @@ Set at least:
 ```env
 POSTGRES_PASSWORD=choose-a-long-password
 RESEARCH_DIR=C:/Users/YourName/OneDrive/Some/Folders/Research
+DAILY_EDIT_DIR=C:/Users/YourName/Apps/DailyEditFiles
 NEXT_PUBLIC_API_URL=/backend
 API_INTERNAL_URL=http://api:8000
 FUNDAMENTALS_PROVIDER=xbrl
 ```
 
 (`NEXT_PUBLIC_API_URL=/backend` is required for login cookies via the UI proxy.)
+
+### DailyEditFiles (required — Client Portfolio / Charts / Pivot)
+
+Compose defaults to `../DailyEditFiles` next to the repo (`$HOME\Apps\DailyEditFiles`). That folder is **empty** on a new PC until you create it and put workbooks there (Research is read-only in Docker).
+
+```powershell
+New-Item -ItemType Directory -Force -Path "$HOME\Apps\DailyEditFiles" | Out-Null
+# Edit RESEARCH path to match your .env
+$research = "C:/Users/YourName/OneDrive/Some/Folders/Research"
+Copy-Item "$research\Portfolio\PMS_ClientPortfolio.xlsx" "$HOME\Apps\DailyEditFiles\" -ErrorAction SilentlyContinue
+# Optional but recommended if you have them on this PC / OneDrive:
+# Copy-Item "...\Charts*.xlsx" "$HOME\Apps\DailyEditFiles\"
+# Copy-Item "...\SCA_LLP*.xlsx" "$HOME\Apps\DailyEditFiles\"
+# Copy-Item "...\PivotPoints*.xlsx" "$HOME\Apps\DailyEditFiles\"
+dir "$HOME\Apps\DailyEditFiles"
+```
+
+Pin that folder **Always keep on this device** if it lives under OneDrive. After changing `DAILY_EDIT_DIR`, recreate the API: `docker compose up -d --force-recreate api`.
 
 Notes:
 

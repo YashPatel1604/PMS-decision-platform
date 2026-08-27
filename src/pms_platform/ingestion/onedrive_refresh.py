@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from pms_platform.analytics.research_portfolio_value import clear_research_portfolio_value_cache
 from pms_platform.analytics.service import run_full_episode_analysis
 from pms_platform.config import settings
-from pms_platform.episodes.builder import build_episodes
+from pms_platform.episodes.builder import build_episodes, wipe_episode_graph
 from pms_platform.episodes.model_reconcile import reconcile_open_episodes_to_client_model
 from pms_platform.ingestion.securities import import_security_master
 from pms_platform.ingestion.snapshots import clear_portfolio_snapshots, import_portfolio_snapshots
@@ -27,18 +27,12 @@ from pms_platform.ingestion.transactions import import_transaction_master
 from pms_platform.ingestion.validators import ValidationSeverity, validate_imported_data
 from pms_platform.market_data.client_portfolio_parse import clear_client_portfolio_cache
 from pms_platform.market_data.contracts import CanonicalPaths
+from pms_platform.market_data.daily_edit_bhav import ensure_daily_edit_seed_from_research
 from pms_platform.market_data.importer import import_market_data
 from pms_platform.masters.paths import MasterKind, final_master_dir, resolve_master_path
 from pms_platform.models import (
-    DecisionEvent,
-    EpisodeCashFlowRecord,
-    EpisodePerformance,
     ImportBatch,
-    InvestmentEpisode,
     LiquidTransaction,
-    PostExitHorizonPerformance,
-    PostExitPerformance,
-    SellAssessment,
     Transaction,
 )
 from pms_platform.research_paths import (
@@ -199,13 +193,7 @@ def reimport_from_raw(session: Session, *, raw_dir: Path | None = None) -> Reimp
     if not transaction_path.is_file():
         raise FileNotFoundError(f"Missing {transaction_path}")
 
-    session.execute(delete(PostExitHorizonPerformance))
-    session.execute(delete(PostExitPerformance))
-    session.execute(delete(SellAssessment))
-    session.execute(delete(EpisodePerformance))
-    session.execute(delete(EpisodeCashFlowRecord))
-    session.execute(delete(DecisionEvent))
-    session.execute(delete(InvestmentEpisode))
+    wipe_episode_graph(session)
     session.execute(delete(Transaction))
     session.execute(delete(LiquidTransaction))
     clear_portfolio_snapshots(session)
@@ -352,14 +340,17 @@ def _refresh_nse_bhav_best_effort(session: Session) -> list[str]:
 
 def refresh_from_onedrive(session: Session) -> OnedriveRefreshResult:
     """Full refresh: sync raw + reimport + market import + analysis + NSE bhav."""
+    seed_notes = ensure_daily_edit_seed_from_research()
     try:
         sync = sync_raw_from_onedrive()
     except Exception as exc:  # noqa: BLE001
         return OnedriveRefreshResult(
-            sync=SyncRawResult(notes=[str(exc)]),
+            sync=SyncRawResult(notes=[*seed_notes, str(exc)]),
             ok=False,
             error=f"Sync failed: {exc}",
         )
+    if seed_notes:
+        sync.notes.extend(seed_notes)
     try:
         reimport = reimport_from_raw(session)
     except Exception as exc:  # noqa: BLE001

@@ -81,6 +81,62 @@ def pivot_workbook_daily_edit_path(folder: Path | None = None) -> Path | None:
     return None if root is None else _newest_xlsx(root, "pivot")
 
 
+def ensure_daily_edit_seed_from_research() -> list[str]:
+    """Copy live Client / Pivot workbooks into DailyEditFiles when missing.
+
+    New PCs often mount an empty ``../DailyEditFiles``. Research stays
+    read-only in Docker; this one-time copy makes Client Portfolio / Pivot usable.
+    """
+    from shutil import copy2
+
+    from pms_platform.research_paths import research_dir, research_portfolio_dir
+
+    notes: list[str] = []
+    root = daily_edit_dir()
+    if root is None:
+        return [
+            "DailyEditFiles missing — set DAILY_EDIT_DIR in .env to a writable folder "
+            "(e.g. C:/Users/.../Apps/DailyEditFiles), recreate api, then Refresh."
+        ]
+
+    portfolio = research_portfolio_dir()
+    if client_portfolio_daily_edit_path(root) is None:
+        src = (portfolio / "PMS_ClientPortfolio.xlsx") if portfolio is not None else None
+        if src is not None and src.is_file():
+            dest = root / "PMS_ClientPortfolio.xlsx"
+            try:
+                copy2(src, dest)
+                notes.append(f"Seeded DailyEditFiles/{dest.name} from Research")
+            except OSError as exc:
+                notes.append(f"Could not seed PMS_ClientPortfolio.xlsx: {exc}")
+        else:
+            notes.append(
+                "Missing PMS_ClientPortfolio.xlsx in DailyEditFiles and Research/Portfolio — "
+                "copy it into DAILY_EDIT_DIR manually."
+            )
+
+    if pivot_workbook_daily_edit_path(root) is None:
+        research = research_dir()
+        pivot_src: Path | None = None
+        if research is not None:
+            hits = [
+                p
+                for p in research.rglob("PivotPoints*.xlsx")
+                if p.is_file() and not p.name.startswith("~$")
+            ]
+            if hits:
+                pivot_src = max(hits, key=lambda p: p.stat().st_mtime)
+        if pivot_src is not None and pivot_src.is_file():
+            dest = root / pivot_src.name
+            try:
+                copy2(pivot_src, dest)
+                notes.append(f"Seeded DailyEditFiles/{dest.name} from Research")
+            except OSError as exc:
+                notes.append(f"Could not seed Pivot workbook: {exc}")
+
+    return notes
+
+
 def _csv_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
     with path.open(newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)

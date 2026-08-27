@@ -323,8 +323,8 @@ export function HoldingsView() {
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">Holdings analyze</h1>
           <p className="mt-3 text-base leading-7 text-stone-600">
             Pick a From date to reprice every open name over that window (start
-            price, From ₹, Now ₹, Stock %). Portfolio totals above are the book;
-            the table is per holding. Qty and Mcap follow Model when present.
+            and now price, Stock %). Portfolio totals above are the book; the
+            table is per holding. Qty and Mcap follow Model when present.
           </p>
         </div>
         <div className="flex flex-col gap-3">
@@ -461,13 +461,10 @@ export function HoldingsView() {
                 <tr>
                   <th className="px-3 py-3 font-semibold">Stock</th>
                   <th className="px-3 py-3 font-semibold">Period</th>
-                  <th className="px-3 py-3 text-right font-semibold">Mcap</th>
-                  <th className="px-3 py-3 text-right font-semibold">Wt %</th>
                   {data.from_date ? (
                     <>
                       <th className="px-3 py-3 text-right font-semibold">Start</th>
-                      <th className="px-3 py-3 text-right font-semibold">From ₹</th>
-                      <th className="px-3 py-3 text-right font-semibold">Now ₹</th>
+                      <th className="px-3 py-3 text-right font-semibold">Now</th>
                     </>
                   ) : null}
                   <th className="px-3 py-3 text-right font-semibold">Stock %</th>
@@ -475,6 +472,8 @@ export function HoldingsView() {
                   <th className="px-3 py-3 text-right font-semibold">vs Port</th>
                   <th className="px-3 py-3 text-right font-semibold">BSE %</th>
                   <th className="px-3 py-3 text-right font-semibold">vs BSE</th>
+                  <th className="px-3 py-3 text-right font-semibold">Mcap</th>
+                  <th className="px-3 py-3 text-right font-semibold">Wt %</th>
                 </tr>
               </thead>
               <tbody>
@@ -506,22 +505,13 @@ export function HoldingsView() {
                         </p>
                         <p className="text-xs text-stone-500">{formatDays(row.period_days)}</p>
                       </td>
-                      <td className="px-3 py-3 text-right tabular-nums">
-                        {row.mcap == null ? "—" : formatNum(row.mcap)}
-                      </td>
-                      <td className="px-3 py-3 text-right tabular-nums">
-                        {formatPct(row.position_weight_pct)}
-                      </td>
                       {data.from_date ? (
                         <>
                           <td className="px-3 py-3 text-right tabular-nums">
                             {formatPrice(row.from_price)}
                           </td>
                           <td className="px-3 py-3 text-right tabular-nums">
-                            {formatInr(row.market_value_from)}
-                          </td>
-                          <td className="px-3 py-3 text-right tabular-nums">
-                            {formatInr(row.market_value)}
+                            {formatPrice(row.as_of_price)}
                           </td>
                         </>
                       ) : null}
@@ -551,6 +541,12 @@ export function HoldingsView() {
                         )}`}
                       >
                         {formatPp(row.excess_vs_bse_pp)}
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums">
+                        {row.mcap == null ? "—" : formatNum(row.mcap)}
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums">
+                        {formatPct(row.position_weight_pct)}
                       </td>
                     </tr>
                   );
@@ -586,26 +582,12 @@ export function HoldingsView() {
                     {formatPct(selected.stock_return_pct)}
                   </p>
                   {data.from_date ? (
-                    <>
-                      <p className="mt-1 text-xs text-stone-500">
-                        Period start{" "}
-                        <span className="tabular-nums text-stone-700">
-                          {formatPrice(selected.from_price)}
-                        </span>
-                      </p>
-                      <p className="text-xs text-stone-500">
-                        From value{" "}
-                        <span className="tabular-nums text-stone-700">
-                          {formatInr(selected.market_value_from)}
-                        </span>
-                      </p>
-                      <p className="text-xs text-stone-500">
-                        Now value{" "}
-                        <span className="tabular-nums text-stone-700">
-                          {formatInr(selected.market_value)}
-                        </span>
-                      </p>
-                    </>
+                    <p className="mt-1 text-xs text-stone-500">
+                      Period start{" "}
+                      <span className="tabular-nums text-stone-700">
+                        {formatPrice(selected.from_price)}
+                      </span>
+                    </p>
                   ) : (
                     <p className="mt-1 text-xs text-stone-500">
                       1st buy{" "}

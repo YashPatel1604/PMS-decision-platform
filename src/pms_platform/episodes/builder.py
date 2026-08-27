@@ -3,11 +3,48 @@
 from dataclasses import dataclass, field
 from datetime import date
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.orm import Session
 
 from pms_platform.models import DecisionEvent, InvestmentEpisode, Transaction
 from pms_platform.models.enums import DecisionType, EpisodeStatus, EventType
+
+
+def wipe_episode_graph(session: Session) -> None:
+    """Remove episodes and every table that FKs to them.
+
+    Postgres: TRUNCATE … CASCADE (one shot, order-proof).
+    SQLite (tests): explicit child deletes then episodes.
+    """
+    bind = session.get_bind()
+    dialect = bind.dialect.name if bind is not None else ""
+    if dialect == "postgresql":
+        session.execute(
+            text(
+                "TRUNCATE TABLE investment_episodes "
+                "RESTART IDENTITY CASCADE"
+            )
+        )
+        session.expire_all()
+        return
+
+    from pms_platform.models import (
+        EpisodeCashFlowRecord,
+        EpisodePerformance,
+        PostExitHorizonPerformance,
+        PostExitPerformance,
+        SellAssessment,
+    )
+
+    session.execute(delete(PostExitHorizonPerformance))
+    session.execute(delete(PostExitPerformance))
+    session.execute(delete(SellAssessment))
+    session.execute(delete(EpisodePerformance))
+    session.execute(delete(EpisodeCashFlowRecord))
+    session.execute(delete(DecisionEvent))
+    session.execute(delete(InvestmentEpisode))
+    session.flush()
+    session.expire_all()
 
 
 @dataclass
@@ -60,22 +97,7 @@ def _decision_type_for(
 
 def build_episodes(session: Session) -> tuple[list[InvestmentEpisode], list[DecisionEvent]]:
     """Rebuild investment episodes and decision events from all equity transactions."""
-    from pms_platform.models import (
-        EpisodeCashFlowRecord,
-        EpisodePerformance,
-        PostExitHorizonPerformance,
-        PostExitPerformance,
-        SellAssessment,
-    )
-
-    session.execute(delete(PostExitHorizonPerformance))
-    session.execute(delete(PostExitPerformance))
-    session.execute(delete(SellAssessment))
-    session.execute(delete(EpisodePerformance))
-    session.execute(delete(EpisodeCashFlowRecord))
-    session.execute(delete(DecisionEvent))
-    session.execute(delete(InvestmentEpisode))
-    session.flush()
+    wipe_episode_graph(session)
 
     transactions = list(
         session.scalars(
