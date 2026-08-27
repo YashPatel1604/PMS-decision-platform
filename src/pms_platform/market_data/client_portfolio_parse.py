@@ -104,6 +104,11 @@ def client_portfolio_write_path() -> Path:
 
 # ponytail: only literal a-b-c (WELENT Total Quantity), not cell refs
 _NUMERIC_SUB = re.compile(r"^=\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)+$")
+# Model!Mcap like =(19.11/2)*C3 or =(20.6/1)*C9 — openpyxl save clears cached values.
+_MCAP_FORMULA = re.compile(
+    r"^=\(?(\d+(?:\.\d+)?)(?:/(\d+(?:\.\d+)?))?\)?\*[A-Z]+\d+$",
+    re.IGNORECASE,
+)
 
 
 def _to_decimal(raw: object) -> Decimal | None:
@@ -175,6 +180,87 @@ def _parse_year_block(
             cum = (end / first_start - 1) * Decimal(100)
         out.append(
             YearlyReturnRow(year=year, start=start, end=end, return_pct=ret, cum_pct=cum)
+        )
+    return out
+
+
+def _mcap_from_formula(formula: object, price: Decimal | None) -> Decimal | None:
+    """Evaluate Model!Mcap share-factor × price when Excel cache is empty."""
+    if price is None or not isinstance(formula, str) or not formula.startswith("="):
+        return None
+    match = _MCAP_FORMULA.fullmatch(formula.replace(" ", ""))
+    if match is None:
+        return None
+    num = Decimal(match.group(1))
+    den = Decimal(match.group(2) or "1")
+    if den == 0:
+        return None
+    return (num / den) * price
+
+
+def _firm_pct_from_parts(
+    stocks_qty: Decimal | None, price: Decimal | None, mcap: Decimal | None
+) -> Decimal | None:
+    """Model!%Firm = (Stocks qty × price) / (Mcap × 1e5)."""
+    if stocks_qty is None or price is None or mcap is None or mcap == 0:
+        return None
+    return (stocks_qty * price) / (mcap * Decimal(100_000))
+
+
+def _fill_missing_mcap_firm(
+    model: list[ClientPortfolioPosition],
+    *,
+    path: Path,
+    stocks_qty: dict[str, Decimal],
+    stocks_price: dict[str, Decimal],
+) -> list[ClientPortfolioPosition]:
+    """Recompute Mcap / %Firm when data_only cache was wiped (e.g. after openpyxl save)."""
+    if not any(p.mcap is None or p.firm_pct is None for p in model):
+        return model
+
+    form_wb = openpyxl.load_workbook(path, read_only=True, data_only=False)
+    try:
+        if "Model" not in form_wb.sheetnames:
+            return model
+        form_by_symbol: dict[str, Any] = {}
+        for row in form_wb["Model"].iter_rows(values_only=True):
+            symbol = _symbol(row[0] if row else None)
+            if symbol is None:
+                continue
+            form_by_symbol[symbol] = row
+    finally:
+        form_wb.close()
+
+    out: list[ClientPortfolioPosition] = []
+    for pos in model:
+        mcap = pos.mcap
+        firm = pos.firm_pct
+        price = pos.excel_price or stocks_price.get(pos.symbol)
+        form_row = form_by_symbol.get(pos.symbol)
+        if mcap is None and form_row is not None:
+            mcap = _mcap_from_formula(_cell(tuple(form_row), 6), price)
+        if firm is None:
+            firm = _firm_pct_from_parts(
+                stocks_qty.get(pos.symbol), price, mcap
+            )
+        if mcap == pos.mcap and firm == pos.firm_pct:
+            out.append(pos)
+            continue
+        out.append(
+            ClientPortfolioPosition(
+                symbol=pos.symbol,
+                qty=pos.qty,
+                excel_price=pos.excel_price if pos.excel_price is not None else price,
+                excel_value=pos.excel_value,
+                excel_percent=pos.excel_percent,
+                index_label=pos.index_label,
+                mcap=mcap,
+                as_of_label=pos.as_of_label,
+                firm_pct=firm,
+                target_value=pos.target_value,
+                portfolio_flag=pos.portfolio_flag,
+                ramprasath_qty=pos.ramprasath_qty,
+            )
         )
     return out
 
@@ -445,6 +531,7 @@ def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:
             )
 
     stocks_qty: dict[str, Decimal] = {}
+    stocks_price: dict[str, Decimal] = {}
     for row in stocks_rows:
         if not row or row[0] is None:
             continue
@@ -452,6 +539,9 @@ def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:
         if symbol is None:
             continue
         # Stocks: SYMBOL, name, price, blank, Quantity, Value
+        price = _to_decimal(row[2] if len(row) > 2 else None)
+        if price is not None:
+            stocks_price[symbol] = price
         qty = _to_decimal(row[4] if len(row) > 4 else None)
         if qty is None:
             continue
@@ -468,6 +558,9 @@ def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:
             if qty is None:
                 continue
             stocks_qty[symbol] = qty
+            price = _to_decimal(_cell(row, 4))
+            if price is not None:
+                stocks_price[symbol] = price
 
     bank_balance: Decimal | None = None
     for row in quantity_rows:
@@ -476,6 +569,10 @@ def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:
         if str(row[0]).strip().lower().replace(" ", "_") == "balance_with_bank":
             bank_balance = _to_decimal(_cell(row, 5))
             break
+
+    model = _fill_missing_mcap_firm(
+        model, path=path, stocks_qty=stocks_qty, stocks_price=stocks_price
+    )
 
     return ClientPortfolioBook(
         path=path,

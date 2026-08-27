@@ -181,3 +181,48 @@ def test_write_bse_smallcap_year_updates_workbook(tmp_path: Path) -> None:
     assert wb2["Model"].cell(3, 20).value == 6100.0
     wb2.close()
 
+
+def test_mcap_firm_recomputed_when_excel_cache_missing(tmp_path: Path) -> None:
+    """openpyxl save wipes formula caches — parser must still fill Mcap / %Firm."""
+    from openpyxl import Workbook
+
+    path = tmp_path / "PMS_ClientPortfolio copy.xlsx"
+    wb = Workbook()
+    model = wb.active
+    model.title = "Model"
+    model.append(
+        ["Model", "Qnty", "Price", "Value", "Percent", "Index", "Mcap", "Date", "%Firm"]
+    )
+    # Row 2 blank (matches live book); row 3 = ASHAPURMIN-style formulas, no cache.
+    model.append([None] * 9)
+    model.append(
+        [
+            "ASHAPURMIN",
+            3670,
+            "=Stocks!C3",
+            None,
+            None,
+            "-",
+            "=(19.11/2)*C3",
+            "Nov25",
+            "=(Stocks!E3*C3)/(G3*100000)",
+        ]
+    )
+    stocks = wb.create_sheet("Stocks")
+    stocks.append(["SYMBOL", "Stocks", None, None, "Quantity", "Value"])
+    stocks.append([None] * 6)
+    stocks.append(["ASHAPURMIN", "ASHAPURMIN", 585.8, None, 499364, None])
+    wb.save(path)
+    wb.close()
+
+    book = parse_client_portfolio_workbook(path)
+    pos = book.model[0]
+    assert pos.symbol == "ASHAPURMIN"
+    assert pos.mcap is not None
+    assert abs(pos.mcap - Decimal("19.11") / 2 * Decimal("585.8")) < Decimal("0.01")
+    expected_firm = (
+        Decimal("499364") * Decimal("585.8") / (pos.mcap * Decimal(100_000))
+    )
+    assert pos.firm_pct is not None
+    assert abs(pos.firm_pct - expected_firm) < Decimal("0.0001")
+
