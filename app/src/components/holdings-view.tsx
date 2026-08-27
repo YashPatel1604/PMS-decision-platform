@@ -169,6 +169,7 @@ function CompareChart({ series }: { series: CompareSeries }) {
 export function HoldingsView() {
   const [asOf, setAsOf] = useState<string>("");
   const [fromDate, setFromDate] = useState<string>("");
+  const [toTouched, setToTouched] = useState(false);
   const [preset, setPreset] = useState<RangePreset>("since_entry");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -178,24 +179,26 @@ export function HoldingsView() {
   const effectiveFrom = fromDate.trim() || null;
 
   const holdingsQuery = useQuery({
-    queryKey: ["open-holdings", asOf || "book-latest", effectiveFrom],
-    queryFn: () => api.getOpenHoldings(asOf || null, effectiveFrom),
+    queryKey: ["open-holdings", toTouched ? asOf || "none" : "latest", effectiveFrom],
+    queryFn: () => api.getOpenHoldings(toTouched ? asOf || null : null, effectiveFrom),
     staleTime: 60 * 1000,
   });
 
   useEffect(() => {
-    if (holdingsQuery.data?.as_of_date && !asOf) {
-      setAsOf(holdingsQuery.data.as_of_date);
+    const ceiling = holdingsQuery.data?.as_of_date;
+    if (!ceiling) return;
+    if (!toTouched || !asOf) {
+      setAsOf(ceiling);
     }
-  }, [holdingsQuery.data?.as_of_date, asOf]);
+  }, [holdingsQuery.data?.as_of_date, toTouched, asOf]);
 
-  // If API capped as-of to the holdings ceiling (book or bhav), sync the date picker.
+  // If user picked a To past the ceiling, pull it back.
   useEffect(() => {
     const capped = holdingsQuery.data?.as_of_date;
-    if (capped && asOf && capped < asOf) {
+    if (toTouched && capped && asOf && capped < asOf) {
       setAsOf(capped);
     }
-  }, [holdingsQuery.data?.as_of_date, asOf]);
+  }, [holdingsQuery.data?.as_of_date, asOf, toTouched]);
 
   const selected = useMemo(
     () => holdingsQuery.data?.holdings.find((h) => h.episode_id === selectedId) ?? null,
@@ -319,9 +322,9 @@ export function HoldingsView() {
           </p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">Holdings analyze</h1>
           <p className="mt-3 text-base leading-7 text-stone-600">
-            Values: History book when that day exists; otherwise Model×bhav from
-            PMS_ClientPortfolio (as-of {formatDate(bookDate)}). Qty and Mcap follow Model when
-            present. Yahoo live quotes do not affect this page.
+            Pick a From date to reprice every open name over that window (start
+            price, From ₹, Now ₹, Stock %). Portfolio totals above are the book;
+            the table is per holding. Qty and Mcap follow Model when present.
           </p>
         </div>
         <div className="flex flex-col gap-3">
@@ -371,6 +374,7 @@ export function HoldingsView() {
                 max={bookDate}
                 onChange={(event) => {
                   const next = event.target.value;
+                  setToTouched(true);
                   setAsOf(next);
                   if (preset === "3m") setFromDate(shiftMonths(next, -3));
                   if (preset === "6m") setFromDate(shiftMonths(next, -6));
@@ -459,6 +463,13 @@ export function HoldingsView() {
                   <th className="px-3 py-3 font-semibold">Period</th>
                   <th className="px-3 py-3 text-right font-semibold">Mcap</th>
                   <th className="px-3 py-3 text-right font-semibold">Wt %</th>
+                  {data.from_date ? (
+                    <>
+                      <th className="px-3 py-3 text-right font-semibold">Start</th>
+                      <th className="px-3 py-3 text-right font-semibold">From ₹</th>
+                      <th className="px-3 py-3 text-right font-semibold">Now ₹</th>
+                    </>
+                  ) : null}
                   <th className="px-3 py-3 text-right font-semibold">Stock %</th>
                   <th className="px-3 py-3 text-right font-semibold">Port %</th>
                   <th className="px-3 py-3 text-right font-semibold">vs Port</th>
@@ -501,6 +512,19 @@ export function HoldingsView() {
                       <td className="px-3 py-3 text-right tabular-nums">
                         {formatPct(row.position_weight_pct)}
                       </td>
+                      {data.from_date ? (
+                        <>
+                          <td className="px-3 py-3 text-right tabular-nums">
+                            {formatPrice(row.from_price)}
+                          </td>
+                          <td className="px-3 py-3 text-right tabular-nums">
+                            {formatInr(row.market_value_from)}
+                          </td>
+                          <td className="px-3 py-3 text-right tabular-nums">
+                            {formatInr(row.market_value)}
+                          </td>
+                        </>
+                      ) : null}
                       <td
                         className={`px-3 py-3 text-right font-medium tabular-nums ${toneClass(
                           valueTone(row.stock_return_pct),
@@ -562,12 +586,26 @@ export function HoldingsView() {
                     {formatPct(selected.stock_return_pct)}
                   </p>
                   {data.from_date ? (
-                    <p className="mt-1 text-xs text-stone-500">
-                      Period start{" "}
-                      <span className="tabular-nums text-stone-700">
-                        {formatPrice(selected.from_price)}
-                      </span>
-                    </p>
+                    <>
+                      <p className="mt-1 text-xs text-stone-500">
+                        Period start{" "}
+                        <span className="tabular-nums text-stone-700">
+                          {formatPrice(selected.from_price)}
+                        </span>
+                      </p>
+                      <p className="text-xs text-stone-500">
+                        From value{" "}
+                        <span className="tabular-nums text-stone-700">
+                          {formatInr(selected.market_value_from)}
+                        </span>
+                      </p>
+                      <p className="text-xs text-stone-500">
+                        Now value{" "}
+                        <span className="tabular-nums text-stone-700">
+                          {formatInr(selected.market_value)}
+                        </span>
+                      </p>
+                    </>
                   ) : (
                     <p className="mt-1 text-xs text-stone-500">
                       1st buy{" "}

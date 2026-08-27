@@ -46,6 +46,7 @@ class OpenHoldingResponse(BaseModel):
     as_of_price: float | None
     as_of_price_date: str | None
     market_value: float | None
+    market_value_from: float | None = None
     cost_basis_value: float | None
     unrealized_pnl: float | None
     unrealized_pnl_pct: float | None
@@ -180,6 +181,7 @@ def _holding_response(row: OpenHoldingRow) -> OpenHoldingResponse:
             row.as_of_price_date.isoformat() if row.as_of_price_date else None
         ),
         market_value=_float(row.market_value),
+        market_value_from=_float(row.market_value_from),
         cost_basis_value=_float(row.cost_basis_value),
         unrealized_pnl=_float(row.unrealized_pnl),
         unrealized_pnl_pct=_float(row.unrealized_pnl_pct),

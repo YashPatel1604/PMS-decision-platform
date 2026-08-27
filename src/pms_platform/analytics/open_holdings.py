@@ -136,6 +136,7 @@ class OpenHoldingRow:
     as_of_price: Decimal | None
     as_of_price_date: date | None
     market_value: Decimal | None
+    market_value_from: Decimal | None
     cost_basis_value: Decimal | None
     unrealized_pnl: Decimal | None
     unrealized_pnl_pct: Decimal | None
@@ -259,17 +260,13 @@ def _stock_return_pct(
                 end_date_obs = as_of_date
         return None, None, end_date_obs, None, "Missing period-start price"
     if end_close is None:
-        # ponytail: raw bhav CMP when daily_prices lag the latest bhav session
+        # ponytail: raw bhav CMP when daily_prices lag the latest bhav session.
+        # Pair with adjusted start (vendor series is already in current-share units).
         bhav = _bhav_close_for_security(session, security, as_of_date)
         if bhav is not None:
             end_close, _series = bhav
             end_date_obs = as_of_date
-            # Bhav is current-share face value; scale start raw close the same way.
-            start_factor = cumulative_split_bonus_factor_after(
-                session, security_id, start.trade_date
-            )
-            start_mark = start.close * start_factor
-            if start_mark <= 0:
+            if start.adjusted_close <= 0:
                 return (
                     None,
                     start.trade_date,
@@ -277,7 +274,7 @@ def _stock_return_pct(
                     start.adjusted_close,
                     "Non-positive period-start price",
                 )
-            total = ((end_close / start_mark) - _ONE) * _HUNDRED
+            total = ((end_close / start.adjusted_close) - _ONE) * _HUNDRED
             return total, start.trade_date, end_date_obs, start.adjusted_close, None
     if end_close is None:
         return None, start.trade_date, None, start.adjusted_close, "Missing as-of price"
@@ -416,6 +413,7 @@ def _analyze_open_episode(
     from_date: date | None = None,
     portfolio_cache: dict[tuple[date, date], Decimal | None] | None = None,
     model_by_symbol: dict[str, ClientPortfolioPosition] | None = None,
+    portfolio_return_override: Decimal | None = None,
 ) -> OpenHoldingRow:
     notes: list[str] = []
     portfolio_name = (
@@ -455,9 +453,13 @@ def _analyze_open_episode(
         )
         bse_ret, _ = _bse_from_benchmarks(benchmarks, primary)
         port_ret = (
-            _portfolio_return_cached(session, cache, period_start, as_of_date)
-            if as_of_date >= period_start
-            else None
+            portfolio_return_override
+            if portfolio_return_override is not None
+            else (
+                _portfolio_return_cached(session, cache, period_start, as_of_date)
+                if as_of_date >= period_start
+                else None
+            )
         )
         return OpenHoldingRow(
             episode_id=episode.episode_id,
@@ -474,6 +476,7 @@ def _analyze_open_episode(
             as_of_price=None,
             as_of_price_date=None,
             market_value=None,
+            market_value_from=None,
             cost_basis_value=None,
             unrealized_pnl=None,
             unrealized_pnl_pct=None,
@@ -556,8 +559,8 @@ def _analyze_open_episode(
         else None
     )
 
-    # Period return helper (adj/adj, or bhav vs scaled raw start).
-    period_ret, from_price_date, _, from_adj, period_note = _stock_return_pct(
+    # Period return helper (adj/adj, or bhav vs raw start in current shares).
+    period_ret, from_price_date, _, from_mark, period_note = _stock_return_pct(
         session,
         episode.security_id,
         period_start,
@@ -575,39 +578,28 @@ def _analyze_open_episode(
     start_obs = lookup_daily_price(
         session, start_price_sid, period_start, allow_live=False
     )
+    market_value_from: Decimal | None = None
     if start_obs is not None:
         from_price_date = start_obs.trade_date
-        if used_bhav_mark:
-            # Match bhav: face value that day × later CA factor → current shares.
-            from_factor = cumulative_split_bonus_factor_after(
-                session, episode.security_id, start_obs.trade_date
-            )
-            from_price = start_obs.close * from_factor
-        else:
-            # Match adjusted as-of series — do not multiply adj by CA factor again.
-            from_price = start_obs.adjusted_close
-    elif from_adj is not None:
-        from_price = from_adj
+        qty_from = _quantity_on_date(events, start_obs.trade_date)
+        # ₹ value that day: ledger qty × that day's face close (same share units).
+        if qty_from > 0 and start_obs.close > 0:
+            market_value_from = Decimal(qty_from) * start_obs.close
+        # Period start mark = adjusted close (vendor series already current-share).
+        # Do not ×/÷ ledger CA factor — that factor is for qty vs adj, not this mark.
+        from_price = start_obs.adjusted_close
+    elif from_mark is not None:
+        from_price = from_mark
     else:
         from_price = None
 
-    # Any From date → market path for that window. Since entry (no From) → 1st buy.
+    # Any From date → price on period start → as-of (never first-buy).
+    # No From → 1st buy → current (since entry).
     period_window = from_date is not None
     if period_window:
-        if (
-            used_bhav_mark
-            and from_price is not None
-            and from_price > 0
-            and as_of_price is not None
-        ):
-            stock_return = ((as_of_price / from_price) - _ONE) * _HUNDRED
-        elif (
-            not used_bhav_mark
-            and from_price is not None
-            and from_price > 0
-            and as_of_adj is not None
-        ):
-            stock_return = ((as_of_adj / from_price) - _ONE) * _HUNDRED
+        end_mark = as_of_price if used_bhav_mark else as_of_adj
+        if from_price is not None and from_price > 0 and end_mark is not None:
+            stock_return = ((end_mark / from_price) - _ONE) * _HUNDRED
         else:
             stock_return = period_ret
             if period_note:
@@ -645,7 +637,10 @@ def _analyze_open_episode(
         )
     else:
         bse_ret, excess_bse = _bse_from_benchmarks(benchmarks, primary)
-    port_ret = _portfolio_return_cached(session, cache, period_start, as_of_date)
+    if portfolio_return_override is not None:
+        port_ret = portfolio_return_override
+    else:
+        port_ret = _portfolio_return_cached(session, cache, period_start, as_of_date)
     excess_port = (
         stock_return - port_ret if stock_return is not None and port_ret is not None else None
     )
@@ -666,6 +661,7 @@ def _analyze_open_episode(
         as_of_price=as_of_price,
         as_of_price_date=as_of_price_date,
         market_value=market_value,
+        market_value_from=market_value_from if period_window else None,
         cost_basis_value=cost_basis_value,
         unrealized_pnl=unrealized_pnl,
         unrealized_pnl_pct=unrealized_pnl_pct,
@@ -805,35 +801,6 @@ def analyze_open_holdings(
         )
         portfolio_value_check_delta = _ZERO if equity_mv is not None else None
 
-    portfolio_cache: dict[tuple[date, date], Decimal | None] = {}
-    holdings = [
-        _analyze_open_episode(
-            session,
-            episode,
-            events_by_episode.get(episode.episode_id, []),
-            securities.get(episode.security_id),
-            resolved_as_of,
-            equity_mv,
-            benchmark_codes,
-            from_date=from_date,
-            portfolio_cache=portfolio_cache,
-            model_by_symbol=model_by_symbol,
-        )
-        for episode in episodes
-    ]
-
-    excesses = []
-    port_excesses = []
-    for row in holdings:
-        if row.excess_vs_bse_pp is not None:
-            excesses.append(row.excess_vs_bse_pp)
-        if row.excess_vs_portfolio_pp is not None:
-            port_excesses.append(row.excess_vs_portfolio_pp)
-    mean_excess = sum(excesses, start=_ZERO) / Decimal(len(excesses)) if excesses else None
-    mean_port_excess = (
-        sum(port_excesses, start=_ZERO) / Decimal(len(port_excesses)) if port_excesses else None
-    )
-
     book_portfolio_return: Decimal | None = None
     equity_mv_from: Decimal | None = None
     equity_mv_from_reconstructed: Decimal | None = None
@@ -864,23 +831,43 @@ def analyze_open_holdings(
             )
             portfolio_value_from_check_delta = _ZERO if equity_mv_from is not None else None
 
-        if (
-            equity_mv_from is not None
-            and equity_mv is not None
-            and equity_mv_from > 0
-            and portfolio_value_source != "RECONSTRUCTED"
-            and portfolio_value_from_source != "RECONSTRUCTED"
-        ):
-            # Prefer contribution-neutral calendar TWR over book AUM growth.
-            book_portfolio_return = _portfolio_return_cached(
-                session, portfolio_cache, from_date, resolved_as_of
-            )
-            if book_portfolio_return is None:
-                book_portfolio_return = ((equity_mv / equity_mv_from) - _ONE) * _HUNDRED
+        # Match the From/To book totals shown on the page (not prorated CAGR).
+        if equity_mv_from is not None and equity_mv is not None and equity_mv_from > 0:
+            book_portfolio_return = ((equity_mv / equity_mv_from) - _ONE) * _HUNDRED
         else:
             book_portfolio_return = _portfolio_return_cached(
-                session, portfolio_cache, from_date, resolved_as_of
+                session, {}, from_date, resolved_as_of
             )
+
+    portfolio_cache: dict[tuple[date, date], Decimal | None] = {}
+    holdings = [
+        _analyze_open_episode(
+            session,
+            episode,
+            events_by_episode.get(episode.episode_id, []),
+            securities.get(episode.security_id),
+            resolved_as_of,
+            equity_mv,
+            benchmark_codes,
+            from_date=from_date,
+            portfolio_cache=portfolio_cache,
+            model_by_symbol=model_by_symbol,
+            portfolio_return_override=book_portfolio_return,
+        )
+        for episode in episodes
+    ]
+
+    excesses = []
+    port_excesses = []
+    for row in holdings:
+        if row.excess_vs_bse_pp is not None:
+            excesses.append(row.excess_vs_bse_pp)
+        if row.excess_vs_portfolio_pp is not None:
+            port_excesses.append(row.excess_vs_portfolio_pp)
+    mean_excess = sum(excesses, start=_ZERO) / Decimal(len(excesses)) if excesses else None
+    mean_port_excess = (
+        sum(port_excesses, start=_ZERO) / Decimal(len(port_excesses)) if port_excesses else None
+    )
 
     return OpenHoldingsResult(
         as_of_date=resolved_as_of,

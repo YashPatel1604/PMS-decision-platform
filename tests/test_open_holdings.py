@@ -142,9 +142,89 @@ def test_open_holding_from_date_window(
     # Period window: current / period-start mark = 143/110 - 1 = 30%
     assert row.stock_return_pct == Decimal("30")
     assert row.as_of_price == Decimal("143")
+    assert row.market_value_from == Decimal("1100")  # 10 × 110
+    assert row.market_value == Decimal("1430")
     # benchmark 1155/1050 - 1 = 10%
     assert row.benchmarks[0].total_return_pct == Decimal("10")
     assert row.benchmarks[0].excess_vs_stock_pp == Decimal("20")
+
+
+def test_open_holding_from_date_bhav_uses_adjusted_start(
+    session, import_batch, sample_security, monkeypatch
+) -> None:
+    """With bhav as-of, period start is adjusted close (not close÷CA factor)."""
+    from pms_platform.models.nse_bhav import NseBhavBar
+
+    for target in (
+        "pms_platform.analytics.open_holdings.lookup_research_portfolio_value",
+        "pms_platform.analytics.open_holdings.load_client_portfolio_book",
+        "pms_platform.episodes.model_reconcile.load_client_portfolio_book",
+        "pms_platform.analytics.open_holdings.latest_research_book_date",
+    ):
+        monkeypatch.setattr(target, lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "pms_platform.analytics.open_holdings.latest_bhav_trade_date",
+        lambda _session: date(2020, 6, 30),
+    )
+
+    sid = sample_security.security_id
+    sample_security.current_nse_symbol = "TESTCO"
+    add_transaction(
+        session, import_batch, sid, date(2020, 1, 2), EventType.BUY, 10, 1, Decimal("200")
+    )
+    session.add(
+        DailyPrice(
+            security_id=sid,
+            identifier_type="SECURITY_ID",
+            identifier=sid,
+            trade_date=date(2020, 3, 31),
+            close=Decimal("200"),
+            adjusted_close=Decimal("100"),
+            adjustment_basis="SPLIT_ONLY",
+            volume=None,
+            currency="INR",
+            source="fixture",
+            source_file="fixture.csv",
+            source_row=1,
+            source_key=f"fixture|{sid}|2020-03-31",
+            import_batch_id=import_batch.import_batch_id,
+        )
+    )
+    # 2:1 split after period start (ledger CA). Vendor adj already reflects it.
+    add_transaction(
+        session, import_batch, sid, date(2020, 5, 1), EventType.SPLIT, 10, 2
+    )
+    session.add(
+        NseBhavBar(
+            trade_date=date(2020, 6, 30),
+            symbol="TESTCO",
+            series="EQ",
+            isin=None,
+            instrument_name="Test",
+            open=Decimal("120"),
+            high=Decimal("135"),
+            low=Decimal("115"),
+            close=Decimal("130"),
+            prev_close=Decimal("125"),
+            volume=1000,
+            turnover=Decimal("130000"),
+            source_key="test|TESTCO|EQ|2020-06-30",
+        )
+    )
+    session.flush()
+    build_episodes(session)
+    session.flush()
+
+    row = analyze_open_holdings(
+        session,
+        as_of_date=date(2020, 6, 30),
+        from_date=date(2020, 3, 31),
+    ).holdings[0]
+    # adj start 100 → bhav 130 = +30% (must NOT use close/factor=20 → junk %)
+    assert row.from_price == Decimal("100")
+    assert row.as_of_price == Decimal("130")
+    assert row.stock_return_pct == Decimal("30")
+    assert row.market_value_from == Decimal("2000")  # 10 × 200 face that day
 
 
 def test_open_holding_from_date_uses_adjusted_start_not_adj_times_factor(

@@ -246,6 +246,10 @@ def linked_portfolio_return_pct(
         )
         if nav is not None:
             return nav[0]
+    # Same-year window past last Values month: do not invent a return by
+    # prorating the annual CAGR — caller should use book/MV marks instead.
+    if last is not None and start_date.year == end_date.year and end_date > last:
+        return None
     return linked_calendar_return_pct(start_date, end_date)
 
 
@@ -262,4 +266,6 @@ def linked_bse_smallcap_return_pct(
         )
         if nav is not None:
             return nav[0]
+    if last is not None and start_date.year == end_date.year and end_date > last:
+        return None
     return linked_calendar_return_pct(start_date, end_date, use_bse_smallcap=True)

@@ -338,6 +338,8 @@ export type OpenHolding = {
   as_of_price: number | null;
   as_of_price_date: string | null;
   market_value: number | null;
+  /** Position ₹ value on period-start (ledger qty × that day's close); set when From is chosen. */
+  market_value_from?: number | null;
   cost_basis_value: number | null;
   unrealized_pnl: number | null;
   unrealized_pnl_pct: number | null;
