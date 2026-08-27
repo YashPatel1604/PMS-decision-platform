@@ -12,10 +12,12 @@ from pms_platform.reconciliation.compare import (
     compare_charts_range_rows,
     compare_client_book_settings,
     compare_client_positions,
+    compare_pivot_portfolio_symbols,
     compare_securities,
     compare_watchlist_members,
 )
 from pms_platform.reconciliation.manifest import research_file_manifest
+from pms_platform.reconciliation.research_compare import compare_research_masters
 from pms_platform.reconciliation.types import ReconReport
 
 
@@ -38,13 +40,16 @@ def run_cutover_reconciliation(
         },
     )
     domains = [
-        ("client_positions", compare_client_positions),
-        ("client_book_settings", compare_client_book_settings),
-        ("securities", compare_securities),
-        ("watchlist_members", compare_watchlist_members),
-        ("charts_range_rows", compare_charts_range_rows),
-        ("nse_bhav_bars", compare_bhav_bars),
+        ("client_positions", lambda s, j: compare_client_positions(s, j)),
+        ("client_book_settings", lambda s, j: compare_client_book_settings(s, j)),
+        ("securities", lambda s, j: compare_securities(s, j)),
+        ("watchlist_members", lambda s, j: compare_watchlist_members(s, j)),
+        ("charts_range_rows", lambda s, j: compare_charts_range_rows(s, j)),
+        ("pivot_portfolio_symbols", lambda s, j: compare_pivot_portfolio_symbols(s, j)),
+        ("nse_bhav_bars", lambda s, j: compare_bhav_bars(s, j)),
     ]
     for name, fn in domains:
         report.add_rows(name, fn(samir, julesh))
+    if research_dir is not None:
+        report.add_rows("research_masters", compare_research_masters(research_dir, samir, julesh))
     return report

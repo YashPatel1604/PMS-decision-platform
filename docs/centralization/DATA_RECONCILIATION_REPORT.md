@@ -13,6 +13,7 @@ uv run pms-platform reconcile-cutover \
 Outputs:
 
 - `reconciliation.json` — machine-readable row classifications
-- `DATA_RECONCILIATION_REPORT.md` — human summary (written into `--output-dir`)
+- `DATA_RECONCILIATION_REPORT.md` — human summary
+- `migration_bundle.json` — mergeable rows only (excludes `value_conflict` entities)
 
 Sources are read-only. Unresolved `value_conflict` rows must not be imported to production.

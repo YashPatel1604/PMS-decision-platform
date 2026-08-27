@@ -206,7 +206,9 @@ def reconcile_cutover(
             samir_label=samir_url,
             julesh_label=julesh_url,
         )
-        json_path, md_path = write_reports(report, output_dir)
+        json_path, md_path, bundle_path = write_reports(
+            report, output_dir, samir=samir, julesh=julesh
+        )
         conflicts = sum(
             report.summary.get(domain, {}).get("value_conflict", 0)
             for domain in report.summary
@@ -214,6 +216,8 @@ def reconcile_cutover(
         print("Cutover reconciliation complete.")
         print(f"  JSON: {json_path.resolve()}")
         print(f"  Report: {md_path.resolve()}")
+        if bundle_path is not None:
+            print(f"  Bundle: {bundle_path.resolve()}")
         print(f"  Value conflicts (row-level): {conflicts}")
         return 0
     except Exception as exc:

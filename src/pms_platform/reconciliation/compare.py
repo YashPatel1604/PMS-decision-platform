@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from pms_platform.models.charts_range import ChartsRangeRow
 from pms_platform.models.client_book_settings import ClientBookSettings
 from pms_platform.models.client_position import ClientPosition
-from pms_platform.models.nse_bhav import NseBhavBar
+from pms_platform.models.nse_bhav import NseBhavBar, PivotPortfolioSymbol
 from pms_platform.models.security import Security
 from pms_platform.models.watchlist import Watchlist, WatchlistMember
 from pms_platform.reconciliation.types import Classification, ReconRow
@@ -283,6 +283,62 @@ def compare_bhav_bars(samir: Session, julesh: Session, *, max_conflicts: int = 5
                 key="__only_julesh__",
                 classification=Classification.ONLY_IN_JULESH,
                 julesh_value=len(only_j),
+            )
+        )
+    return rows
+
+
+def compare_pivot_portfolio_symbols(samir: Session, julesh: Session) -> list[ReconRow]:
+    domain = "pivot_portfolio_symbols"
+    fields = ["sort_order", "dummy", "portfolio_a", "uptrend"]
+
+    def load(session: Session) -> dict[str, dict[str, Any]]:
+        return {
+            row.symbol: {f: getattr(row, f) for f in fields}
+            for row in session.scalars(
+                select(PivotPortfolioSymbol).order_by(PivotPortfolioSymbol.sort_order)
+            ).all()
+        }
+
+    rows = compare_keyed_records(
+        domain=domain,
+        samir=load(samir),
+        julesh=load(julesh),
+        fields=fields,
+        key_label=lambda k: f"symbol={k}",
+    )
+
+    def order_key(session: Session) -> list[str]:
+        return [
+            row.symbol
+            for row in session.scalars(
+                select(PivotPortfolioSymbol).order_by(
+                    PivotPortfolioSymbol.sort_order, PivotPortfolioSymbol.symbol
+                )
+            ).all()
+        ]
+
+    s_order = order_key(samir)
+    j_order = order_key(julesh)
+    if s_order == j_order:
+        rows.append(
+            ReconRow(
+                domain=domain,
+                key="__symbol_order__",
+                classification=Classification.IDENTICAL,
+                samir_value=s_order,
+                julesh_value=j_order,
+            )
+        )
+    else:
+        rows.append(
+            ReconRow(
+                domain=domain,
+                key="__symbol_order__",
+                classification=Classification.VALUE_CONFLICT,
+                samir_value=s_order,
+                julesh_value=j_order,
+                notes="firm pivot ordering differs — pick one approved sequence",
             )
         )
     return rows

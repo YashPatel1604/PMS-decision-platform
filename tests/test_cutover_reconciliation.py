@@ -12,6 +12,9 @@ from sqlalchemy.orm import sessionmaker
 
 from pms_platform.db.base import Base
 from pms_platform.models.client_position import ClientPosition
+from pms_platform.models.nse_bhav import PivotPortfolioSymbol
+from pms_platform.models.security import Security
+from pms_platform.reconciliation.bundle import build_migration_bundle
 from pms_platform.reconciliation.cutover import run_cutover_reconciliation
 from pms_platform.reconciliation.report import write_reports
 from pms_platform.reconciliation.types import Classification
@@ -92,7 +95,82 @@ def test_report_is_deterministic_except_timestamp(twin_sessions, tmp_path: Path)
     assert [r.as_dict() for r in first.rows] == [r.as_dict() for r in second.rows]
 
     out = tmp_path / "recon"
-    write_reports(first, out)
+    write_reports(first, out, samir=samir, julesh=julesh)
     payload = json.loads((out / "reconciliation.json").read_text(encoding="utf-8"))
     assert "client_positions" in payload["summary"]
     assert (out / "DATA_RECONCILIATION_REPORT.md").is_file()
+    assert (out / "migration_bundle.json").is_file()
+
+
+def test_bundle_excludes_conflicting_entity(twin_sessions) -> None:
+    samir, julesh = twin_sessions
+    samir.add(
+        ClientPosition(book="client", symbol="RELIANCE", qty=Decimal("100"), row_version=1)
+    )
+    julesh.add(
+        ClientPosition(book="client", symbol="RELIANCE", qty=Decimal("200"), row_version=1)
+    )
+    samir.add(ClientPosition(book="client", symbol="TCS", qty=Decimal("10"), row_version=1))
+    julesh.add(ClientPosition(book="client", symbol="TCS", qty=Decimal("10"), row_version=1))
+    samir.commit()
+    julesh.commit()
+
+    report = run_cutover_reconciliation(samir, julesh)
+    bundle = build_migration_bundle(report, samir, julesh)
+    positions = bundle["domains"]["client_positions"]
+    assert "client:TCS" in positions
+    assert "client:RELIANCE" not in positions
+    assert any(ex["key"] == "client:RELIANCE" for ex in bundle["excluded"])
+
+
+def test_pivot_order_conflict(twin_sessions) -> None:
+    samir, julesh = twin_sessions
+    samir.add(PivotPortfolioSymbol(symbol="AAA", sort_order=1))
+    samir.add(PivotPortfolioSymbol(symbol="BBB", sort_order=2))
+    julesh.add(PivotPortfolioSymbol(symbol="BBB", sort_order=1))
+    julesh.add(PivotPortfolioSymbol(symbol="AAA", sort_order=2))
+    samir.commit()
+    julesh.commit()
+
+    report = run_cutover_reconciliation(samir, julesh)
+    order_rows = [
+        r
+        for r in report.rows
+        if r.domain == "pivot_portfolio_symbols" and r.key == "__symbol_order__"
+    ]
+    assert len(order_rows) == 1
+    assert order_rows[0].classification == Classification.VALUE_CONFLICT
+
+
+def test_research_security_only_in_research(twin_sessions, tmp_path: Path) -> None:
+    import openpyxl
+
+    samir, julesh = twin_sessions
+    samir.add(
+        Security(
+            security_id="SEC001",
+            portfolio_name="Listed Co",
+        )
+    )
+    samir.commit()
+    julesh.commit()
+
+    portfolio = tmp_path / "Portfolio"
+    portfolio.mkdir()
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Security Master"
+    ws.append(["security_id", "portfolio_name"])
+    ws.append(["SEC001", "Listed Co"])
+    ws.append(["SEC002", "Research Only Co"])
+    wb.save(portfolio / "SECURITY_MASTER_V1.xlsx")
+    wb.close()
+
+    report = run_cutover_reconciliation(samir, julesh, research_dir=tmp_path)
+    only = [
+        r
+        for r in report.rows
+        if r.domain == "research_masters"
+        and r.classification == Classification.ONLY_IN_RESEARCH
+    ]
+    assert any("Research Only Co" in str(r.key) for r in only)

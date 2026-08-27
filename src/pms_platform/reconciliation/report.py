@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from pms_platform.reconciliation.bundle import write_migration_bundle
 from pms_platform.reconciliation.types import Classification, ReconReport
 
 
@@ -75,16 +76,28 @@ def write_markdown_report(report: ReconReport, path: Path) -> None:
             "",
             "- Do not import unresolved `value_conflict` rows into production.",
             "- `compatible_merge` may be auto-applied when one side is null.",
-            "- Research files are inventory-only in this report; full Research row diff is manual.",
+            "- Research row-level checks appear under `research_masters` when `--research-dir` is set.",
+            "- `migration_bundle.json` contains mergeable rows only; excluded keys are listed inside the bundle.",
             "",
         ]
     )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def write_reports(report: ReconReport, output_dir: Path) -> tuple[Path, Path]:
+def write_reports(
+    report: ReconReport,
+    output_dir: Path,
+    *,
+    samir=None,
+    julesh=None,
+) -> tuple[Path, Path, Path | None]:
     json_path = output_dir / "reconciliation.json"
     md_path = output_dir / "DATA_RECONCILIATION_REPORT.md"
     write_json_report(report, json_path)
     write_markdown_report(report, md_path)
-    return json_path, md_path
+    bundle_path: Path | None = None
+    if samir is not None and julesh is not None:
+        bundle_path = write_migration_bundle(
+            report, samir, julesh, output_dir / "migration_bundle.json"
+        )
+    return json_path, md_path, bundle_path
