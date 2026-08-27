@@ -18,6 +18,7 @@ from pms_platform.feature_flags import approval_workflow_enabled
 from pms_platform.ingestion.staged_import import (
     STAGED_CATEGORIES,
     StagedImportError,
+    apply_import_run,
     can_preview_import,
     preview_import_run,
     serialize_import_run,
@@ -145,3 +146,30 @@ def post_request_approval(
         "change_request_id": str(req.change_request_id),
         "status": run.status,
     }
+
+
+@router.post("/{import_run_id}/apply")
+def post_apply_import(
+    import_run_id: uuid.UUID,
+    request: Request,
+    session: Session = Depends(get_db),
+) -> dict:
+    """Apply a validated import directly (no Samir approval — D12)."""
+    _require_workflow()
+    user = _user(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    run = session.get(ImportRun, import_run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    if run.created_by != user.user_id and not user_has_permission(
+        session, user, PERMISSION_VIEW_ALL_SUBMITTED
+    ):
+        raise HTTPException(status_code=403, detail="Not authorized to apply this import")
+    try:
+        apply_import_run(session, import_run_id, storage=get_storage())
+        session.commit()
+    except StagedImportError as exc:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return serialize_import_run(run)

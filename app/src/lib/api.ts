@@ -529,6 +529,38 @@ export type UploadBatch = {
 
 export type UploadKind = "transactions" | "security_master" | "portfolio_snapshots";
 
+export type StagedImportIssue = {
+  severity: string;
+  code: string;
+  message: string;
+  context?: Record<string, unknown> | null;
+};
+
+export type StagedImportRun = {
+  import_run_id: string;
+  category: string;
+  checksum_sha256: string;
+  status: string;
+  original_filename: string;
+  byte_size: number;
+  row_counts: Record<string, number> | null;
+  validation_summary: {
+    error_count?: number;
+    warning_count?: number;
+    applied?: boolean;
+    episode_summary?: Record<string, number>;
+  } | null;
+  change_request_id: string | null;
+  applied_at: string | null;
+  issues: StagedImportIssue[];
+  deduplicated?: boolean;
+};
+
+export type HealthResponse = {
+  status: string;
+  approval_workflow?: boolean;
+};
+
 export type BhavRun = {
   run_id: number;
   trade_date: string | null;
@@ -718,6 +750,7 @@ export type ClientPortfolioHolding = {
   excel_value?: number | null;
   excel_percent?: number | null;
   index_label?: string | null;
+  mcap_factor?: number | null;
   mcap?: number | null;
   as_of_label?: string | null;
   firm_pct?: number | null;
@@ -1098,6 +1131,7 @@ export type WatchlistsHealth = {
 
 
 export const api = {
+  getHealth: () => request<HealthResponse>("/health"),
   getMe: () => request<MeResponse>("/auth/me"),
   login: (email: string, password: string) =>
     request<{ user: AuthUser }>("/auth/login", {
@@ -1212,6 +1246,26 @@ export const api = {
     request<UploadBatch>(`/imports/${batchId}/commit`, { method: "POST" }),
   refreshFromOnedrive: () =>
     request<OnedriveRefreshResult>("/imports/refresh-from-onedrive", { method: "POST" }),
+  uploadStagedImport: async (category: UploadKind, file: File) => {
+    const body = new FormData();
+    body.append("category", category);
+    body.append("file", file);
+    const response = await fetch(`${API_BASE}/imports/staged`, {
+      method: "POST",
+      body,
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new ApiError(text || response.statusText, response.status);
+    }
+    return response.json() as Promise<StagedImportRun>;
+  },
+  getStagedImport: (importRunId: string) =>
+    request<StagedImportRun>(`/imports/staged/${importRunId}`),
+  applyStagedImport: (importRunId: string) =>
+    request<StagedImportRun>(`/imports/staged/${importRunId}/apply`, { method: "POST" }),
   listMasters: () => request<MasterWorkbook[]>("/masters"),
   getMasterPreview: (
     kind: MasterKind,
@@ -1437,6 +1491,19 @@ export const api = {
       `/strategy/client-portfolio/dashboard${query ? `?${query}` : ""}`,
     );
   },
+  patchClientPositionFields: (
+    symbol: string,
+    body: { index_label?: string | null; mcap_factor?: number | null },
+  ) =>
+    request<{
+      symbol: string;
+      index_label: string | null;
+      mcap_factor: number | null;
+      row_version: number;
+    }>(`/strategy/client-portfolio/positions/${encodeURIComponent(symbol)}/fields`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
   patchClientPositionQty: (symbol: string, qty: number, book: "client" | "sca" = "client") =>
     request<{
       symbol: string;
@@ -1447,16 +1514,19 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ qty }),
     }),
-  submitClientPortfolioDraft: (symbol: string) =>
+  submitClientPortfolioDraft: (symbol: string, book: "client" | "sca" = "client") =>
     request<{ change_request_id: string; status: string }>(
-      `/strategy/client-portfolio/positions/${encodeURIComponent(symbol)}/submit`,
+      `/strategy/client-portfolio/positions/${encodeURIComponent(symbol)}/submit?book=${book}`,
       { method: "POST" },
     ),
   getChangeRequestsSummary: () =>
     request<ChangeRequestSummary>("/change-requests/summary"),
-  listChangeRequests: (status?: string) => {
-    const params = status ? `?status=${encodeURIComponent(status)}` : "";
-    return request<ChangeRequest[]>(`/change-requests${params}`);
+  listChangeRequests: (status?: string, domain?: string) => {
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (domain) params.set("domain", domain);
+    const query = params.toString();
+    return request<ChangeRequest[]>(`/change-requests${query ? `?${query}` : ""}`);
   },
   approveChangeRequest: (id: string) =>
     request<ChangeRequest>(`/change-requests/${id}/approve`, {

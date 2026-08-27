@@ -6,9 +6,10 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from pms_platform.api.routes.episodes import get_db
+from pms_platform.api.deps import get_db
 from pms_platform.market_data.nse_bhav_fetch import (
     BhavFetchError,
     fetch_and_commit_cm_udiff_bhav,
@@ -26,7 +27,6 @@ from pms_platform.market_data.nse_bhav_store import (
 )
 from pms_platform.market_data.pivot_dashboard import HIDDEN_PIVOT_SYMBOLS, build_pivot_dashboard
 from pms_platform.models.nse_bhav import PivotPortfolioSymbol
-from sqlalchemy import select
 
 router = APIRouter()
 

@@ -15,6 +15,8 @@ function RequestCard({ req }: { req: ChangeRequest }) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["change-requests"] });
       void queryClient.invalidateQueries({ queryKey: ["client-portfolio-dashboard"] });
+      void queryClient.invalidateQueries({ queryKey: ["charts-dashboard"] });
+      void queryClient.invalidateQueries({ queryKey: ["pivot-dashboard"] });
     },
   });
 

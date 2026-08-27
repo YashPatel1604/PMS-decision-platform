@@ -283,6 +283,82 @@ def _validate_snapshots(session: Session, path: Path) -> tuple[list[UploadIssue]
     return issues, row_counts
 
 
+def validate_workbook_import(
+    session: Session, *, kind: str, path: Path
+) -> tuple[list[UploadIssue], dict[str, int]]:
+    """Dry-run validation for a workbook on disk (nested transaction rollback)."""
+    if kind not in UPLOAD_KINDS:
+        msg = f"Unsupported upload kind: {kind}"
+        raise ValueError(msg)
+    if kind in {"transactions", "security_master"}:
+        return _validate_transactions_or_securities(session, kind, path)
+    return _validate_snapshots(session, path)
+
+
+def commit_workbook_import(
+    session: Session, *, kind: str, path: Path
+) -> tuple[dict[str, int], dict[str, int] | None]:
+    """Apply a validated workbook into Postgres."""
+    if kind not in UPLOAD_KINDS:
+        msg = f"Unsupported upload kind: {kind}"
+        raise ValueError(msg)
+    if not path.exists():
+        msg = f"Workbook not found: {path}"
+        raise FileNotFoundError(msg)
+
+    episode_summary: dict[str, int] | None = None
+    if kind == "security_master":
+        result = import_security_master(session, path)
+        row_counts = {
+            "inserted": result.inserted,
+            "updated": result.updated,
+            "skipped": result.skipped,
+        }
+        for issue in validate_imported_data(session):
+            if issue.severity == ValidationSeverity.ERROR:
+                raise ValueError(issue.message)
+    elif kind == "transactions":
+        result = import_transaction_master(session, path)
+        row_counts = {
+            "equity_inserted": result.equity_inserted,
+            "equity_skipped": result.equity_skipped,
+            "liquid_inserted": result.liquid_inserted,
+            "liquid_skipped": result.liquid_skipped,
+            "summary_rows_skipped": result.summary_rows_skipped,
+        }
+        validation = validate_imported_data(session)
+        hard_errors = [
+            issue for issue in validation if issue.severity == ValidationSeverity.ERROR
+        ]
+        if hard_errors:
+            raise ValueError(hard_errors[0].message)
+        episodes, _ = build_episodes(session)
+        open_count = sum(1 for episode in episodes if episode.status == EpisodeStatus.OPEN.value)
+        closed_count = sum(
+            1 for episode in episodes if episode.status == EpisodeStatus.CLOSED.value
+        )
+        episode_summary = {
+            "episodes": len(episodes),
+            "open": open_count,
+            "closed": closed_count,
+        }
+    else:
+        result = import_portfolio_snapshot_workbook(session, path)
+        row_counts = {
+            "inserted": result.inserted,
+            "skipped": result.skipped,
+            "unresolved_names": result.unresolved_names,
+        }
+        recon_issues = [
+            _issue_from_mismatch(item) for item in reconcile_snapshot_workbook(session, path)
+        ]
+        hard = [issue for issue in recon_issues if issue.severity == "ERROR"]
+        if hard:
+            raise ValueError(hard[0].message)
+
+    return row_counts, episode_summary
+
+
 def validate_upload(session: Session, batch_id: int) -> UploadBatchState:
     """Dry-run checks against the staged workbook."""
     batch = session.get(ImportBatch, batch_id)
@@ -300,10 +376,7 @@ def validate_upload(session: Session, batch_id: int) -> UploadBatchState:
         msg = f"Staged file missing for batch {batch_id}"
         raise FileNotFoundError(msg)
 
-    if kind in {"transactions", "security_master"}:
-        issues, row_counts = _validate_transactions_or_securities(session, kind, path)
-    else:
-        issues, row_counts = _validate_snapshots(session, path)
+    issues, row_counts = validate_workbook_import(session, kind=kind, path=path)
 
     errors, warnings, reviews = _count_issues(issues)
     metadata["issues"] = [asdict(issue) for issue in issues]
@@ -353,61 +426,15 @@ def commit_upload(session: Session, batch_id: int) -> UploadBatchState:
             msg = "Cannot commit upload with validation errors"
             raise ValueError(msg)
 
-    episode_summary: dict[str, int] | None = None
     try:
-        if kind == "security_master":
-            result = import_security_master(session, path)
-            metadata["row_counts"] = {
-                "inserted": result.inserted,
-                "updated": result.updated,
-                "skipped": result.skipped,
-            }
-            for issue in validate_imported_data(session):
-                if issue.severity == ValidationSeverity.ERROR:
-                    raise ValueError(issue.message)
-        elif kind == "transactions":
-            result = import_transaction_master(session, path)
-            metadata["row_counts"] = {
-                "equity_inserted": result.equity_inserted,
-                "equity_skipped": result.equity_skipped,
-                "liquid_inserted": result.liquid_inserted,
-                "liquid_skipped": result.liquid_skipped,
-                "summary_rows_skipped": result.summary_rows_skipped,
-            }
-            validation = validate_imported_data(session)
-            hard_errors = [
-                issue for issue in validation if issue.severity == ValidationSeverity.ERROR
-            ]
-            if hard_errors:
-                raise ValueError(hard_errors[0].message)
-            episodes, _ = build_episodes(session)
-            open_count = sum(
-                1 for episode in episodes if episode.status == EpisodeStatus.OPEN.value
-            )
-            closed_count = sum(
-                1 for episode in episodes if episode.status == EpisodeStatus.CLOSED.value
-            )
-            episode_summary = {
-                "episodes": len(episodes),
-                "open": open_count,
-                "closed": closed_count,
-            }
-        else:
-            result = import_portfolio_snapshot_workbook(session, path)
-            metadata["row_counts"] = {
-                "inserted": result.inserted,
-                "skipped": result.skipped,
-                "unresolved_names": result.unresolved_names,
-            }
+        row_counts, episode_summary = commit_workbook_import(session, kind=kind, path=path)
+        metadata["row_counts"] = row_counts
+        metadata["episode_summary"] = episode_summary
+        if kind == "portfolio_snapshots":
             recon_issues = [
                 _issue_from_mismatch(item) for item in reconcile_snapshot_workbook(session, path)
             ]
-            hard = [issue for issue in recon_issues if issue.severity == "ERROR"]
-            if hard:
-                raise ValueError(hard[0].message)
             metadata["issues"] = [asdict(issue) for issue in recon_issues]
-
-        metadata["episode_summary"] = episode_summary
         _write_metadata(batch_id, metadata)
         batch.status = "committed"
         batch.notes = f"Committed on {date.today().isoformat()}"

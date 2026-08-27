@@ -8,9 +8,26 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from pms_platform.market_data.client_portfolio_parse import mcap_and_firm_at_price
 from pms_platform.models.change_request import ChangeOperation, ChangeRequest
+from pms_platform.models.client_book_settings import ClientBookSettings
 from pms_platform.models.client_position import ClientPosition
 from pms_platform.read_context import ReadContext, ReadMode
+
+
+def holdings_domain(book: str) -> str:
+    return "sca_portfolio" if (book or "").strip().lower() == "sca" else "client_portfolio"
+
+
+def official_positions(session: Session, *, book: str = "client") -> dict[str, ClientPosition]:
+    return {
+        row.symbol: row
+        for row in session.scalars(select(ClientPosition).where(ClientPosition.book == book)).all()
+    }
+
+
+def official_qty_map(session: Session, *, book: str = "client") -> dict[str, ClientPosition]:
+    return official_positions(session, book=book)
 
 
 def sync_positions_from_holdings(
@@ -20,12 +37,7 @@ def sync_positions_from_holdings(
     book: str = "client",
 ) -> None:
     """Seed missing approved rows from Excel-derived holdings (idempotent)."""
-    existing = {
-        row.symbol: row
-        for row in session.scalars(
-            select(ClientPosition).where(ClientPosition.book == book)
-        ).all()
-    }
+    existing = official_positions(session, book=book)
     for row in holdings:
         symbol = str(row.get("symbol") or "").strip().upper()
         if not symbol:
@@ -33,30 +45,141 @@ def sync_positions_from_holdings(
         qty = row.get("qty")
         if qty is None:
             continue
+        mcap_factor = row.get("mcap_factor")
+        index_label = row.get("index_label")
         if symbol in existing:
+            pos = existing[symbol]
+            if pos.mcap_factor is None and mcap_factor is not None:
+                pos.mcap_factor = Decimal(str(mcap_factor))
+            if pos.index_label is None and index_label:
+                pos.index_label = str(index_label).strip() or None
             continue
         session.add(
             ClientPosition(
                 book=book,
                 symbol=symbol,
                 qty=Decimal(str(qty)),
+                mcap_factor=Decimal(str(mcap_factor)) if mcap_factor is not None else None,
+                index_label=str(index_label).strip() if index_label else None,
                 row_version=1,
             )
         )
 
 
-def official_qty_map(session: Session, *, book: str = "client") -> dict[str, ClientPosition]:
-    return {
-        row.symbol: row
-        for row in session.scalars(select(ClientPosition).where(ClientPosition.book == book)).all()
-    }
+def apply_canonical_field_overlay(
+    session: Session,
+    holdings: list[dict[str, Any]],
+    *,
+    book: str = "client",
+) -> None:
+    """Apply stored mcap_factor / index_label and recompute derived mcap / %Firm."""
+    sync_positions_from_holdings(session, holdings, book=book)
+    official = official_positions(session, book=book)
+    for row in holdings:
+        symbol = str(row["symbol"]).upper()
+        pos = official.get(symbol)
+        if pos is None:
+            continue
+        if pos.index_label is not None:
+            row["index_label"] = pos.index_label
+        if pos.mcap_factor is not None:
+            row["mcap_factor"] = float(pos.mcap_factor)
+            price = row.get("close") or row.get("price")
+            if price is not None:
+                stocks_qty = row.get("stocks_qty")
+                qty = row.get("qty")
+                sq = stocks_qty if stocks_qty is not None else qty
+                live_mcap, live_firm = mcap_and_firm_at_price(
+                    mcap_factor=pos.mcap_factor,
+                    price=Decimal(str(price)),
+                    stocks_qty=Decimal(str(sq)) if sq is not None else None,
+                )
+                if live_mcap is not None:
+                    row["mcap"] = float(live_mcap)
+                if live_firm is not None:
+                    row["firm_pct"] = float(live_firm)
+
+
+def update_position_fields(
+    session: Session,
+    *,
+    symbol: str,
+    book: str,
+    updated_by: int,
+    index_label: str | None = None,
+    mcap_factor: Decimal | None = None,
+    touch_index: bool = False,
+    touch_mcap_factor: bool = False,
+) -> ClientPosition:
+    sym = symbol.strip().upper()
+    book_key = (book or "client").strip().lower()
+    pos = session.scalar(
+        select(ClientPosition).where(ClientPosition.book == book_key, ClientPosition.symbol == sym)
+    )
+    if pos is None:
+        pos = ClientPosition(book=book_key, symbol=sym, qty=Decimal(0), row_version=1)
+        session.add(pos)
+        session.flush()
+    if touch_index:
+        pos.index_label = index_label.strip() if index_label else None
+    if touch_mcap_factor:
+        pos.mcap_factor = mcap_factor
+    pos.row_version = pos.row_version + 1
+    pos.updated_by = updated_by
+    session.flush()
+    return pos
+
+
+def bank_balance_for_book(
+    session: Session,
+    book: str,
+    *,
+    excel_bank: Decimal | None = None,
+) -> Decimal | None:
+    """Return canonical bank balance, seeding from Excel once when missing."""
+    book_key = (book or "client").strip().lower()
+    settings = session.get(ClientBookSettings, book_key)
+    if settings is None:
+        if excel_bank is None:
+            return None
+        settings = ClientBookSettings(book=book_key, bank_balance=excel_bank)
+        session.add(settings)
+        session.flush()
+        return excel_bank
+    if settings.bank_balance is not None:
+        return settings.bank_balance
+    if excel_bank is not None:
+        settings.bank_balance = excel_bank
+        session.flush()
+        return excel_bank
+    return None
+
+
+def set_bank_balance(
+    session: Session,
+    *,
+    book: str,
+    amount: Decimal,
+    updated_by: int,
+) -> Decimal:
+    book_key = (book or "client").strip().lower()
+    settings = session.get(ClientBookSettings, book_key)
+    if settings is None:
+        settings = ClientBookSettings(book=book_key, bank_balance=amount)
+        session.add(settings)
+    else:
+        settings.bank_balance = amount
+        settings.row_version = settings.row_version + 1
+    settings.updated_by = updated_by
+    session.flush()
+    return settings.bank_balance
 
 
 def _active_overlay_ops(
     session: Session,
     ctx: ReadContext,
     *,
-    domain: str = "client_portfolio",
+    domain: str,
 ) -> list[ChangeOperation]:
     if ctx.mode == ReadMode.OFFICIAL:
         return []
@@ -89,8 +212,8 @@ def apply_qty_overlay(
 ) -> list[dict[str, Any]]:
     """Return holdings with qty overlay + change metadata for UI."""
     sync_positions_from_holdings(session, holdings, book=book)
-    official = official_qty_map(session, book=book)
-    overlays = _active_overlay_ops(session, ctx)
+    official = official_positions(session, book=book)
+    overlays = _active_overlay_ops(session, ctx, domain=holdings_domain(book))
     overlay_by_symbol: dict[str, tuple[ChangeOperation, ChangeRequest]] = {}
     for op in overlays:
         req = session.get(ChangeRequest, op.change_request_id)

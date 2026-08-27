@@ -16,7 +16,12 @@ from pms_platform.approval.service import (
     submit_request,
     upsert_client_position_qty_draft,
 )
-from pms_platform.domain.client_positions import official_qty_map
+from pms_platform.domain.client_positions import (
+    holdings_domain,
+    official_qty_map,
+    set_bank_balance,
+    update_position_fields,
+)
 from pms_platform.feature_flags import approval_workflow_enabled
 from pms_platform.market_data.client_portfolio_dashboard import (
     build_client_portfolio_dashboard,
@@ -41,7 +46,8 @@ def client_portfolio_dashboard(
     read_context: ReadContext = Depends(read_context_from_query),
 ) -> dict:
     ctx = None
-    if approval_workflow_enabled() and book.strip().lower() == "client":
+    book_key = book.strip().lower()
+    if approval_workflow_enabled() and book_key in ("client", "sca"):
         ctx = read_context
     return build_client_portfolio_dashboard(
         session, as_of=as_of, book=book, read_context=ctx
@@ -97,6 +103,7 @@ def patch_position_qty(
 def submit_position_qty_change(
     symbol: str,
     request: Request,
+    book: str = Query(default="client"),
     session: Session = Depends(get_db),
 ) -> dict:
     if not approval_workflow_enabled():
@@ -104,7 +111,8 @@ def submit_position_qty_change(
     user = _user(request)
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required")
-    draft = get_user_draft(session, user_id=user.user_id, domain="client_portfolio")
+    domain = holdings_domain(book)
+    draft = get_user_draft(session, user_id=user.user_id, domain=domain)
     if draft is None:
         raise HTTPException(status_code=404, detail="No draft change request")
     try:
@@ -114,6 +122,63 @@ def submit_position_qty_change(
         session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"change_request_id": str(req.change_request_id), "status": req.status}
+
+
+@router.patch("/positions/{symbol}/fields")
+def patch_position_fields(
+    symbol: str,
+    request: Request,
+    body: dict = Body(...),
+    book: str = Query(default="client"),
+    session: Session = Depends(get_db),
+) -> dict:
+    if not approval_workflow_enabled():
+        raise HTTPException(
+            status_code=400,
+            detail="Approval workflow disabled — edit index/mcap in Excel or enable FEATURE_APPROVAL_WORKFLOW",
+        )
+    if (book or "").strip().lower() != "client":
+        raise HTTPException(status_code=400, detail="Index/mcap fields apply to client book only")
+    user = _user(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    sym = symbol.strip().upper()
+    touch_index = "index_label" in body
+    touch_mcap = "mcap_factor" in body
+    if not touch_index and not touch_mcap:
+        raise HTTPException(status_code=400, detail="Provide index_label and/or mcap_factor")
+    index_label = body.get("index_label")
+    mcap_raw = body.get("mcap_factor")
+    mcap_factor = None
+    if touch_mcap:
+        if mcap_raw is None:
+            mcap_factor = None
+        else:
+            try:
+                mcap_factor = Decimal(str(mcap_raw))
+            except (InvalidOperation, ValueError) as exc:
+                raise HTTPException(status_code=400, detail="mcap_factor must be a number") from exc
+    try:
+        pos = update_position_fields(
+            session,
+            symbol=sym,
+            book="client",
+            updated_by=user.user_id,
+            index_label=str(index_label).strip() if index_label else None,
+            mcap_factor=mcap_factor,
+            touch_index=touch_index,
+            touch_mcap_factor=touch_mcap,
+        )
+        session.commit()
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "symbol": sym,
+        "index_label": pos.index_label,
+        "mcap_factor": float(pos.mcap_factor) if pos.mcap_factor is not None else None,
+        "row_version": pos.row_version,
+    }
 
 
 @router.patch("/bse-smallcap-year")
@@ -146,8 +211,10 @@ def patch_bse_smallcap_year(
 
 @router.patch("/bank-balance")
 def patch_bank_balance(
+    request: Request,
     amount: float = Body(..., embed=True),
     book: str = Query(default="sca"),
+    session: Session = Depends(get_db),
 ) -> dict:
     if (book or "").strip().lower() != "sca":
         raise HTTPException(status_code=400, detail="Balance with Bank is only on SCA LLP.")
@@ -155,6 +222,15 @@ def patch_bank_balance(
         value = Decimal(str(amount))
     except (InvalidOperation, ValueError) as exc:
         raise HTTPException(status_code=400, detail="amount must be a number") from exc
+    if approval_workflow_enabled():
+        user = _user(request)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        written = set_bank_balance(
+            session, book="sca", amount=value, updated_by=user.user_id
+        )
+        session.commit()
+        return {"bank_balance": float(written)}
     try:
         written = write_sca_bank_balance(value)
     except FileNotFoundError as exc:

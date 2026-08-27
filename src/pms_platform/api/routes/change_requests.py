@@ -121,12 +121,15 @@ def list_change_requests(
     request: Request,
     session: Session = Depends(get_db),
     status: str | None = Query(default=None),
+    domain: str | None = Query(default=None),
 ) -> list[dict[str, Any]]:
     _require_workflow()
     user = _get_user(request)
     q = select(ChangeRequest).options(selectinload(ChangeRequest.operations))
     if status:
         q = q.where(ChangeRequest.status == status)
+    if domain:
+        q = q.where(ChangeRequest.domain == domain)
     elif user_has_permission(session, user, PERMISSION_VIEW_ALL_SUBMITTED):
         q = q.where(ChangeRequest.status.in_(("submitted", "approved", "rejected", "conflict")))
     else:

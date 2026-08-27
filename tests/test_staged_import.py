@@ -14,7 +14,6 @@ from pms_platform.ingestion.staged_import import (
     can_preview_import,
     stage_import_bytes,
 )
-from pms_platform.jobs.worker import run_worker_once
 from pms_platform.models.source_lineage import ImportRun
 from pms_platform.models.user import User
 from pms_platform.storage.adapter import LocalFilesystemStorage
@@ -31,8 +30,10 @@ def _xlsx_bytes() -> bytes:
 
 
 @pytest.fixture
-def storage(tmp_path):
-    return LocalFilesystemStorage(tmp_path / "private")
+def storage(tmp_path, monkeypatch):
+    adapter = LocalFilesystemStorage(tmp_path / "private")
+    monkeypatch.setattr("pms_platform.storage.get_storage", lambda: adapter)
+    return adapter
 
 
 def _user(session, *, email: str, role: str) -> User:
@@ -107,8 +108,8 @@ def test_approve_import_via_worker(session, storage) -> None:
     samir = _user(session, email="s2@t.com", role="admin")
     staged = stage_import_bytes(
         session,
-        category="security_master",
-        filename="sec.xlsx",
+        category="portfolio_snapshots",
+        filename="Portfolio_2024.xlsx",
         data=_xlsx_bytes(),
         uploaded_by=julesh.user_id,
         storage=storage,
@@ -134,9 +135,22 @@ def test_approve_import_via_worker(session, storage) -> None:
     assert run is not None
     assert run.status == "applied"
 
-    assert run_worker_once(session) is True
-    session.commit()
 
+def test_direct_apply_without_approval(session, storage) -> None:
+    user = _user(session, email="apply@t.com", role="client")
+    staged = stage_import_bytes(
+        session,
+        category="portfolio_snapshots",
+        filename="Portfolio_2024.xlsx",
+        data=_xlsx_bytes(),
+        uploaded_by=user.user_id,
+        storage=storage,
+    )
     run = session.get(ImportRun, staged.import_run_id)
     assert run is not None
-    assert run.status == "applied"
+    assert run.status == "validated"
+
+    applied = apply_import_run(session, staged.import_run_id, storage=storage)
+    assert applied.status == "applied"
+    assert applied.applied_at is not None
+    assert applied.row_counts.get("inserted") == 0

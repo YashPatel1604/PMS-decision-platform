@@ -19,6 +19,8 @@ class ClientPosition(Base):
     book: Mapped[str] = mapped_column(String(16), nullable=False, default="client")
     symbol: Mapped[str] = mapped_column(String(64), nullable=False)
     qty: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
+    mcap_factor: Mapped[Decimal | None] = mapped_column(Numeric(20, 8))
+    index_label: Mapped[str | None] = mapped_column(String(128))
     row_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     updated_by: Mapped[int | None] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(

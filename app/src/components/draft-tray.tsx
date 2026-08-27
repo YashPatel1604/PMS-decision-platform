@@ -4,11 +4,17 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { api, type ChangeRequest } from "@/lib/api";
 
+export function holdingsDraftDomain(book: "client" | "sca"): string {
+  return book === "sca" ? "sca_portfolio" : "client_portfolio";
+}
+
 export function DraftTray({
   draft,
+  book = "client",
   onSubmitted,
 }: {
   draft: ChangeRequest | null | undefined;
+  book?: "client" | "sca";
   onSubmitted?: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -17,7 +23,7 @@ export function DraftTray({
       if (!draft?.operations.length) throw new Error("No draft");
       const symbol = draft.operations[0]?.entity_id;
       if (!symbol) throw new Error("No symbol in draft");
-      return api.submitClientPortfolioDraft(symbol);
+      return api.submitClientPortfolioDraft(symbol, book);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["change-requests"] });

@@ -167,6 +167,7 @@ def build_client_portfolio_dashboard(
             if pos.excel_percent is not None
             else None,
             "index_label": pos.index_label,
+            "mcap_factor": float(pos.mcap_factor) if pos.mcap_factor is not None else None,
             "mcap": excel_mcap,
             "as_of_label": pos.as_of_label,
             "firm_pct": excel_firm,
@@ -206,6 +207,7 @@ def build_client_portfolio_dashboard(
             price=close,
             stocks_qty=stocks_qty if stocks_qty is not None else pos.qty,
         )
+        factor = pos.mcap_factor
         vol_exp = vol_exp_by_symbol.get(pos.symbol)
         row.update(
             {
@@ -214,6 +216,7 @@ def build_client_portfolio_dashboard(
                 "bhav_value": float(bhav_value),
                 "price": float(close),
                 "value": float(bhav_value),
+                "mcap_factor": float(factor) if factor is not None else None,
                 "mcap": float(live_mcap) if live_mcap is not None else excel_mcap,
                 "firm_pct": float(live_firm) if live_firm is not None else excel_firm,
                 "be_only": bar.series == "BE",
@@ -233,19 +236,34 @@ def build_client_portfolio_dashboard(
     view_mode = "official"
     if (
         approval_workflow_enabled()
-        and book_key == "client"
-        and read_context is not None
+        and book_key in ("client", "sca")
     ):
-        from pms_platform.domain.client_positions import apply_qty_overlay
+        from pms_platform.domain.client_positions import (
+            apply_canonical_field_overlay,
+            apply_qty_overlay,
+            bank_balance_for_book,
+        )
 
-        holdings = apply_qty_overlay(session, holdings, read_context, book=book_key)
-        view_mode = read_context.mode.value
+        apply_canonical_field_overlay(session, holdings, book=book_key)
+        if read_context is not None:
+            holdings = apply_qty_overlay(session, holdings, read_context, book=book_key)
+            view_mode = read_context.mode.value
         for row in holdings:
             price = row.get("close") or row.get("price")
             if price is not None and row.get("qty") is not None:
                 val = float(Decimal(str(row["qty"])) * Decimal(str(price)))
                 row["value"] = val
                 row["bhav_value"] = val
+                if row.get("mcap_factor") is not None:
+                    live_mcap, live_firm = mcap_and_firm_at_price(
+                        mcap_factor=Decimal(str(row["mcap_factor"])),
+                        price=Decimal(str(price)),
+                        stocks_qty=Decimal(str(row.get("stocks_qty") or row["qty"])),
+                    )
+                    if live_mcap is not None:
+                        row["mcap"] = float(live_mcap)
+                    if live_firm is not None:
+                        row["firm_pct"] = float(live_firm)
 
     total = Decimal(0)
     for row in holdings:
@@ -277,11 +295,14 @@ def build_client_portfolio_dashboard(
         if book_key == "sca"
         else "Model!Qnty from DailyEditFiles PMS_ClientPortfolio.xlsx"
     )
-    bank = (
-        float(loaded.bank_balance)
-        if book_key == "sca" and loaded.bank_balance is not None
-        else None
-    )
+    excel_bank = loaded.bank_balance if book_key == "sca" else None
+    if approval_workflow_enabled() and book_key == "sca":
+        from pms_platform.domain.client_positions import bank_balance_for_book
+
+        bank_dec = bank_balance_for_book(session, book_key, excel_bank=excel_bank)
+        bank = float(bank_dec) if bank_dec is not None else None
+    else:
+        bank = float(excel_bank) if excel_bank is not None else None
     portfolio_total = None
     if book_key == "sca" and (total_f is not None or bank is not None):
         portfolio_total = (total_f or 0.0) + (bank or 0.0)

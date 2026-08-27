@@ -11,7 +11,7 @@ import {
   type PortfolioView,
 } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { DraftTray } from "@/components/draft-tray";
+import { DraftTray, holdingsDraftDomain } from "@/components/draft-tray";
 import { ViewModeToggle } from "@/components/view-mode-toggle";
 
 function num(value: number | null | undefined, digits = 2): string {
@@ -58,10 +58,12 @@ export function ClientPortfolioView({
     queryFn: () => api.getClientPortfolioDashboard(asOf, book, view),
   });
 
+  const draftDomain = holdingsDraftDomain(book);
+
   const draftQuery = useQuery({
-    queryKey: ["change-requests", "my-draft"],
-    queryFn: () => api.listChangeRequests("draft"),
-    enabled: book === "client" && view === "mine" && Boolean(dashQuery.data?.approval_workflow),
+    queryKey: ["change-requests", "my-draft", draftDomain],
+    queryFn: () => api.listChangeRequests("draft", draftDomain),
+    enabled: view === "mine" && Boolean(dashQuery.data?.approval_workflow),
   });
 
   const fetchNseMutation = useMutation({
@@ -107,6 +109,9 @@ export function ClientPortfolioView({
                 Value, Percent, and Total refresh from the as-of bhav day (qty × close).
                 Ramprasath Reddy qty stays as typed in Excel; Qty − Ramprasath is D−H;
                 Blocked Account is Ramprasath qty × as-of price.
+                {data?.approval_workflow
+                  ? " Quantity edits use My Working → submit → Samir approves."
+                  : null}
               </>
             ) : (
               <>
@@ -115,14 +120,14 @@ export function ClientPortfolioView({
                 Percent, Mcap, %Firm, and Total_Value use the as-of bhav day (Mcap = Excel
                 share factor × close).
                 {data?.approval_workflow
-                  ? " Quantity edits use My Working → submit → Samir approves; Official stays unchanged until approved."
+                  ? " Quantity edits use My Working → submit → Samir approves; Index and Mcap save directly to the shared database."
                   : " Edit holdings in Excel — this page is view-only for positions."}
               </>
             )}
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
-          {book === "client" && data?.approval_workflow ? (
+          {data?.approval_workflow ? (
             <ViewModeToggle view={view} onChange={setView} disabled={dashQuery.isFetching} />
           ) : null}
           <label className="flex flex-col gap-1 text-sm text-stone-600">
@@ -199,8 +204,8 @@ export function ClientPortfolioView({
         </p>
       ) : null}
 
-      {book === "client" && data?.approval_workflow && view === "mine" ? (
-        <DraftTray draft={draftQuery.data?.[0]} />
+      {data?.approval_workflow && view === "mine" ? (
+        <DraftTray draft={draftQuery.data?.[0]} book={book} />
       ) : null}
 
       {data && !data.error ? (
@@ -247,7 +252,8 @@ export function ClientPortfolioView({
           book={book}
           bankBalance={data.bank_balance}
           portfolioTotal={data.portfolio_total}
-          qtyEditable={book === "client" && Boolean(data.approval_workflow) && view === "mine"}
+          qtyEditable={Boolean(data.approval_workflow) && view === "mine"}
+          fieldsEditable={Boolean(data.approval_workflow) && book === "client"}
         />
       ) : null}
       {data?.yearly?.length ? (
@@ -267,6 +273,7 @@ function ModelTable({
   bankBalance,
   portfolioTotal,
   qtyEditable = false,
+  fieldsEditable = false,
 }: {
   rows: ClientPortfolioDashboard["holdings"];
   total: number | null | undefined;
@@ -274,17 +281,32 @@ function ModelTable({
   bankBalance?: number | null;
   portfolioTotal?: number | null;
   qtyEditable?: boolean;
+  fieldsEditable?: boolean;
 }) {
   const sca = book === "sca";
   const queryClient = useQueryClient();
   const [qtyDrafts, setQtyDrafts] = useState<Record<string, string>>({});
+  const [indexDrafts, setIndexDrafts] = useState<Record<string, string>>({});
 
   const saveQty = useMutation({
     mutationFn: ({ symbol, qty }: { symbol: string; qty: number }) =>
-      api.patchClientPositionQty(symbol, qty),
+      api.patchClientPositionQty(symbol, qty, book),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["client-portfolio-dashboard"] });
       void queryClient.invalidateQueries({ queryKey: ["change-requests"] });
+    },
+  });
+
+  const saveFields = useMutation({
+    mutationFn: ({
+      symbol,
+      body,
+    }: {
+      symbol: string;
+      body: { index_label?: string | null; mcap_factor?: number | null };
+    }) => api.patchClientPositionFields(symbol, body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["client-portfolio-dashboard"] });
     },
   });
   const [draft, setDraft] = useState(
@@ -400,8 +422,62 @@ function ModelTable({
                   </>
                 ) : (
                   <>
-                    <td className="px-3 py-1.5">{row.index_label ?? "—"}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{num(row.mcap)}</td>
+                    <td className="px-3 py-1.5">
+                      {fieldsEditable ? (
+                        <input
+                          type="text"
+                          className="w-28 rounded border border-stone-200 px-2 py-0.5 text-sm"
+                          value={indexDrafts[row.symbol] ?? row.index_label ?? ""}
+                          onChange={(e) =>
+                            setIndexDrafts((prev) => ({
+                              ...prev,
+                              [row.symbol]: e.target.value,
+                            }))
+                          }
+                          onBlur={() => {
+                            const raw = indexDrafts[row.symbol] ?? row.index_label ?? "";
+                            const trimmed = raw.trim();
+                            if (trimmed === (row.index_label ?? "")) return;
+                            saveFields.mutate({
+                              symbol: row.symbol,
+                              body: { index_label: trimmed || null },
+                            });
+                          }}
+                        />
+                      ) : (
+                        row.index_label ?? "—"
+                      )}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {fieldsEditable ? (
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="w-24 rounded border border-stone-200 px-2 py-0.5 text-right text-sm"
+                          defaultValue={row.mcap != null ? String(row.mcap) : ""}
+                          key={`${row.symbol}-${row.mcap ?? "x"}`}
+                          onBlur={(e) => {
+                            const price = row.price ?? row.close;
+                            if (price == null || price === 0) return;
+                            const parsed = Number(e.target.value.replace(/,/g, ""));
+                            if (!Number.isFinite(parsed)) return;
+                            const factor = parsed / price;
+                            if (
+                              row.mcap_factor != null &&
+                              Math.abs(factor - row.mcap_factor) < 1e-6
+                            ) {
+                              return;
+                            }
+                            saveFields.mutate({
+                              symbol: row.symbol,
+                              body: { mcap_factor: factor },
+                            });
+                          }}
+                        />
+                      ) : (
+                        num(row.mcap)
+                      )}
+                    </td>
                     <td className="px-3 py-1.5 whitespace-nowrap">{row.as_of_label ?? "—"}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       {row.firm_pct == null ? "—" : num(row.firm_pct, 2)}
@@ -465,6 +541,9 @@ function ModelTable({
       </div>
       {saveBank.isError ? (
         <p className="text-sm text-red-700">{(saveBank.error as Error).message}</p>
+      ) : null}
+      {saveFields.isError ? (
+        <p className="text-sm text-red-700">{(saveFields.error as Error).message}</p>
       ) : null}
     </div>
   );

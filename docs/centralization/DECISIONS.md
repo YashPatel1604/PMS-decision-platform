@@ -13,10 +13,16 @@
 | D9 | **Postgres-backed job queue** initially | Redis; Celery | Fewer dependencies; `FOR UPDATE SKIP LOCKED` |
 | D10 | **Excel import/export only after cutover** | Continue DailyEdit live reads | Ends formula-cache and per-PC workbook drift |
 | D11 | **Pivot daily checkbox filter stays browser localStorage** | Firm-shared DB + Samir approval | Personal UI scope only; bhav/portfolio firms remain in Postgres |
+| D12 | **Samir approval only for holdings qty** | Approve Charts, bhav, pivot prefs | Client Portfolio + SCA LLP qty only; everything else stays direct/auto |
+
+## Approval scope (locked)
+
+**Requires Samir approval:** client portfolio and SCA LLP position quantities only.
+
+**Does not require approval:** bhav upload/commit (automatic), Charts H/L/C, pivot checkboxes, corr sliders (localStorage), Research staged imports (transactions/security master/snapshots), watchlist membership.
 
 ## Explicit non-decisions (human reserved)
 
 - Production Supabase/Railway project IDs and credentials
 - Samir vs Julesh conflict resolution on business values
 - Production cutover date and DNS
-- Whether market-data imports may ever auto-approve

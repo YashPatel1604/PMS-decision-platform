@@ -2,15 +2,19 @@
 
 from fastapi import APIRouter
 
+from pms_platform.feature_flags import approval_workflow_enabled
 from pms_platform.research_paths import describe_research_layout
 
 router = APIRouter()
 
 
 @router.get("/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, str | bool]:
     """Return a simple service health payload."""
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "approval_workflow": approval_workflow_enabled(),
+    }
 
 
 @router.get("/health/research")

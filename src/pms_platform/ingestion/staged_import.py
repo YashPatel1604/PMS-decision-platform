@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
-import io
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from pms_platform.ingestion.upload_pipeline import UPLOAD_KINDS
+from pms_platform.config import settings
+from pms_platform.ingestion.upload_pipeline import (
+    UPLOAD_KINDS,
+    UploadIssue,
+    commit_workbook_import,
+    validate_workbook_import,
+)
 from pms_platform.models.source_lineage import ImportIssue, ImportRun, SourceFile, SourceFileVersion
 from pms_platform.storage.adapter import StorageAdapter, sha256_hex
 
@@ -118,6 +124,33 @@ def stage_import_bytes(
     )
 
 
+def _materialize_workbook(version: SourceFileVersion, data: bytes) -> Path:
+    """Stable on-disk path per checksum so import batches dedupe correctly."""
+    name = version.original_filename or "upload.xlsx"
+    dest = settings.upload_dir / "staged_lineage" / version.checksum_sha256 / name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not dest.exists():
+        dest.write_bytes(data)
+    return dest
+
+
+def _import_issue_from_upload(
+    run_id: uuid.UUID, issue: UploadIssue, *, severity: str | None = None
+) -> ImportIssue:
+    mapped = severity or ("error" if issue.severity == "ERROR" else "warning")
+    return ImportIssue(
+        import_run_id=run_id,
+        severity=mapped,
+        code=issue.code,
+        message=issue.message,
+        context={
+            "security_id": issue.security_id,
+            "source_key": issue.source_key,
+            "event_date": issue.event_date,
+        },
+    )
+
+
 def validate_import_run(
     session: Session,
     import_run_id: uuid.UUID,
@@ -132,6 +165,7 @@ def validate_import_run(
 
     version = run.source_file_version
     data = storage.get(version.storage_key)
+    path = _materialize_workbook(version, data)
     issues: list[ImportIssue] = []
     row_counts: dict[str, int] = {"bytes": len(data)}
 
@@ -144,20 +178,30 @@ def validate_import_run(
                 message="Expected .xlsx or .xls upload",
             )
         )
+    elif run.category not in STAGED_CATEGORIES:
+        issues.append(
+            ImportIssue(
+                import_run_id=run.import_run_id,
+                severity="error",
+                code="unsupported_category",
+                message=f"unsupported category: {run.category}",
+            )
+        )
     else:
         try:
-            import openpyxl
-
-            wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-            row_counts["sheets"] = len(wb.sheetnames)
-            row_counts["sheet_names"] = len(wb.sheetnames)
-            wb.close()
+            upload_issues, counts = validate_workbook_import(
+                session, kind=run.category, path=path
+            )
+            row_counts.update(counts)
+            issues.extend(
+                _import_issue_from_upload(run.import_run_id, issue) for issue in upload_issues
+            )
         except Exception as exc:  # noqa: BLE001 — surface parse failure to user
             issues.append(
                 ImportIssue(
                     import_run_id=run.import_run_id,
                     severity="error",
-                    code="parse_failed",
+                    code="validate_failed",
                     message=str(exc),
                 )
             )
@@ -185,8 +229,13 @@ def preview_import_run(session: Session, import_run_id: uuid.UUID) -> dict[str, 
     return serialize_import_run(run)
 
 
-def apply_import_run(session: Session, import_run_id: uuid.UUID) -> ImportRun:
-    """Apply an approved import run (idempotent)."""
+def apply_import_run(
+    session: Session,
+    import_run_id: uuid.UUID,
+    *,
+    storage: StorageAdapter | None = None,
+) -> ImportRun:
+    """Apply a validated import run into Postgres (idempotent)."""
     run = session.get(ImportRun, import_run_id)
     if run is None:
         raise StagedImportError("import run not found")
@@ -195,20 +244,37 @@ def apply_import_run(session: Session, import_run_id: uuid.UUID) -> ImportRun:
     if run.status not in ("validated", "approved", "pending_approval"):
         raise StagedImportError(f"cannot apply from status {run.status}")
 
-    # ponytail: Phase 4 marks applied + records lineage; domain DB writes land in Phase 5.
-    run.status = "applied"
-    run.applied_at = datetime.now(UTC)
-    run.validation_summary = {
-        **(run.validation_summary or {}),
-        "applied": True,
-    }
-    version = session.get(SourceFileVersion, run.source_file_version_id)
+    version = run.source_file_version
     if version is None:
         raise StagedImportError("source file version missing")
     source = session.get(SourceFile, version.source_file_id)
     if source is None:
         raise StagedImportError("source file missing")
+
+    if storage is None:
+        from pms_platform.storage import get_storage
+
+        storage = get_storage()
+
+    data = storage.get(version.storage_key)
+    path = _materialize_workbook(version, data)
+    try:
+        row_counts, episode_summary = commit_workbook_import(
+            session, kind=run.category, path=path
+        )
+    except Exception as exc:
+        raise StagedImportError(str(exc)) from exc
+
+    run.status = "applied"
+    run.applied_at = datetime.now(UTC)
+    run.row_counts = row_counts
+    run.validation_summary = {
+        **(run.validation_summary or {}),
+        "applied": True,
+        "episode_summary": episode_summary,
+    }
     source.active_version_id = run.source_file_version_id
+    version.parse_status = "applied"
     session.flush()
     return run
 

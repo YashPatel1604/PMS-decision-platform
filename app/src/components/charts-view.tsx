@@ -149,9 +149,9 @@ export function ChartsView() {
           <h2 className="text-2xl font-semibold text-stone-900">Charts</h2>
           <p className="mt-1 max-w-2xl text-sm text-stone-600">
             Range from DailyEditFiles <span className="font-medium">Charts.xlsx</span>.
-            High / Low / Close are editable (writes Excel). Corr bands use the sliders
-            below (Excel formula is High − Close × %). Close below Low → red; above High →
-            blue.
+            High / Low / Close are editable (writes Excel or shared DB when cloud mode is on).
+            Corr bands use the sliders below (personal — saved on this device). Close below Low →
+            red; above High → blue.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
@@ -190,7 +190,7 @@ export function ChartsView() {
         <p className="text-sm text-stone-500">
           Marks from bhav{" "}
           <span className="font-medium text-stone-800">{formatDate(data.as_of)}</span>
-          . Edit High / Low / Close then blur to save. Weekly S/R still on holdings only.
+          . Edit High / Low / Close then blur to save. Weekly S/R on holdings only.
         </p>
       ) : null}
 

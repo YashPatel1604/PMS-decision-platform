@@ -10,6 +10,8 @@ from typing import Any
 from openpyxl import load_workbook
 from sqlalchemy.orm import Session
 
+from pms_platform.domain.charts_rows import merge_db_into_parsed, sync_rows_from_parse
+from pms_platform.feature_flags import approval_workflow_enabled
 from pms_platform.market_data.client_portfolio_parse import _to_decimal
 from pms_platform.market_data.daily_edit_bhav import charts_workbook_path
 from pms_platform.market_data.nse_bhav_store import available_trade_dates, load_day_bars
@@ -120,7 +122,11 @@ def _pick_bar(eq: dict[str, Any], be: dict[str, Any], symbol: str, series: str) 
     return eq.get(symbol) or be.get(symbol)
 
 
-def build_charts_dashboard(session: Session, *, as_of: date | None = None) -> dict[str, Any]:
+def build_charts_dashboard(
+    session: Session,
+    *,
+    as_of: date | None = None,
+) -> dict[str, Any]:
     dates = available_trade_dates(session)
     if as_of is None:
         as_of = dates[0] if dates else None
@@ -142,6 +148,11 @@ def build_charts_dashboard(session: Session, *, as_of: date | None = None) -> di
         return empty
     empty["excel_mtime"] = datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds")
     names = parse_charts_range(path)
+    workflow = approval_workflow_enabled()
+    if workflow:
+        sync_rows_from_parse(session, names)
+        session.flush()
+        names = merge_db_into_parsed(session, names)
     if as_of is None:
         empty["error"] = "No bhav days committed yet — upload on Pivot Point."
         return empty

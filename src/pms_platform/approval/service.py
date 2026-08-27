@@ -206,13 +206,16 @@ def upsert_client_position_qty_draft(
     base_row_version: int,
     book: str = "client",
 ) -> ChangeRequest:
-    """Add or replace qty op on the user's active client_portfolio draft."""
-    symbol = symbol.strip().upper()
-    draft = get_user_draft(session, user_id=proposer.user_id, domain="client_portfolio")
-    before_qty = None
-    from pms_platform.domain.client_positions import official_qty_map
+    """Add or replace qty op on the user's active holdings draft for this book."""
+    from pms_platform.domain.client_positions import holdings_domain, official_qty_map
 
-    official = official_qty_map(session, book=book).get(symbol)
+    symbol = symbol.strip().upper()
+    book_key = (book or "client").strip().lower()
+    domain = holdings_domain(book_key)
+    draft = get_user_draft(session, user_id=proposer.user_id, domain=domain)
+    before_qty = None
+
+    official = official_qty_map(session, book=book_key).get(symbol)
     if official is not None:
         before_qty = float(official.qty)
     op_payload = {
@@ -220,18 +223,18 @@ def upsert_client_position_qty_draft(
         "entity_id": symbol,
         "operation_type": "update",
         "base_row_version": base_row_version,
-        "before_state": {"qty": before_qty, "book": book},
-        "after_state": {"qty": float(qty), "book": book},
+        "before_state": {"qty": before_qty, "book": book_key},
+        "after_state": {"qty": float(qty), "book": book_key},
     }
+    label = "SCA" if book_key == "sca" else "Client"
     if draft is None:
         return create_draft(
             session,
             proposer=proposer,
-            title=f"Update {symbol} quantity",
-            domain="client_portfolio",
+            title=f"{label}: update {symbol} quantity",
+            domain=domain,
             operations=[op_payload],
         )
-    # Replace existing op for same symbol or append
     replaced = False
     for op in draft.operations:
         if op.entity_id == symbol and op.entity_kind == "client_position":
