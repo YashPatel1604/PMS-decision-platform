@@ -15,6 +15,8 @@ _CLIENT_PREFIXES = (
     "/strategy/pivot",
     "/strategy/charts",
     "/strategy/client-portfolio",
+    "/change-requests",
+    "/imports/staged",
     "/market-data/block-deals",
     "/market-data/bulk-deals",
     "/market-data/sast",

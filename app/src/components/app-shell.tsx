@@ -10,7 +10,7 @@ import { api, type AuthUser } from "@/lib/api";
 type NavLink = {
   href: string;
   label: string;
-  badgeKey?: "watchlists";
+  badgeKey?: "watchlists" | "approvals";
 };
 
 type NavGroup = {
@@ -45,6 +45,7 @@ const navGroups: NavGroup[] = [
       { href: "/strategy/charts", label: "Charts" },
       { href: "/strategy/client-portfolio", label: "Client Portfolio" },
       { href: "/strategy/sca-llp", label: "SCA LLP" },
+      { href: "/strategy/approvals", label: "Approvals", badgeKey: "approvals" },
     ],
   },
   {
@@ -88,12 +89,14 @@ function NavDropdown({
   onToggle,
   onClose,
   unacknowledgedAlerts,
+  pendingApprovals,
 }: {
   group: NavGroup;
   open: boolean;
   onToggle: () => void;
   onClose: () => void;
   unacknowledgedAlerts: number;
+  pendingApprovals: number;
 }) {
   const pathname = usePathname();
   const menuId = useId();
@@ -102,6 +105,9 @@ function NavDropdown({
   const groupBadge = group.links.reduce((sum, link) => {
     if (link.badgeKey === "watchlists" && unacknowledgedAlerts > 0) {
       return sum + unacknowledgedAlerts;
+    }
+    if (link.badgeKey === "approvals" && pendingApprovals > 0) {
+      return sum + pendingApprovals;
     }
     return sum;
   }, 0);
@@ -166,6 +172,11 @@ function NavDropdown({
                     {unacknowledgedAlerts > 99 ? "99+" : unacknowledgedAlerts}
                   </span>
                 ) : null}
+                {link.badgeKey === "approvals" && pendingApprovals > 0 ? (
+                  <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    {pendingApprovals > 99 ? "99+" : pendingApprovals}
+                  </span>
+                ) : null}
               </Link>
             );
           })}
@@ -196,7 +207,16 @@ export function AppShell({
     enabled: user?.role !== "client",
   });
 
+  const approvalsSummaryQuery = useQuery({
+    queryKey: ["change-requests-summary"],
+    queryFn: () => api.getChangeRequestsSummary(),
+    refetchInterval: 15_000,
+    enabled: user?.role === "admin",
+    retry: false,
+  });
+
   const unacknowledgedAlerts = alertsSummaryQuery.data?.unacknowledged ?? 0;
+  const pendingApprovals = approvalsSummaryQuery.data?.pending_submitted ?? 0;
   const visibleGroups =
     user?.role === "client"
       ? navGroups.filter((group) => group.label === "Client" || group.label === "Market")
@@ -258,6 +278,7 @@ export function AppShell({
                   }
                   onClose={() => setOpenGroup(null)}
                   unacknowledgedAlerts={unacknowledgedAlerts}
+                  pendingApprovals={pendingApprovals}
                 />
               ))}
             </nav>

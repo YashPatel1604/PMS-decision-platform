@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     external_data_dir: Path = Path("./data/external")
     export_dir: Path = Path("./data/exports")
     upload_dir: Path = Path("./data/uploads")
+    private_storage_dir: Path = Path("./data/uploads/private")
     final_master_dir: Path | None = None
     # Sibling OneDrive knowledge base: …/OneDrive-Personal/Research (read-only).
     research_dir: Path | None = None

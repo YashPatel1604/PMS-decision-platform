@@ -1,6 +1,8 @@
 """ORM models."""
 
 from pms_platform.models.annual_fundamentals_snapshot import AnnualFundamentalsSnapshot
+from pms_platform.models.change_request import AuditEvent, ChangeOperation, ChangeRequest, Job, OutboxEvent, UserPermission
+from pms_platform.models.source_lineage import ImportIssue, ImportRun, SourceFile, SourceFileVersion
 from pms_platform.models.benchmark_tri import BenchmarkTri
 from pms_platform.models.company_fundamentals_quarterly import CompanyFundamentalsQuarterly
 from pms_platform.models.daily_price import DailyPrice
@@ -42,6 +44,10 @@ __all__ = [
     "EpisodeCashFlowRecord",
     "EpisodePerformance",
     "FundamentalSnapshot",
+    "ImportIssue",
+    "ImportRun",
+    "SourceFile",
+    "SourceFileVersion",
     "ImportBatch",
     "InsiderDisclosureDay",
     "InvestmentEpisode",
@@ -60,6 +66,7 @@ __all__ = [
     "SellAssessment",
     "PromoterSnapshot",
     "Transaction",
+    "ClientPosition",
     "AuditEvent",
     "ChangeOperation",
     "ChangeRequest",

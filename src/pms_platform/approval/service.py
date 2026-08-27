@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from pms_platform.auth.permissions import (
     PERMISSION_APPROVE_BUSINESS,
     PERMISSION_REJECT_BUSINESS,
     ROLE_DEFAULT_PERMISSIONS,
 )
+from pms_platform.jobs.service import emit_outbox
 from pms_platform.models.change_request import (
     CHANGE_REQUEST_STATUSES,
     AuditEvent,
@@ -81,6 +83,7 @@ def create_draft(
                 validation_result=op.get("validation_result"),
             )
         )
+    session.flush()
     _audit(session, actor=proposer, action="change_request.created", change_request=req)
     return req
 
@@ -106,21 +109,151 @@ def approve_request(
 ) -> ChangeRequest:
     if not user_has_permission(session, reviewer, PERMISSION_APPROVE_BUSINESS):
         raise ApprovalError("not permitted to approve business changes")
-    req = session.get(ChangeRequest, change_request_id)
+    req = session.scalar(
+        select(ChangeRequest)
+        .options(selectinload(ChangeRequest.operations))
+        .where(ChangeRequest.change_request_id == change_request_id)
+    )
     if req is None:
         raise ApprovalError("change request not found")
     if req.status == "approved" and idempotency_key and req.idempotency_key == idempotency_key:
         return req
     if req.status != "submitted":
         raise ApprovalError(f"cannot approve from status {req.status}")
-    # ponytail: handler registry applies ops in Phase 5; conflict check hooks here later.
+    from pms_platform.approval.handlers import client_position, import_run  # noqa: F401 — register handlers
+    from pms_platform.approval.handlers.registry import get_handler
+
+    ops = sorted(req.operations, key=lambda o: o.operation_order)
+    for op in ops:
+        payload = {
+            "entity_kind": op.entity_kind,
+            "entity_id": op.entity_id,
+            "operation_type": op.operation_type,
+            "base_row_version": op.base_row_version,
+            "before_state": op.before_state,
+            "after_state": op.after_state,
+            "updated_by": reviewer.user_id,
+        }
+        handler = get_handler(op.entity_kind)
+        handler.validate_operation(payload)
+        try:
+            handler.apply_operation(session, payload)
+        except ValueError as exc:
+            if "row_version conflict" in str(exc):
+                _transition(req, "conflict")
+                req.conflict_explanation = str(exc)
+                raise ApprovalError(str(exc)) from exc
+            raise
     _transition(req, "approved")
     req.reviewer_user_id = reviewer.user_id
     req.reviewed_at = datetime.now(UTC)
     if idempotency_key:
         req.idempotency_key = idempotency_key
     _audit(session, actor=reviewer, action="change_request.approved", change_request=req)
+    emit_outbox(
+        session,
+        event_type="change_request.approved",
+        payload={
+            "change_request_id": str(req.change_request_id),
+            "domain": req.domain,
+            "operations": [
+                {
+                    "entity_kind": op.entity_kind,
+                    "entity_id": op.entity_id,
+                    "operation_type": op.operation_type,
+                }
+                for op in ops
+            ],
+        },
+    )
     return req
+
+
+def withdraw_request(session: Session, *, actor: User, change_request_id: uuid.UUID) -> ChangeRequest:
+    req = session.get(ChangeRequest, change_request_id)
+    if req is None:
+        raise ApprovalError("change request not found")
+    if req.proposer_user_id != actor.user_id:
+        raise ApprovalError("only proposer may withdraw")
+    if req.status not in ("draft", "submitted"):
+        raise ApprovalError(f"cannot withdraw from status {req.status}")
+    _transition(req, "withdrawn")
+    _audit(session, actor=actor, action="change_request.withdrawn", change_request=req)
+    return req
+
+
+def get_user_draft(
+    session: Session, *, user_id: int, domain: str
+) -> ChangeRequest | None:
+    return session.scalars(
+        select(ChangeRequest)
+        .where(
+            ChangeRequest.proposer_user_id == user_id,
+            ChangeRequest.domain == domain,
+            ChangeRequest.status == "draft",
+        )
+        .order_by(ChangeRequest.updated_at.desc())
+        .limit(1)
+    ).first()
+
+
+def upsert_client_position_qty_draft(
+    session: Session,
+    *,
+    proposer: User,
+    symbol: str,
+    qty: Decimal,
+    base_row_version: int,
+    book: str = "client",
+) -> ChangeRequest:
+    """Add or replace qty op on the user's active client_portfolio draft."""
+    symbol = symbol.strip().upper()
+    draft = get_user_draft(session, user_id=proposer.user_id, domain="client_portfolio")
+    before_qty = None
+    from pms_platform.domain.client_positions import official_qty_map
+
+    official = official_qty_map(session, book=book).get(symbol)
+    if official is not None:
+        before_qty = float(official.qty)
+    op_payload = {
+        "entity_kind": "client_position",
+        "entity_id": symbol,
+        "operation_type": "update",
+        "base_row_version": base_row_version,
+        "before_state": {"qty": before_qty, "book": book},
+        "after_state": {"qty": float(qty), "book": book},
+    }
+    if draft is None:
+        return create_draft(
+            session,
+            proposer=proposer,
+            title=f"Update {symbol} quantity",
+            domain="client_portfolio",
+            operations=[op_payload],
+        )
+    # Replace existing op for same symbol or append
+    replaced = False
+    for op in draft.operations:
+        if op.entity_id == symbol and op.entity_kind == "client_position":
+            op.after_state = op_payload["after_state"]
+            op.base_row_version = base_row_version
+            op.before_state = op_payload["before_state"]
+            replaced = True
+            break
+    if not replaced:
+        session.add(
+            ChangeOperation(
+                change_request_id=draft.change_request_id,
+                operation_order=len(draft.operations),
+                entity_kind="client_position",
+                entity_id=symbol,
+                operation_type="update",
+                base_row_version=base_row_version,
+                before_state=op_payload["before_state"],
+                after_state=op_payload["after_state"],
+            )
+        )
+    return draft
 
 
 def reject_request(

@@ -707,6 +707,11 @@ export type ChartsDashboard = {
 export type ClientPortfolioHolding = {
   symbol: string;
   qty: number;
+  proposed_qty?: number | null;
+  approved_qty?: number | null;
+  change_status?: string | null;
+  change_request_id?: string | null;
+  row_version?: number | null;
   stocks_qty?: number | null;
   qty_mismatch: boolean;
   excel_price?: number | null;
@@ -762,6 +767,8 @@ export type ClientPortfolioDashboard = {
   total_value?: number | null;
   bank_balance?: number | null;
   portfolio_total?: number | null;
+  view?: "official" | "mine" | "proposal";
+  approval_workflow?: boolean;
   holdings: ClientPortfolioHolding[];
   yearly?: ClientPortfolioYearlySeries[];
   missing_symbols: string[];
@@ -774,6 +781,38 @@ export type ClientPortfolioDashboard = {
   } | null;
   error: string | null;
   formulas?: Record<string, string>;
+};
+
+export type PortfolioView = "official" | "mine";
+
+export type ChangeRequestSummary = {
+  pending_submitted: number;
+  my_draft: number;
+};
+
+export type ChangeRequestOperation = {
+  change_operation_id: string;
+  operation_order: number;
+  entity_kind: string;
+  entity_id: string | null;
+  operation_type: string;
+  base_row_version: number | null;
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
+};
+
+export type ChangeRequest = {
+  change_request_id: string;
+  title: string;
+  reason: string | null;
+  domain: string;
+  status: string;
+  proposer: { user_id: number; display_name: string };
+  review_note: string | null;
+  conflict_explanation: string | null;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+  operations: ChangeRequestOperation[];
 };
 
 export type MasterKind = "security" | "transactions" | "sell_since";
@@ -1384,15 +1423,51 @@ export const api = {
       support_resistance: string | null;
       weekly_close_date: string | null;
     }>(`/strategy/charts/weekly`, { method: "PATCH", body: JSON.stringify(body) }),
-  getClientPortfolioDashboard: (asOf?: string | null, book: "client" | "sca" = "client") => {
+  getClientPortfolioDashboard: (
+    asOf?: string | null,
+    book: "client" | "sca" = "client",
+    view: PortfolioView = "official",
+  ) => {
     const params = new URLSearchParams();
     if (asOf) params.set("as_of", asOf);
     if (book && book !== "client") params.set("book", book);
+    if (view && view !== "official") params.set("view", view);
     const query = params.toString();
     return request<ClientPortfolioDashboard>(
       `/strategy/client-portfolio/dashboard${query ? `?${query}` : ""}`,
     );
   },
+  patchClientPositionQty: (symbol: string, qty: number, book: "client" | "sca" = "client") =>
+    request<{
+      symbol: string;
+      proposed_qty: number;
+      change_request_id: string;
+      status: string;
+    }>(`/strategy/client-portfolio/positions/${encodeURIComponent(symbol)}/qty?book=${book}`, {
+      method: "PATCH",
+      body: JSON.stringify({ qty }),
+    }),
+  submitClientPortfolioDraft: (symbol: string) =>
+    request<{ change_request_id: string; status: string }>(
+      `/strategy/client-portfolio/positions/${encodeURIComponent(symbol)}/submit`,
+      { method: "POST" },
+    ),
+  getChangeRequestsSummary: () =>
+    request<ChangeRequestSummary>("/change-requests/summary"),
+  listChangeRequests: (status?: string) => {
+    const params = status ? `?status=${encodeURIComponent(status)}` : "";
+    return request<ChangeRequest[]>(`/change-requests${params}`);
+  },
+  approveChangeRequest: (id: string) =>
+    request<ChangeRequest>(`/change-requests/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  rejectChangeRequest: (id: string, reason: string) =>
+    request<ChangeRequest>(`/change-requests/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
   patchScaBankBalance: (amount: number) =>
     request<{ bank_balance: number }>(
       `/strategy/client-portfolio/bank-balance?book=sca`,

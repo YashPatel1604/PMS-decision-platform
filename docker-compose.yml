@@ -45,6 +45,7 @@ services:
       AUTH_DISABLED: ${AUTH_DISABLED:-0}
       AUTH_SECRET: ${AUTH_SECRET:-local-dev-pms-auth-secret-change-me}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-0}
+      FEATURE_APPROVAL_WORKFLOW: ${FEATURE_APPROVAL_WORKFLOW:-0}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
     volumes:
       - type: bind

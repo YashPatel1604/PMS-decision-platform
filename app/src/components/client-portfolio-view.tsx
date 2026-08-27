@@ -8,8 +8,11 @@ import {
   api,
   type ClientPortfolioDashboard,
   type ClientPortfolioYearlySeries,
+  type PortfolioView,
 } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { DraftTray } from "@/components/draft-tray";
+import { ViewModeToggle } from "@/components/view-mode-toggle";
 
 function num(value: number | null | undefined, digits = 2): string {
   if (value == null || !Number.isFinite(value)) return "—";
@@ -48,10 +51,17 @@ export function ClientPortfolioView({
   const [asOf, setAsOf] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [fetchMsg, setFetchMsg] = useState<string | null>(null);
+  const [view, setView] = useState<PortfolioView>("official");
 
   const dashQuery = useQuery({
-    queryKey: ["client-portfolio-dashboard", book, asOf ?? "latest"],
-    queryFn: () => api.getClientPortfolioDashboard(asOf, book),
+    queryKey: ["client-portfolio-dashboard", book, asOf ?? "latest", view],
+    queryFn: () => api.getClientPortfolioDashboard(asOf, book, view),
+  });
+
+  const draftQuery = useQuery({
+    queryKey: ["change-requests", "my-draft"],
+    queryFn: () => api.listChangeRequests("draft"),
+    enabled: book === "client" && view === "mine" && Boolean(dashQuery.data?.approval_workflow),
   });
 
   const fetchNseMutation = useMutation({
@@ -103,13 +113,18 @@ export function ClientPortfolioView({
                 Qnty / Index / Date from DailyEditFiles{" "}
                 <span className="font-medium">PMS_ClientPortfolio.xlsx</span>. Price, Value,
                 Percent, Mcap, %Firm, and Total_Value use the as-of bhav day (Mcap = Excel
-                share factor × close). Edit holdings in Excel — this page is view-only for
-                positions.
+                share factor × close).
+                {data?.approval_workflow
+                  ? " Quantity edits use My Working → submit → Samir approves; Official stays unchanged until approved."
+                  : " Edit holdings in Excel — this page is view-only for positions."}
               </>
             )}
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
+          {book === "client" && data?.approval_workflow ? (
+            <ViewModeToggle view={view} onChange={setView} disabled={dashQuery.isFetching} />
+          ) : null}
           <label className="flex flex-col gap-1 text-sm text-stone-600">
             As-of (bhav)
             <select
@@ -184,6 +199,10 @@ export function ClientPortfolioView({
         </p>
       ) : null}
 
+      {book === "client" && data?.approval_workflow && view === "mine" ? (
+        <DraftTray draft={draftQuery.data?.[0]} />
+      ) : null}
+
       {data && !data.error ? (
         <div className="flex flex-wrap gap-4 text-sm text-stone-600">
           <span>
@@ -228,6 +247,7 @@ export function ClientPortfolioView({
           book={book}
           bankBalance={data.bank_balance}
           portfolioTotal={data.portfolio_total}
+          qtyEditable={book === "client" && Boolean(data.approval_workflow) && view === "mine"}
         />
       ) : null}
       {data?.yearly?.length ? (
@@ -246,15 +266,27 @@ function ModelTable({
   book,
   bankBalance,
   portfolioTotal,
+  qtyEditable = false,
 }: {
   rows: ClientPortfolioDashboard["holdings"];
   total: number | null | undefined;
   book: "client" | "sca";
   bankBalance?: number | null;
   portfolioTotal?: number | null;
+  qtyEditable?: boolean;
 }) {
   const sca = book === "sca";
   const queryClient = useQueryClient();
+  const [qtyDrafts, setQtyDrafts] = useState<Record<string, string>>({});
+
+  const saveQty = useMutation({
+    mutationFn: ({ symbol, qty }: { symbol: string; qty: number }) =>
+      api.patchClientPositionQty(symbol, qty),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["client-portfolio-dashboard"] });
+      void queryClient.invalidateQueries({ queryKey: ["change-requests"] });
+    },
+  });
   const [draft, setDraft] = useState(
     bankBalance != null && Number.isFinite(bankBalance) ? String(bankBalance) : "",
   );
@@ -314,7 +346,35 @@ function ModelTable({
             {rows.map((row) => (
               <tr key={row.symbol} className="border-t border-stone-100">
                 <td className="px-3 py-1.5 font-medium">{row.symbol}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{num(row.qty, 0)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">
+                  {qtyEditable ? (
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      className="w-24 rounded border border-stone-200 px-2 py-0.5 text-right text-sm"
+                      value={qtyDrafts[row.symbol] ?? String(row.qty ?? "")}
+                      onChange={(e) =>
+                        setQtyDrafts((prev) => ({ ...prev, [row.symbol]: e.target.value }))
+                      }
+                      onBlur={() => {
+                        const raw = (qtyDrafts[row.symbol] ?? String(row.qty ?? "")).replace(
+                          /,/g,
+                          "",
+                        );
+                        const parsed = Number(raw);
+                        if (!Number.isFinite(parsed) || parsed === row.qty) return;
+                        saveQty.mutate({ symbol: row.symbol, qty: parsed });
+                      }}
+                    />
+                  ) : (
+                    num(row.qty, 0)
+                  )}
+                  {row.change_status ? (
+                    <span className="ml-1 text-[10px] uppercase text-amber-700">
+                      {row.change_status}
+                    </span>
+                  ) : null}
+                </td>
                 <td className="px-3 py-1.5 text-right tabular-nums">
                   {num(row.price ?? row.close ?? row.excel_price)}
                 </td>

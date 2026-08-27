@@ -21,6 +21,8 @@ from pms_platform.market_data.nse_bhav_store import (
 )
 from pms_platform.market_data.pivot_derived import FloorPivot, floor_pivot_levels
 from pms_platform.market_data.pivot_dashboard import DAILY_SERIES, latest_committed_run
+from pms_platform.read_context import ReadContext, ReadMode
+from pms_platform.feature_flags import approval_workflow_enabled
 
 
 def _pivot_from_bar(bar: Any, *, as_of: date) -> dict[str, Any]:
@@ -80,6 +82,7 @@ def build_client_portfolio_dashboard(
     *,
     as_of: date | None = None,
     book: str = "client",
+    read_context: ReadContext | None = None,
 ) -> dict[str, Any]:
     dates = available_trade_dates(session)
     if as_of is None:
@@ -227,6 +230,23 @@ def build_client_portfolio_dashboard(
         _fill_ramprasath(row, pos)
         holdings.append(row)
 
+    view_mode = "official"
+    if (
+        approval_workflow_enabled()
+        and book_key == "client"
+        and read_context is not None
+    ):
+        from pms_platform.domain.client_positions import apply_qty_overlay
+
+        holdings = apply_qty_overlay(session, holdings, read_context, book=book_key)
+        view_mode = read_context.mode.value
+        for row in holdings:
+            price = row.get("close") or row.get("price")
+            if price is not None and row.get("qty") is not None:
+                val = float(Decimal(str(row["qty"])) * Decimal(str(price)))
+                row["value"] = val
+                row["bhav_value"] = val
+
     total = Decimal(0)
     for row in holdings:
         if row["value"] is not None:
@@ -282,6 +302,8 @@ def build_client_portfolio_dashboard(
         "model_symbols": [p.symbol for p in loaded.model],
         "last_run": last_run,
         "error": None,
+        "view": view_mode,
+        "approval_workflow": approval_workflow_enabled(),
         "formulas": {
             "qty": qty_src,
             "price_value_percent": "Price/Value/Percent/Total_Value from qty × as-of bhav close",
