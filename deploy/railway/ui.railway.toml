@@ -1,0 +1,7 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "app/Dockerfile"
+watchPatterns = ["app/**"]
+
+[deploy]
+restartPolicyType = "ON_FAILURE"

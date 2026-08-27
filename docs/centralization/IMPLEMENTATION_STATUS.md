@@ -12,7 +12,7 @@ Master plan: [`../CURSOR_CENTRALIZATION_MASTER_PLAN.md`](../CURSOR_CENTRALIZATIO
 | 4 — Incremental jobs, storage and imports | complete | `storage/adapter.py`, source lineage migration, `staged_import.py`, job worker + outbox, `/imports/staged` API, `test_staged_import.py` | Domain DB writes on apply deferred to Phase 5 |
 | 5 — Domain migrations | complete | Client + SCA qty approval; Charts DB; bhav auto; staged Research imports; client index/mcap + SCA bank in DB | — |
 | 6 — Reconciliation tooling | complete | `reconcile-cutover` CLI, JSON + markdown reports, Research row diff, pivot order, migration bundle | — |
-| 7 — Deployment preparation | not_started | — | Railway/Supabase runbooks (no prod deploy without auth) |
+| 7 — Deployment preparation | complete | `deploy/railway/`, `pms-platform migrate` + `worker`, docker worker/migrate entrypoints, `.github/workflows/ci.yml`, `SUPABASE_SETUP.md`, `SECURITY_RUNBOOK.md`, expanded deployment/rollback runbooks | Staging cloud deploy when credentials provided (human) |
 | 8 — Migration rehearsal | not_started | — | — |
 | 9 — Production cutover | blocked | — | Requires human credentials + explicit authorization |
 | 10 — Cleanup after stabilization | not_started | — | After Phase 9 sign-off |

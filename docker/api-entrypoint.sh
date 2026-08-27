@@ -1,10 +1,9 @@
 #!/bin/sh
 set -eu
 cd /app
-alembic upgrade head
-python -c "from pms_platform.auth.service import ensure_builtin_users; from pms_platform.db.base import get_session_factory; s=get_session_factory()();
-try:
-    ensure_builtin_users(s); s.commit()
-finally:
-    s.close()"
+# Local Docker defaults to migrate-on-start. Production Railway sets RUN_MIGRATIONS_ON_START=0
+# and runs docker/migrate-entrypoint.sh (or `pms-platform migrate`) as a one-shot release task.
+if [ "${RUN_MIGRATIONS_ON_START:-1}" = "1" ]; then
+  pms-platform migrate
+fi
 exec uvicorn pms_platform.api.main:app --host 0.0.0.0 --port 8000

@@ -62,8 +62,50 @@ from pms_platform.reconciliation.report import write_reports
 def _ensure_schema() -> None:
     """Apply Alembic migrations before running commands."""
     alembic_cfg = Config("alembic.ini")
-    alembic_cfg.set_main_option("sqlalchemy.url", settings.database_url)
+    alembic_cfg.set_main_option("sqlalchemy.url", settings.migration_database_url)
     command.upgrade(alembic_cfg, "head")
+
+
+def migrate_cmd(*, seed_users: bool = True) -> int:
+    """Apply schema migrations once (uses DATABASE_DIRECT_URL when set)."""
+    from pms_platform.auth.service import ensure_builtin_users
+
+    _ensure_schema()
+    if seed_users:
+        session = get_session_factory()()
+        try:
+            ensure_builtin_users(session)
+            session.commit()
+        finally:
+            session.close()
+    print("Migrations applied (alembic head).")
+    return 0
+
+
+def worker_cmd(*, worker_id: str = "worker-1", idle_seconds: float = 5.0) -> int:
+    """Run the background job worker until interrupted."""
+    import logging
+    import time
+
+    from pms_platform.jobs.worker import run_worker_once
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    log = logging.getLogger("pms_platform.worker")
+    log.info("worker %s started (idle=%ss)", worker_id, idle_seconds)
+    while True:
+        session = get_session_factory()()
+        try:
+            if run_worker_once(session, worker_id=worker_id):
+                session.commit()
+            else:
+                session.rollback()
+                time.sleep(idle_seconds)
+        except Exception:
+            session.rollback()
+            log.exception("worker loop error")
+            time.sleep(idle_seconds)
+        finally:
+            session.close()
 
 
 def _parse_date(value: str) -> date:
@@ -1165,6 +1207,32 @@ def main() -> None:
         help="Research tree for file checksum manifest (default: RESEARCH_DIR)",
     )
 
+    migrate_parser = subparsers.add_parser(
+        "migrate",
+        help="Apply Alembic migrations once (prefer DATABASE_DIRECT_URL)",
+    )
+    migrate_parser.add_argument(
+        "--no-seed-users",
+        action="store_true",
+        help="Skip ensure_builtin_users after migrate",
+    )
+
+    worker_parser = subparsers.add_parser(
+        "worker",
+        help="Run background job worker (outbox + staged imports)",
+    )
+    worker_parser.add_argument(
+        "--worker-id",
+        default="worker-1",
+        help="Lease owner id for claimed jobs",
+    )
+    worker_parser.add_argument(
+        "--idle-seconds",
+        type=float,
+        default=5.0,
+        help="Sleep when no jobs are available",
+    )
+
     market_import_parser = subparsers.add_parser(
         "import-market-data",
         help="Import canonical market-data CSV files from data/external",
@@ -1481,6 +1549,10 @@ def main() -> None:
                 research_dir=args.research_dir,
             )
         )
+    if args.command == "migrate":
+        raise SystemExit(migrate_cmd(seed_users=not args.no_seed_users))
+    if args.command == "worker":
+        raise SystemExit(worker_cmd(worker_id=args.worker_id, idle_seconds=args.idle_seconds))
     if args.command == "import-market-data":
         raise SystemExit(import_market_data_cmd(args.external_dir))
     if args.command == "import-fundamentals":

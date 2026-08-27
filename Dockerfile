@@ -34,7 +34,10 @@ COPY scripts ./scripts
 RUN uv sync --frozen --no-dev
 
 COPY docker/api-entrypoint.sh /api-entrypoint.sh
-RUN sed -i 's/\r$//' /api-entrypoint.sh && chmod +x /api-entrypoint.sh
+COPY docker/worker-entrypoint.sh /worker-entrypoint.sh
+COPY docker/migrate-entrypoint.sh /migrate-entrypoint.sh
+RUN sed -i 's/\r$//' /api-entrypoint.sh /worker-entrypoint.sh /migrate-entrypoint.sh \
+    && chmod +x /api-entrypoint.sh /worker-entrypoint.sh /migrate-entrypoint.sh
 
 EXPOSE 8000
 

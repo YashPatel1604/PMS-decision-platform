@@ -40,6 +40,7 @@ services:
       EXTERNAL_DATA_DIR: /data/external
       EXPORT_DIR: /data/exports
       UPLOAD_DIR: /data/uploads
+      PRIVATE_STORAGE_DIR: /data/uploads/private
       YAHOO_FINANCE_BASE_URL: ${YAHOO_FINANCE_BASE_URL:-https://query1.finance.yahoo.com}
       FUNDAMENTALS_PROVIDER: ${FUNDAMENTALS_PROVIDER:-manual}
       AUTH_DISABLED: ${AUTH_DISABLED:-0}
@@ -74,6 +75,45 @@ services:
         source: ./docker/market_data_seed
         target: /data/external_seed
         read_only: true
+      - api_raw:/data/raw
+      - api_processed:/data/processed
+      - api_exports:/data/exports
+      - api_uploads:/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    entrypoint: ["/worker-entrypoint.sh"]
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pms}
+      DATABASE_URL: postgresql+psycopg://pms:${POSTGRES_PASSWORD:-pms}@postgres:5432/pms
+      RUN_MIGRATIONS_ON_START: "0"
+      RESEARCH_DIR: /data/research
+      DAILY_EDIT_DIR: /data/daily_edit
+      FINAL_MASTER_DIR: /data/final_master
+      SNAPSHOT_SEED_DIR: /data/snapshot_seed
+      RAW_DATA_DIR: /data/raw
+      PROCESSED_DATA_DIR: /data/processed
+      EXTERNAL_DATA_DIR: /data/external
+      EXPORT_DIR: /data/exports
+      UPLOAD_DIR: /data/uploads
+      PRIVATE_STORAGE_DIR: /data/uploads/private
+      FEATURE_APPROVAL_WORKFLOW: ${FEATURE_APPROVAL_WORKFLOW:-0}
+      FEATURE_CLOUD_STORAGE: ${FEATURE_CLOUD_STORAGE:-0}
+    volumes:
+      - type: bind
+        source: ${RESEARCH_DIR:-./docker/empty_research}
+        target: /data/research
+        read_only: true
+      - type: bind
+        source: ${DAILY_EDIT_DIR:-../DailyEditFiles}
+        target: /data/daily_edit
       - api_raw:/data/raw
       - api_processed:/data/processed
       - api_exports:/data/exports

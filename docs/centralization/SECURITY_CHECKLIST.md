@@ -8,7 +8,7 @@
 - [ ] No `NEXT_PUBLIC_*` secrets
 - [ ] Supabase service role key backend-only
 - [ ] Audit JSON redacts secrets
-- [ ] Dependency/secret scan in CI (Phase 7)
+- [x] Dependency/secret scan in CI (Phase 7) — gitleaks in `.github/workflows/ci.yml`
 - [ ] MFA documented as near-term requirement
 
 See `CREDENTIAL_EXPOSURE_SCAN.md` for Phase 0 findings.
