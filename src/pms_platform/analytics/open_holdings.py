@@ -27,6 +27,7 @@ from pms_platform.analytics.successor_chain import resolve_price_security_id
 from pms_platform.market_data.client_portfolio_parse import (
     ClientPortfolioPosition,
     load_client_portfolio_book,
+    mcap_and_firm_at_price,
 )
 from pms_platform.market_data.contracts import REQUIRED_BENCHMARKS
 from pms_platform.market_data.lookup import lookup_daily_price
@@ -536,6 +537,15 @@ def _analyze_open_episode(
         as_of_price, _bhav_series = bhav_mark
         as_of_price_date = as_of_date
         used_bhav_mark = True
+
+    if model_pos is not None and model_pos.mcap_factor is not None and as_of_price is not None:
+        live_mcap, _ = mcap_and_firm_at_price(
+            mcap_factor=model_pos.mcap_factor,
+            price=as_of_price,
+            stocks_qty=None,
+        )
+        if live_mcap is not None:
+            mcap = live_mcap
 
     market_value = (
         as_of_price * Decimal(quantity) if as_of_price is not None and quantity > 0 else None

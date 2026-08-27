@@ -49,6 +49,8 @@ class ClientPortfolioPosition:
     target_value: Decimal | None = None  # second Value col (buy / target)
     portfolio_flag: str | None = None  # Model!Portfolio
     ramprasath_qty: Decimal | None = None  # Quantity!RAMPRASATH REDDY QTYN (static)
+    # From Model!Mcap formula =(a/b)*C — mcap_cr = factor × price (bhav).
+    mcap_factor: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -184,9 +186,9 @@ def _parse_year_block(
     return out
 
 
-def _mcap_from_formula(formula: object, price: Decimal | None) -> Decimal | None:
-    """Evaluate Model!Mcap share-factor × price when Excel cache is empty."""
-    if price is None or not isinstance(formula, str) or not formula.startswith("="):
+def _mcap_factor_from_formula(formula: object) -> Decimal | None:
+    """Share factor in Model!Mcap =(19.11/2)*C3 → 19.11/2."""
+    if not isinstance(formula, str) or not formula.startswith("="):
         return None
     match = _MCAP_FORMULA.fullmatch(formula.replace(" ", ""))
     if match is None:
@@ -195,71 +197,68 @@ def _mcap_from_formula(formula: object, price: Decimal | None) -> Decimal | None
     den = Decimal(match.group(2) or "1")
     if den == 0:
         return None
-    return (num / den) * price
+    return num / den
 
 
-def _firm_pct_from_parts(
-    stocks_qty: Decimal | None, price: Decimal | None, mcap: Decimal | None
-) -> Decimal | None:
-    """Model!%Firm = (Stocks qty × price) / (Mcap × 1e5)."""
-    if stocks_qty is None or price is None or mcap is None or mcap == 0:
-        return None
-    return (stocks_qty * price) / (mcap * Decimal(100_000))
-
-
-def _fill_missing_mcap_firm(
-    model: list[ClientPortfolioPosition],
+def mcap_and_firm_at_price(
     *,
-    path: Path,
-    stocks_qty: dict[str, Decimal],
-    stocks_price: dict[str, Decimal],
-) -> list[ClientPortfolioPosition]:
-    """Recompute Mcap / %Firm when data_only cache was wiped (e.g. after openpyxl save)."""
-    if not any(p.mcap is None or p.firm_pct is None for p in model):
-        return model
+    mcap_factor: Decimal | None,
+    price: Decimal | None,
+    stocks_qty: Decimal | None,
+) -> tuple[Decimal | None, Decimal | None]:
+    """Mcap (₹ Cr) and %Firm from share factor × live price (bhav), not Excel cache."""
+    if mcap_factor is None or price is None:
+        return None, None
+    mcap = mcap_factor * price
+    firm = None
+    if stocks_qty is not None and mcap != 0:
+        firm = (stocks_qty * price) / (mcap * Decimal(100_000))
+    return mcap, firm
 
+
+def _attach_mcap_factors(
+    model: list[ClientPortfolioPosition], *, path: Path
+) -> list[ClientPortfolioPosition]:
+    """Read Model!Mcap formulas once; keep share factors for bhav revaluation."""
     form_wb = openpyxl.load_workbook(path, read_only=True, data_only=False)
     try:
         if "Model" not in form_wb.sheetnames:
             return model
-        form_by_symbol: dict[str, Any] = {}
+        factor_by_symbol: dict[str, Decimal] = {}
         for row in form_wb["Model"].iter_rows(values_only=True):
             symbol = _symbol(row[0] if row else None)
             if symbol is None:
                 continue
-            form_by_symbol[symbol] = row
+            factor = _mcap_factor_from_formula(_cell(tuple(row), 6))
+            if factor is not None:
+                factor_by_symbol[symbol] = factor
     finally:
         form_wb.close()
 
+    if not factor_by_symbol:
+        return model
+
     out: list[ClientPortfolioPosition] = []
     for pos in model:
-        mcap = pos.mcap
-        firm = pos.firm_pct
-        price = pos.excel_price or stocks_price.get(pos.symbol)
-        form_row = form_by_symbol.get(pos.symbol)
-        if mcap is None and form_row is not None:
-            mcap = _mcap_from_formula(_cell(tuple(form_row), 6), price)
-        if firm is None:
-            firm = _firm_pct_from_parts(
-                stocks_qty.get(pos.symbol), price, mcap
-            )
-        if mcap == pos.mcap and firm == pos.firm_pct:
+        factor = factor_by_symbol.get(pos.symbol)
+        if factor is None or factor == pos.mcap_factor:
             out.append(pos)
             continue
         out.append(
             ClientPortfolioPosition(
                 symbol=pos.symbol,
                 qty=pos.qty,
-                excel_price=pos.excel_price if pos.excel_price is not None else price,
+                excel_price=pos.excel_price,
                 excel_value=pos.excel_value,
                 excel_percent=pos.excel_percent,
                 index_label=pos.index_label,
-                mcap=mcap,
+                mcap=pos.mcap,
                 as_of_label=pos.as_of_label,
-                firm_pct=firm,
+                firm_pct=pos.firm_pct,
                 target_value=pos.target_value,
                 portfolio_flag=pos.portfolio_flag,
                 ramprasath_qty=pos.ramprasath_qty,
+                mcap_factor=factor,
             )
         )
     return out
@@ -531,7 +530,6 @@ def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:
             )
 
     stocks_qty: dict[str, Decimal] = {}
-    stocks_price: dict[str, Decimal] = {}
     for row in stocks_rows:
         if not row or row[0] is None:
             continue
@@ -539,9 +537,6 @@ def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:
         if symbol is None:
             continue
         # Stocks: SYMBOL, name, price, blank, Quantity, Value
-        price = _to_decimal(row[2] if len(row) > 2 else None)
-        if price is not None:
-            stocks_price[symbol] = price
         qty = _to_decimal(row[4] if len(row) > 4 else None)
         if qty is None:
             continue
@@ -558,9 +553,6 @@ def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:
             if qty is None:
                 continue
             stocks_qty[symbol] = qty
-            price = _to_decimal(_cell(row, 4))
-            if price is not None:
-                stocks_price[symbol] = price
 
     bank_balance: Decimal | None = None
     for row in quantity_rows:
@@ -570,9 +562,7 @@ def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:
             bank_balance = _to_decimal(_cell(row, 5))
             break
 
-    model = _fill_missing_mcap_firm(
-        model, path=path, stocks_qty=stocks_qty, stocks_price=stocks_price
-    )
+    model = _attach_mcap_factors(model, path=path)
 
     return ClientPortfolioBook(
         path=path,

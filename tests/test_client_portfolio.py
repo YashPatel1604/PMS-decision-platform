@@ -182,8 +182,63 @@ def test_write_bse_smallcap_year_updates_workbook(tmp_path: Path) -> None:
     wb2.close()
 
 
-def test_mcap_firm_recomputed_when_excel_cache_missing(tmp_path: Path) -> None:
-    """openpyxl save wipes formula caches — parser must still fill Mcap / %Firm."""
+def test_mcap_firm_from_bhav_not_excel_cache(tmp_path: Path, session, monkeypatch) -> None:
+    """Share factor stays in Excel; Mcap/%Firm revalue off as-of bhav close."""
+    from openpyxl import Workbook
+
+    from pms_platform.market_data.client_portfolio_dashboard import (
+        build_client_portfolio_dashboard,
+    )
+    from pms_platform.market_data.nse_bhav_store import sync_bhav_file
+
+    path = tmp_path / "PMS_ClientPortfolio copy.xlsx"
+    wb = Workbook()
+    model = wb.active
+    model.title = "Model"
+    model.append(
+        ["Model", "Qnty", "Price", "Value", "Percent", "Index", "Mcap", "Date", "%Firm"]
+    )
+    model.append([None] * 9)
+    model.append(
+        [
+            "RELIANCE",
+            10,
+            "=Stocks!C3",
+            None,
+            None,
+            "-",
+            "=(2/1)*C3",
+            "Nov25",
+            "=(Stocks!E3*C3)/(G3*100000)",
+        ]
+    )
+    stocks = wb.create_sheet("Stocks")
+    stocks.append(["SYMBOL", "Stocks", None, None, "Quantity", "Value"])
+    stocks.append([None] * 6)
+    stocks.append(["RELIANCE", "RELIANCE", 100.0, None, 50_000, None])  # stale Excel price
+    wb.save(path)
+    wb.close()
+
+    clear_client_portfolio_cache()
+    monkeypatch.setattr(
+        "pms_platform.market_data.nse_bhav_store.settings.upload_dir",
+        str(tmp_path / "uploads"),
+    )
+    monkeypatch.setattr(
+        "pms_platform.market_data.client_portfolio_dashboard.load_client_portfolio_book",
+        lambda _path=None: parse_client_portfolio_workbook(path),
+    )
+    sync_bhav_file(session, FIXTURES / "bhav_2026-08-19.csv")
+    dash = build_client_portfolio_dashboard(session, as_of=date(2026, 8, 19))
+    rel = next(r for r in dash["holdings"] if r["symbol"] == "RELIANCE")
+    # Fixture RELIANCE close = 1425; factor = 2 → mcap = 2850
+    assert rel["close"] == 1425.0
+    assert abs(rel["mcap"] - 2850.0) < 1e-6
+    assert abs(rel["firm_pct"] - (50000 * 1425) / (2850 * 100_000)) < 1e-9
+
+
+def test_mcap_factor_parsed_when_excel_cache_missing(tmp_path: Path) -> None:
+    """openpyxl save wipes formula caches — share factor still comes from the formula text."""
     from openpyxl import Workbook
 
     path = tmp_path / "PMS_ClientPortfolio copy.xlsx"
@@ -193,7 +248,6 @@ def test_mcap_firm_recomputed_when_excel_cache_missing(tmp_path: Path) -> None:
     model.append(
         ["Model", "Qnty", "Price", "Value", "Percent", "Index", "Mcap", "Date", "%Firm"]
     )
-    # Row 2 blank (matches live book); row 3 = ASHAPURMIN-style formulas, no cache.
     model.append([None] * 9)
     model.append(
         [
@@ -218,11 +272,6 @@ def test_mcap_firm_recomputed_when_excel_cache_missing(tmp_path: Path) -> None:
     book = parse_client_portfolio_workbook(path)
     pos = book.model[0]
     assert pos.symbol == "ASHAPURMIN"
-    assert pos.mcap is not None
-    assert abs(pos.mcap - Decimal("19.11") / 2 * Decimal("585.8")) < Decimal("0.01")
-    expected_firm = (
-        Decimal("499364") * Decimal("585.8") / (pos.mcap * Decimal(100_000))
-    )
-    assert pos.firm_pct is not None
-    assert abs(pos.firm_pct - expected_firm) < Decimal("0.0001")
+    assert pos.mcap_factor is not None
+    assert abs(pos.mcap_factor - Decimal("19.11") / 2) < Decimal("0.0001")
 

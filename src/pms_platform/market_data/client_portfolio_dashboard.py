@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from pms_platform.market_data.client_portfolio_parse import (
     book_meta,
     load_client_portfolio_book,
+    mcap_and_firm_at_price,
     yearly_as_dicts,
 )
 from pms_platform.market_data.nse_bhav_store import (
@@ -148,6 +149,9 @@ def build_client_portfolio_dashboard(
         qty_mismatch = stocks_qty is not None and stocks_qty != pos.qty
         excel_price = float(pos.excel_price) if pos.excel_price is not None else None
         excel_value = float(pos.excel_value) if pos.excel_value is not None else None
+        # Prefer live bhav later; seed from Excel only when no bar.
+        excel_mcap = float(pos.mcap) if pos.mcap is not None else None
+        excel_firm = float(pos.firm_pct) if pos.firm_pct is not None else None
 
         row: dict[str, Any] = {
             "symbol": pos.symbol,
@@ -160,9 +164,9 @@ def build_client_portfolio_dashboard(
             if pos.excel_percent is not None
             else None,
             "index_label": pos.index_label,
-            "mcap": float(pos.mcap) if pos.mcap is not None else None,
+            "mcap": excel_mcap,
             "as_of_label": pos.as_of_label,
-            "firm_pct": float(pos.firm_pct) if pos.firm_pct is not None else None,
+            "firm_pct": excel_firm,
             "target_value": float(pos.target_value) if pos.target_value is not None else None,
             "portfolio_flag": pos.portfolio_flag,
             "ramprasath_qty": None,
@@ -194,6 +198,11 @@ def build_client_portfolio_dashboard(
 
         close = Decimal(bar.close)
         bhav_value = pos.qty * close
+        live_mcap, live_firm = mcap_and_firm_at_price(
+            mcap_factor=pos.mcap_factor,
+            price=close,
+            stocks_qty=stocks_qty if stocks_qty is not None else pos.qty,
+        )
         vol_exp = vol_exp_by_symbol.get(pos.symbol)
         row.update(
             {
@@ -202,6 +211,8 @@ def build_client_portfolio_dashboard(
                 "bhav_value": float(bhav_value),
                 "price": float(close),
                 "value": float(bhav_value),
+                "mcap": float(live_mcap) if live_mcap is not None else excel_mcap,
+                "firm_pct": float(live_firm) if live_firm is not None else excel_firm,
                 "be_only": bar.series == "BE",
                 "missing_bhav": False,
                 "pivot": _pivot_from_bar(bar, as_of=as_of),
