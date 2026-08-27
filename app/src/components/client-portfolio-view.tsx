@@ -100,9 +100,10 @@ export function ClientPortfolioView({
               </>
             ) : (
               <>
-                Qnty / Index / Mcap / Date / %Firm from Research{" "}
+                Qnty / Index / Mcap / Date / %Firm from DailyEditFiles{" "}
                 <span className="font-medium">PMS_ClientPortfolio.xlsx</span>. Price, Value,
                 Percent, and Total_Value refresh from the as-of bhav day (qty × close).
+                Edit holdings in Excel — this page is view-only for positions.
               </>
             )}
           </p>

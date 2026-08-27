@@ -24,7 +24,7 @@ from pms_platform.market_data.nse_bhav_store import (
     upsert_portfolio_symbols,
     validate_bhav_run,
 )
-from pms_platform.market_data.pivot_dashboard import build_pivot_dashboard
+from pms_platform.market_data.pivot_dashboard import HIDDEN_PIVOT_SYMBOLS, build_pivot_dashboard
 from pms_platform.models.nse_bhav import PivotPortfolioSymbol
 from sqlalchemy import select
 
@@ -176,7 +176,10 @@ def pivot_dashboard(
 @router.get("/portfolio")
 def list_portfolio(session: Session = Depends(get_db)) -> list[dict]:
     rows = session.scalars(
-        select(PivotPortfolioSymbol).order_by(PivotPortfolioSymbol.symbol)
+        select(PivotPortfolioSymbol).order_by(
+            PivotPortfolioSymbol.sort_order,
+            PivotPortfolioSymbol.symbol,
+        )
     ).all()
     return [
         {
@@ -223,6 +226,8 @@ def add_portfolio_symbol(
     symbol = body.symbol.strip().upper()
     if not symbol:
         raise HTTPException(status_code=400, detail="Symbol is required")
+    if symbol in HIDDEN_PIVOT_SYMBOLS:
+        raise HTTPException(status_code=400, detail=f"{symbol} is not shown on Pivot")
     known = known_bhav_symbols(session)
     if not known:
         raise HTTPException(

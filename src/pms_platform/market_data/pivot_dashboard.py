@@ -32,6 +32,8 @@ from pms_platform.models.security import Security
 
 # Excel Daily includes EQ + BE (trade-for-trade); other series stay out of Daily.
 DAILY_SERIES = frozenset({"EQ", "BE"})
+# Cash sleeve — not a pivot name.
+HIDDEN_PIVOT_SYMBOLS = frozenset({"LIQUIDCASE"})
 
 
 def open_holding_nse_symbols(session: Session) -> list[str]:
@@ -55,6 +57,7 @@ def open_holding_nse_symbols(session: Session) -> list[str]:
         for pos in book.model:
             if pos.symbol:
                 symbols.add(pos.symbol)
+    symbols -= HIDDEN_PIVOT_SYMBOLS
     return sorted(symbols)
 
 
@@ -166,7 +169,12 @@ def build_pivot_dashboard(
     prior_date = prior_session_date(session, as_of)
 
     portfolio_rows = list(
-        session.scalars(select(PivotPortfolioSymbol).order_by(PivotPortfolioSymbol.symbol)).all()
+        session.scalars(
+            select(PivotPortfolioSymbol).order_by(
+                PivotPortfolioSymbol.sort_order,
+                PivotPortfolioSymbol.symbol,
+            )
+        ).all()
     )
     symbols = [p.symbol for p in portfolio_rows]
     # Prefer EQ bar per symbol; fall back to BE so BE-only names still get portfolio pivots.
@@ -199,6 +207,8 @@ def build_pivot_dashboard(
 
     portfolio_payload = []
     for member in portfolio_rows:
+        if member.symbol in HIDDEN_PIVOT_SYMBOLS:
+            continue
         pivot = pivots.get(member.symbol)
         portfolio_payload.append(
             {
@@ -222,7 +232,7 @@ def build_pivot_dashboard(
 
     daily_payload = []
     for bar in daily:
-        if bar.series not in DAILY_SERIES:
+        if bar.series not in DAILY_SERIES or bar.symbol in HIDDEN_PIVOT_SYMBOLS:
             continue
         daily_payload.append(
             _daily_row(

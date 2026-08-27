@@ -115,6 +115,7 @@ def test_upsert_portfolio_dedupes_and_is_idempotent(session) -> None:
     assert ufo is not None
     assert ufo.portfolio_a is True
     assert ufo.uptrend is True
+    assert ufo.sort_order >= 1
 
     n2 = upsert_portfolio_symbols(
         session,
@@ -125,7 +126,17 @@ def test_upsert_portfolio_dedupes_and_is_idempotent(session) -> None:
     ufo = session.get(PivotPortfolioSymbol, "UFO")
     assert ufo is not None
     assert ufo.portfolio_a is False
+    # Re-upsert keeps selection order
+    first_order = ufo.sort_order
 
+    upsert_portfolio_symbols(session, [{"symbol": "TCS"}])
+    session.commit()
+    tcs = session.get(PivotPortfolioSymbol, "TCS")
+    assert tcs is not None
+    assert tcs.sort_order > first_order
+    ufo_again = session.get(PivotPortfolioSymbol, "UFO")
+    assert ufo_again is not None
+    assert ufo_again.sort_order == first_order
 
 def test_delete_portfolio_symbol_and_known_bhav(session, tmp_path, monkeypatch) -> None:
     from pms_platform.market_data.nse_bhav_store import (
@@ -211,6 +222,13 @@ def test_open_holding_unions_client_portfolio(session, sample_security, monkeypa
             ClientPortfolioPosition(
                 symbol="INFY",
                 qty=Decimal("1"),
+                excel_price=None,
+                excel_value=None,
+                excel_percent=None,
+            ),
+            ClientPortfolioPosition(
+                symbol="LIQUIDCASE",
+                qty=Decimal("100"),
                 excel_price=None,
                 excel_value=None,
                 excel_percent=None,

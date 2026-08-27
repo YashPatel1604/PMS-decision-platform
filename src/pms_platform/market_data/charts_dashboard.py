@@ -14,7 +14,10 @@ from pms_platform.market_data.client_portfolio_parse import _to_decimal
 from pms_platform.market_data.daily_edit_bhav import charts_workbook_path
 from pms_platform.market_data.nse_bhav_store import available_trade_dates, load_day_bars
 
-# Range columns S/T/U (1-based)
+# Range columns (1-based)
+_COL_HIGH = 2
+_COL_LOW = 3
+_COL_CLOSE = 13
 _COL_WEEKLY_CLOSE = 19
 _COL_SR = 20
 _COL_WEEKLY_DATE = 21
@@ -52,6 +55,15 @@ def _cell_text(raw: object) -> str | None:
     return text or None
 
 
+def _numeric_cell(raw: object) -> Decimal | None:
+    """Read a typed number; ignore Excel formulas (use bhav instead)."""
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, str) and raw.strip().startswith("="):
+        return None
+    return _to_decimal(raw)
+
+
 def parse_charts_range(path: Path) -> list[dict[str, Any]]:
     wb = load_workbook(path, read_only=True, data_only=False)
     try:
@@ -78,6 +90,7 @@ def parse_charts_range(path: Path) -> list[dict[str, Any]]:
                     "series": _series_from_lookup(row[12] if len(row) > 12 else None),
                     "high": high,
                     "low": low,
+                    "excel_close": _numeric_cell(row[12] if len(row) > 12 else None),
                     "weekly_close": _to_decimal(row[18] if len(row) > 18 else None),
                     "support_resistance": _cell_text(row[19] if len(row) > 19 else None),
                     "weekly_close_date": _cell_text(row[20] if len(row) > 20 else None),
@@ -140,22 +153,26 @@ def build_charts_dashboard(session: Session, *, as_of: date | None = None) -> di
     for raw in names:
         levels = _levels(raw["high"], raw["low"])
         bar = _pick_bar(eq, be, raw["symbol"], raw["series"])
-        close = Decimal(bar.close) if bar is not None else None
+        bhav_close = Decimal(bar.close) if bar is not None else None
+        # Typed Excel close overrides bhav (after user edit); formulas still use bhav.
+        close = raw.get("excel_close") if raw.get("excel_close") is not None else bhav_close
         prev = Decimal(bar.prev_close) if bar is not None and bar.prev_close is not None else None
-        if bar is None:
+        if bar is None and raw.get("excel_close") is None:
             missing.append(raw["symbol"])
         pct_from_lows = None
         if close is not None and raw["low"] not in (None, Decimal(0)):
             pct_from_lows = (close * Decimal(100) / raw["low"]) - Decimal(100)
         trg_89 = levels["trg_89"]
+        high = raw["high"]
+        low = raw["low"]
         row = {
             "name": raw["name"],
             "symbol": raw["symbol"],
             "section": raw["section"],
             "excel_row": raw["excel_row"],
             "series": raw["series"] if bar is None else bar.series,
-            "high": _f(raw["high"]),
-            "low": _f(raw["low"]),
+            "high": _f(high),
+            "low": _f(low),
             "difference": _f(levels["difference"]),
             "trg_13": _f(levels["trg_13"]),
             "trg_21": _f(levels["trg_21"]),
@@ -164,20 +181,80 @@ def build_charts_dashboard(session: Session, *, as_of: date | None = None) -> di
             "trg_89": _f(levels["trg_89"]),
             "trg_144": _f(levels["trg_144"]),
             "close": _f(close),
+            "bhav_close": _f(bhav_close),
             "prev_close": _f(prev),
             "pct_from_lows": _f(pct_from_lows),
-            "corr_10": _f(raw["high"] - close * Decimal("0.10")) if close is not None and raw["high"] else None,
-            "corr_20": _f(raw["high"] - close * Decimal("0.20")) if close is not None and raw["high"] else None,
+            "corr_10": _f(high - close * Decimal("0.10"))
+            if close is not None and high is not None
+            else None,
+            "corr_20": _f(high - close * Decimal("0.20"))
+            if close is not None and high is not None
+            else None,
             "below_trg_89": bool(close is not None and trg_89 is not None and close < trg_89),
+            "below_low": bool(close is not None and low is not None and close < low),
+            "above_high": bool(close is not None and high is not None and close > high),
             "weekly_close": _f(raw["weekly_close"]),
             "support_resistance": raw["support_resistance"],
             "weekly_close_date": raw["weekly_close_date"],
-            "missing_bhav": bar is None,
+            "missing_bhav": bar is None and raw.get("excel_close") is None,
         }
         out_rows.append(row)
     empty["rows"] = out_rows
     empty["missing_symbols"] = missing
     return empty
+
+
+def write_charts_range_hlc(
+    excel_row: int,
+    *,
+    high: float | None = None,
+    low: float | None = None,
+    close: float | None = None,
+    folder: Path | None = None,
+) -> dict[str, Any]:
+    """Write Range High / Low / Close (cols B/C/M)."""
+    if high is None and low is None and close is None:
+        raise ValueError("Provide high, low, and/or close")
+    path = charts_workbook_path(folder)
+    if path is None or not path.is_file():
+        raise FileNotFoundError("Charts.xlsx not found")
+    wb = load_workbook(path)
+    try:
+        ws = next((wb[n] for n in wb.sheetnames if n.strip().casefold() == "range"), None)
+        if ws is None:
+            raise FileNotFoundError("Range sheet missing")
+        name = str(ws.cell(excel_row, 1).value or "").strip()
+        if not name or _norm_label(name) == "nifty fno stocks":
+            raise ValueError("That Excel row is not a stock.")
+
+        def _num(label: str, raw: float | None) -> float | None:
+            if raw is None:
+                return None
+            try:
+                return float(Decimal(str(raw)))
+            except (InvalidOperation, ValueError) as exc:
+                raise ValueError(f"{label} must be a number") from exc
+
+        high_v = _num("high", high)
+        low_v = _num("low", low)
+        close_v = _num("close", close)
+        if high_v is not None:
+            ws.cell(excel_row, _COL_HIGH, high_v)
+        if low_v is not None:
+            ws.cell(excel_row, _COL_LOW, low_v)
+        if close_v is not None:
+            ws.cell(excel_row, _COL_CLOSE, close_v)
+        wb.save(path)
+        return {
+            "excel_row": excel_row,
+            "high": high_v if high_v is not None else _f(_to_decimal(ws.cell(excel_row, _COL_HIGH).value)),
+            "low": low_v if low_v is not None else _f(_to_decimal(ws.cell(excel_row, _COL_LOW).value)),
+            "close": close_v
+            if close_v is not None
+            else _f(_numeric_cell(ws.cell(excel_row, _COL_CLOSE).value)),
+        }
+    finally:
+        wb.close()
 
 
 def write_charts_range_weekly(

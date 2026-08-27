@@ -11,6 +11,7 @@ from openpyxl import Workbook
 from pms_platform.market_data.charts_dashboard import (
     build_charts_dashboard,
     parse_charts_range,
+    write_charts_range_hlc,
     write_charts_range_weekly,
 )
 from pms_platform.market_data.nse_bhav_store import sync_bhav_file
@@ -110,3 +111,20 @@ def test_charts_dashboard_joins_bhav(session, tmp_path, monkeypatch) -> None:
     assert abs(rel["pct_from_lows"] - 42.5) < 1e-6
     assert rel["below_trg_89"] is True
     assert rel["missing_bhav"] is False
+
+
+def test_write_charts_range_hlc(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "Charts - Copy.xlsx"
+    _range_book(path)
+    monkeypatch.setattr(
+        "pms_platform.market_data.charts_dashboard.charts_workbook_path",
+        lambda folder=None: path,
+    )
+    written = write_charts_range_hlc(3, high=1700, low=1100, close=1500)
+    assert written["high"] == 1700.0
+    assert written["low"] == 1100.0
+    assert written["close"] == 1500.0
+    rows = parse_charts_range(path)
+    assert rows[0]["high"] == Decimal("1700")
+    assert rows[0]["low"] == Decimal("1100")
+    assert rows[0]["excel_close"] == Decimal("1500")

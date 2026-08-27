@@ -89,6 +89,7 @@ class PivotPortfolioSymbol(Base):
     __tablename__ = "pivot_portfolio_symbols"
 
     symbol: Mapped[str] = mapped_column(String(64), primary_key=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     dummy: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     portfolio_a: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     uptrend: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

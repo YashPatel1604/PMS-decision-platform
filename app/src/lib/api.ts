@@ -685,6 +685,9 @@ export type ChartsRangeRow = {
   corr_10: number | null;
   corr_20: number | null;
   below_trg_89: boolean;
+  below_low?: boolean;
+  above_high?: boolean;
+  bhav_close?: number | null;
   weekly_close: number | null;
   support_resistance: string | null;
   weekly_close_date: string | null;
@@ -1357,6 +1360,18 @@ export const api = {
     const query = params.toString();
     return request<ChartsDashboard>(`/strategy/charts/dashboard${query ? `?${query}` : ""}`);
   },
+  patchChartsLevels: (body: {
+    excel_row: number;
+    high?: number | null;
+    low?: number | null;
+    close?: number | null;
+  }) =>
+    request<{
+      excel_row: number;
+      high: number | null;
+      low: number | null;
+      close: number | null;
+    }>(`/strategy/charts/levels`, { method: "PATCH", body: JSON.stringify(body) }),
   patchChartsWeekly: (body: {
     excel_row: number;
     weekly_close: number | null;

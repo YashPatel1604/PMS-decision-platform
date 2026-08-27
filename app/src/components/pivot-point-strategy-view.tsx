@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api, type BhavRun, type PivotDashboard } from "@/lib/api";
@@ -16,6 +16,19 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 const PRESELECT_KEY = "pivot-preselect-symbols";
+const SELECTED_FIRMS_KEY = "pivot-selected-firms";
+
+function loadSelectedFirms(): string[] {
+  try {
+    const raw = localStorage.getItem(SELECTED_FIRMS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((s) => String(s).toUpperCase()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
 
 function num(value: number | null | undefined, digits = 2): string {
   if (value == null || !Number.isFinite(value)) return "—";
@@ -54,7 +67,8 @@ export function PivotPointStrategyView() {
   const [dailyScope, setDailyScope] = useState<DailyScope>("portfolio");
   const [seriesScope, setSeriesScope] = useState<SeriesScope>("both");
   const [showPrevDayVol, setShowPrevDayVol] = useState(false);
-  const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
+  const [selectedSymbols, setSelectedSymbols] = useState<string[]>(loadSelectedFirms);
+  const selectedHydrated = useRef(false);
   const [newFirm, setNewFirm] = useState("");
   const [addFirmError, setAddFirmError] = useState<string | null>(null);
   const [firmSuggestOpen, setFirmSuggestOpen] = useState(false);
@@ -111,6 +125,7 @@ export function PivotPointStrategyView() {
     for (const symbol of clientBookQuery.data?.model_symbols ?? []) {
       if (symbol) names.add(symbol);
     }
+    names.delete("LIQUIDCASE");
     return [...names].sort();
   }, [
     data?.holding_symbols,
@@ -118,11 +133,34 @@ export function PivotPointStrategyView() {
     clientBookQuery.data?.model_symbols,
   ]);
   const holdingSet = useMemo(() => new Set(holdingSymbols), [holdingSymbols]);
+  // DB order = selection order (no alpha sort).
   const pivotWatchSymbols = useMemo(
-    () => (data?.portfolio ?? []).map((p) => p.symbol).sort(),
+    () => (data?.portfolio ?? []).map((p) => p.symbol),
     [data?.portfolio],
   );
   const selectedSet = useMemo(() => new Set(selectedSymbols), [selectedSymbols]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SELECTED_FIRMS_KEY, JSON.stringify(selectedSymbols));
+    } catch {
+      /* ignore */
+    }
+  }, [selectedSymbols]);
+
+  // After refresh: keep checked firms still in the watchlist; if none, check all.
+  useEffect(() => {
+    if (!pivotWatchSymbols.length) return;
+    const watch = new Set(pivotWatchSymbols);
+    setSelectedSymbols((prev) => {
+      const kept = prev.filter((s) => watch.has(s));
+      if (!selectedHydrated.current) {
+        selectedHydrated.current = true;
+        return kept.length ? kept : [...pivotWatchSymbols];
+      }
+      return kept;
+    });
+  }, [pivotWatchSymbols]);
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
@@ -168,6 +206,14 @@ export function PivotPointStrategyView() {
   });
 
   const q = query.trim().toLowerCase();
+  // Checked firms first (selection order), then unchecked watchlist names.
+  const firmListSymbols = useMemo(() => {
+    const watch = new Set(pivotWatchSymbols);
+    const selected = selectedSymbols.filter((s) => watch.has(s));
+    const rest = pivotWatchSymbols.filter((s) => !selectedSet.has(s));
+    return [...selected, ...rest];
+  }, [pivotWatchSymbols, selectedSymbols, selectedSet]);
+
   const daily = useMemo(() => {
     let rows = data?.daily ?? [];
     if (seriesScope === "EQ" || seriesScope === "BE") {
@@ -177,14 +223,37 @@ export function PivotPointStrategyView() {
       rows = rows.filter((r) => holdingSet.has(r.symbol));
     } else if (dailyScope === "selected") {
       rows = rows.filter((r) => selectedSet.has(r.symbol));
+      // Order = checkbox / add order (1st selected stays on top) — not A→Z.
+      const rank = new Map(selectedSymbols.map((s, i) => [s, i]));
+      rows = [...rows].sort(
+        (a, b) => (rank.get(a.symbol) ?? 1e9) - (rank.get(b.symbol) ?? 1e9),
+      );
     }
     return q ? rows.filter((r) => r.symbol.toLowerCase().includes(q)) : rows;
-  }, [data?.daily, dailyScope, seriesScope, holdingSet, selectedSet, q]);
+  }, [
+    data?.daily,
+    dailyScope,
+    seriesScope,
+    holdingSet,
+    selectedSet,
+    selectedSymbols,
+    q,
+  ]);
 
   const toggleSelected = (symbol: string) => {
     setSelectedSymbols((prev) =>
       prev.includes(symbol) ? prev.filter((s) => s !== symbol) : [...prev, symbol],
     );
+  };
+
+  const selectAllFirms = () => {
+    // Keep current selection order; append any missing watchlist names at the end.
+    setSelectedSymbols((prev) => {
+      const watch = new Set(pivotWatchSymbols);
+      const kept = prev.filter((s) => watch.has(s));
+      const seen = new Set(kept);
+      return [...kept, ...pivotWatchSymbols.filter((s) => !seen.has(s))];
+    });
   };
 
   const firmSearchQuery = newFirm.trim().toUpperCase();
@@ -451,7 +520,7 @@ export function PivotPointStrategyView() {
                   <button
                     type="button"
                     className="rounded border border-stone-200 px-2 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
-                    onClick={() => setSelectedSymbols(pivotWatchSymbols)}
+                    onClick={selectAllFirms}
                   >
                     Select all ({pivotWatchSymbols.length})
                   </button>
@@ -463,7 +532,7 @@ export function PivotPointStrategyView() {
                     Clear
                   </button>
                   <span className="self-center text-xs text-stone-500">
-                    {selectedSymbols.length} selected
+                    {selectedSymbols.length} selected · order = check/add order
                   </span>
                 </div>
                 {addFirmError ? (
@@ -471,7 +540,7 @@ export function PivotPointStrategyView() {
                 ) : null}
                 <div className="max-h-40 overflow-y-auto rounded-lg border border-stone-100 bg-stone-50 p-2">
                   <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 md:grid-cols-4">
-                    {pivotWatchSymbols.map((symbol) => (
+                    {firmListSymbols.map((symbol) => (
                       <div
                         key={symbol}
                         className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-stone-700 hover:bg-white"
@@ -668,7 +737,7 @@ function DailySheetTable({
               <th className="px-3 py-2">TradDt</th>
               <th className="px-3 py-2">TckrSymb</th>
               <th className="px-3 py-2">SctySrs</th>
-              <th className="px-3 py-2 text-right">S4-0.3</th>
+              <th className="px-3 py-2 text-right text-red-700">S4-0.3</th>
               <th className="px-3 py-2 text-right">S3-0.3</th>
               <th className="px-3 py-2 text-right">S2-03</th>
               <th className="px-3 py-2 text-right">S1-03</th>
@@ -676,7 +745,7 @@ function DailySheetTable({
               <th className="px-3 py-2 text-right">R1+0.3</th>
               <th className="px-3 py-2 text-right">R2+0.3</th>
               <th className="px-3 py-2 text-right">R3+0.3</th>
-              <th className="px-3 py-2 text-right">R4+0.3</th>
+              <th className="px-3 py-2 text-right text-blue-700">R4+0.3</th>
               <th className="px-3 py-2 text-right">
                 {showPrevDayVol ? "Prev vol" : "Vol Exp"}
               </th>
@@ -701,7 +770,7 @@ function DailySheetTable({
                   <td className="px-3 py-1.5 whitespace-nowrap">{formatDate(row.trade_date)}</td>
                   <td className="px-3 py-1.5 font-medium">{row.symbol}</td>
                   <td className="px-3 py-1.5">{row.series}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">
+                  <td className="px-3 py-1.5 text-right tabular-nums font-medium text-red-700">
                     {miss ? "—" : pivotNum(p?.s4_03)}
                   </td>
                   <td className="px-3 py-1.5 text-right tabular-nums">
@@ -725,7 +794,7 @@ function DailySheetTable({
                   <td className="px-3 py-1.5 text-right tabular-nums">
                     {miss ? "—" : pivotNum(p?.r3_03)}
                   </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">
+                  <td className="px-3 py-1.5 text-right tabular-nums font-medium text-blue-700">
                     {miss ? "—" : pivotNum(p?.r4_03)}
                   </td>
                   <td className="px-3 py-1.5 text-right tabular-nums">

@@ -313,17 +313,7 @@ def write_bse_smallcap_year(
         start_v = _to_decimal(ws.cell(row_i, start_col).value)
         end_v = _to_decimal(ws.cell(row_i, end_col).value)
 
-        # Temp + replace: more reliable on Windows bind mounts than in-place save.
-        fd, tmp_name = tempfile.mkstemp(suffix=resolved.suffix, dir=resolved.parent)
-        os.close(fd)
-        tmp = Path(tmp_name)
-        try:
-            wb.save(tmp)
-            tmp.replace(resolved)
-        except Exception:
-            tmp.unlink(missing_ok=True)
-            raise
-
+        _replace_save(wb, resolved)
         clear_client_portfolio_cache()
         return {
             "year": year,
@@ -332,6 +322,19 @@ def write_bse_smallcap_year(
         }
     finally:
         wb.close()
+
+
+def _replace_save(wb: openpyxl.Workbook, resolved: Path) -> None:
+    """Temp + replace: more reliable on Windows bind mounts than in-place save."""
+    fd, tmp_name = tempfile.mkstemp(suffix=resolved.suffix, dir=resolved.parent)
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        wb.save(tmp)
+        tmp.replace(resolved)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:

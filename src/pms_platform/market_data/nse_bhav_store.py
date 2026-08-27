@@ -478,6 +478,7 @@ def upsert_portfolio_symbols(
     """Replace-or-update portfolio symbols from seed/API payloads.
 
     Duplicate symbols in the payload keep the last row. Re-runs are idempotent.
+    New symbols append at the end (``sort_order`` = max+1) so selection order is kept.
     """
     by_symbol: dict[str, dict[str, Any]] = {}
     for raw in rows:
@@ -486,12 +487,28 @@ def upsert_portfolio_symbols(
             continue
         by_symbol[symbol] = {**raw, "symbol": symbol}
 
+    next_order = int(
+        session.scalar(
+            select(func.coalesce(func.max(PivotPortfolioSymbol.sort_order), 0))
+        )
+        or 0
+    )
+
     count = 0
     for symbol, raw in by_symbol.items():
         existing = session.get(PivotPortfolioSymbol, symbol)
         if existing is None:
-            existing = PivotPortfolioSymbol(symbol=symbol)
+            next_order += 1
+            existing = PivotPortfolioSymbol(
+                symbol=symbol,
+                sort_order=int(raw["sort_order"])
+                if raw.get("sort_order") is not None
+                else next_order,
+            )
             session.add(existing)
+            next_order = max(next_order, existing.sort_order)
+        elif raw.get("sort_order") is not None:
+            existing.sort_order = int(raw["sort_order"])
         existing.dummy = bool(raw.get("dummy", False))
         existing.portfolio_a = bool(raw.get("portfolio_a", False))
         existing.uptrend = bool(raw.get("uptrend", False))

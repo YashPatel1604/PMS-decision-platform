@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from pms_platform.api.routes.episodes import get_db
 from pms_platform.market_data.charts_dashboard import (
     build_charts_dashboard,
+    write_charts_range_hlc,
     write_charts_range_weekly,
 )
 
@@ -22,6 +23,21 @@ def charts_dashboard(
     session: Session = Depends(get_db),
 ) -> dict:
     return build_charts_dashboard(session, as_of=as_of)
+
+
+@router.patch("/levels")
+def patch_charts_levels(
+    excel_row: int = Body(...),
+    high: float | None = Body(default=None),
+    low: float | None = Body(default=None),
+    close: float | None = Body(default=None),
+) -> dict:
+    try:
+        return write_charts_range_hlc(excel_row, high=high, low=low, close=close)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.patch("/weekly")
