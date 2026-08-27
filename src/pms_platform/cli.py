@@ -55,6 +55,8 @@ from pms_platform.market_data.validation import compare_prices_to_snapshots
 from pms_platform.portfolio.cash_engine import liquid_on
 from pms_platform.portfolio.position_engine import portfolio_on
 from pms_platform.portfolio.reconciliation import reconcile_all_snapshots
+from pms_platform.reconciliation.cutover import run_cutover_reconciliation
+from pms_platform.reconciliation.report import write_reports
 
 
 def _ensure_schema() -> None:
@@ -176,6 +178,52 @@ def portfolio_on_date(as_of_date: date, export_dir: Path | None = None) -> int:
         return 1
     finally:
         session.close()
+
+
+def reconcile_cutover(
+    *,
+    samir_url: str,
+    julesh_url: str,
+    output_dir: Path,
+    research_dir: Path | None = None,
+) -> int:
+    """Compare Samir vs Julesh Postgres snapshots (read-only)."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    samir_engine = create_engine(samir_url)
+    julesh_engine = create_engine(julesh_url)
+    SamirSession = sessionmaker(bind=samir_engine)
+    JuleshSession = sessionmaker(bind=julesh_engine)
+    samir = SamirSession()
+    julesh = JuleshSession()
+    try:
+        report = run_cutover_reconciliation(
+            samir,
+            julesh,
+            research_dir=research_dir or settings.research_dir,
+            samir_label=samir_url,
+            julesh_label=julesh_url,
+        )
+        json_path, md_path = write_reports(report, output_dir)
+        conflicts = sum(
+            report.summary.get(domain, {}).get("value_conflict", 0)
+            for domain in report.summary
+        )
+        print("Cutover reconciliation complete.")
+        print(f"  JSON: {json_path.resolve()}")
+        print(f"  Report: {md_path.resolve()}")
+        print(f"  Value conflicts (row-level): {conflicts}")
+        return 0
+    except Exception as exc:
+        print(f"Cutover reconciliation failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        samir.close()
+        julesh.close()
+        samir_engine.dispose()
+        julesh_engine.dispose()
 
 
 def reconcile_snapshots(snapshot_dir: Path | None = None, export_dir: Path | None = None) -> int:
@@ -1086,6 +1134,33 @@ def main() -> None:
     reconcile_parser.add_argument("--snapshot-dir", type=Path, default=None)
     reconcile_parser.add_argument("--export-dir", type=Path, default=None)
 
+    cutover_parser = subparsers.add_parser(
+        "reconcile-cutover",
+        help="Compare Samir vs Julesh DB snapshots before cloud cutover (read-only)",
+    )
+    cutover_parser.add_argument(
+        "--samir-url",
+        required=True,
+        help="SQLAlchemy database URL for Samir legacy Postgres",
+    )
+    cutover_parser.add_argument(
+        "--julesh-url",
+        required=True,
+        help="SQLAlchemy database URL for Julesh legacy Postgres",
+    )
+    cutover_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("./data/reconciliation"),
+        help="Directory for reconciliation.json and DATA_RECONCILIATION_REPORT.md",
+    )
+    cutover_parser.add_argument(
+        "--research-dir",
+        type=Path,
+        default=None,
+        help="Research tree for file checksum manifest (default: RESEARCH_DIR)",
+    )
+
     market_import_parser = subparsers.add_parser(
         "import-market-data",
         help="Import canonical market-data CSV files from data/external",
@@ -1393,6 +1468,15 @@ def main() -> None:
         raise SystemExit(portfolio_on_date(args.date, args.export_dir))
     if args.command == "reconcile-snapshots":
         raise SystemExit(reconcile_snapshots(args.snapshot_dir, args.export_dir))
+    if args.command == "reconcile-cutover":
+        raise SystemExit(
+            reconcile_cutover(
+                samir_url=args.samir_url,
+                julesh_url=args.julesh_url,
+                output_dir=args.output_dir,
+                research_dir=args.research_dir,
+            )
+        )
     if args.command == "import-market-data":
         raise SystemExit(import_market_data_cmd(args.external_dir))
     if args.command == "import-fundamentals":

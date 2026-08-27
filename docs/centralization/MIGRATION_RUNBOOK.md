@@ -1,8 +1,17 @@
 # Migration Runbook (draft)
 
-**Status:** Phase 6+ — not executable until reconciliation tooling exists.
+**Status:** Phase 6 — reconciliation CLI available; run before cutover.
 
-## Preconditions
+## Reconciliation command
+
+```bash
+uv run pms-platform reconcile-cutover \
+  --samir-url "$SAMIR_DATABASE_URL" \
+  --julesh-url "$JULESH_DATABASE_URL" \
+  --output-dir ./data/reconciliation
+```
+
+Review `data/reconciliation/DATA_RECONCILIATION_REPORT.md` and resolve all value conflicts before step 5.
 
 - [ ] Human authorization for production
 - [ ] Samir/Julesh legacy DB dumps archived with checksums

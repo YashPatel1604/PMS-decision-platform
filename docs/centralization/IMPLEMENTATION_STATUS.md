@@ -11,7 +11,7 @@ Master plan: [`../CURSOR_CENTRALIZATION_MASTER_PLAN.md`](../CURSOR_CENTRALIZATIO
 | 3 — Working/official APIs and UI | complete | `client_positions` migration, view-aware dashboard, `/change-requests` API, qty PATCH, Official/My Working UI, draft tray, approvals inbox | Enable `FEATURE_APPROVAL_WORKFLOW=1` locally to exercise; production deploy still blocked |
 | 4 — Incremental jobs, storage and imports | complete | `storage/adapter.py`, source lineage migration, `staged_import.py`, job worker + outbox, `/imports/staged` API, `test_staged_import.py` | Domain DB writes on apply deferred to Phase 5 |
 | 5 — Domain migrations | complete | Client + SCA qty approval; Charts DB; bhav auto; staged Research imports; client index/mcap + SCA bank in DB | — |
-| 6 — Reconciliation tooling | not_started | — | — |
+| 6 — Reconciliation tooling | in_progress | `reconcile-cutover` CLI, JSON + markdown reports, domain comparators | Research row-level diff, migration bundle export |
 | 7 — Deployment preparation | not_started | — | Railway/Supabase runbooks (no prod deploy without auth) |
 | 8 — Migration rehearsal | not_started | — | — |
 | 9 — Production cutover | blocked | — | Requires human credentials + explicit authorization |
