@@ -9,7 +9,8 @@
 | Mcap factor | Postgres column | Excel formula text | Medium | Yes |
 | Price/Value/Total | Derived from bhav × qty | Per-PC bhav + Excel | **High** | N/A (derived) |
 | Charts H/L/C | `charts_levels` (planned) | DailyEdit Range | **High** | Yes |
-| Pivot selection | `pivot_portfolio_symbols` | Per-PC Postgres + localStorage | **High** | Yes (firm-shared) |
+| Pivot selection (daily filter checkboxes) | browser `localStorage` (`pivot-selected-firms`) | Per browser | Low | **No** — personal UI filter only |
+| Pivot watchlist firms | `pivot_portfolio_symbols` | Per-PC Postgres | **High** | TBD (add/remove firms) |
 | SCA qty/cash | `sca_positions` (planned) | DailyEdit Quantity | **High** | Yes |
 | Watchlists | Postgres watchlist tables | Per-PC Postgres | **High** | Yes (membership) |
 | Fundamentals cache | Postgres snapshots | Per-PC Postgres | Medium | No (derived from approved imports) |

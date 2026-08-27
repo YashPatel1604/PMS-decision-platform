@@ -12,6 +12,7 @@
 | D8 | **Typed approval handlers** | Generic dynamic SQL on table names | Safe validation and atomic apply |
 | D9 | **Postgres-backed job queue** initially | Redis; Celery | Fewer dependencies; `FOR UPDATE SKIP LOCKED` |
 | D10 | **Excel import/export only after cutover** | Continue DailyEdit live reads | Ends formula-cache and per-PC workbook drift |
+| D11 | **Pivot daily checkbox filter stays browser localStorage** | Firm-shared DB + Samir approval | Personal UI scope only; bhav/portfolio firms remain in Postgres |
 
 ## Explicit non-decisions (human reserved)
 

@@ -6,18 +6,15 @@ import { api, type ChangeRequest } from "@/lib/api";
 
 export function DraftTray({
   draft,
-  domain = "client_portfolio",
   onSubmitted,
 }: {
   draft: ChangeRequest | null | undefined;
-  domain?: string;
   onSubmitted?: () => void;
 }) {
   const queryClient = useQueryClient();
   const submit = useMutation({
     mutationFn: async () => {
       if (!draft?.operations.length) throw new Error("No draft");
-      if (domain === "pivot") return api.submitPivotSelection();
       const symbol = draft.operations[0]?.entity_id;
       if (!symbol) throw new Error("No symbol in draft");
       return api.submitClientPortfolioDraft(symbol);

@@ -31,7 +31,6 @@ from pms_platform.models import (  # noqa: F401
     NseBhavBar,
     OutboxEvent,
     PivotPortfolioSymbol,
-    PivotFirmSelection,
     PivotVolExp,
     PortfolioSnapshotRecord,
     PostExitPerformance,

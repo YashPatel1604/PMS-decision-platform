@@ -662,16 +662,6 @@ export type PivotDashboard = {
     volume: number;
     turnover: number | null;
   }[];
-  approval_workflow?: boolean;
-};
-
-export type PivotSelection = {
-  symbols: string[];
-  row_version?: number;
-  change_status?: string | null;
-  proposed_symbols?: string[] | null;
-  approved_symbols?: string[] | null;
-  change_request_id?: string | null;
 };
 
 export type ChartsRangeRow = {
@@ -1403,22 +1393,6 @@ export const api = {
     const query = params.toString();
     return request<PivotDashboard>(`/strategy/pivot/dashboard${query ? `?${query}` : ""}`);
   },
-  getPivotSelection: (view: PortfolioView = "official") => {
-    const params = new URLSearchParams();
-    if (view !== "official") params.set("view", view);
-    const query = params.toString();
-    return request<PivotSelection>(`/strategy/pivot/selection${query ? `?${query}` : ""}`);
-  },
-  putPivotSelection: (symbols: string[]) =>
-    request<{ symbols: string[]; status: string; change_request_id?: string }>(
-      "/strategy/pivot/selection",
-      { method: "PUT", body: JSON.stringify({ symbols }) },
-    ),
-  submitPivotSelection: () =>
-    request<{ change_request_id: string; status: string }>(
-      "/strategy/pivot/selection/submit",
-      { method: "POST" },
-    ),
   getChartsDashboard: (asOf?: string | null) => {
     const params = new URLSearchParams();
     if (asOf) params.set("as_of", asOf);
