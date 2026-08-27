@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     database_url: str = "postgresql+psycopg://pms:pms@localhost:5433/pms"
+    # Direct connection for controlled migrations (Supabase direct / non-pooler).
+    database_direct_url: str | None = None
     raw_data_dir: Path = Path("./data/raw")
     external_data_dir: Path = Path("./data/external")
     export_dir: Path = Path("./data/exports")
@@ -33,6 +35,17 @@ class Settings(BaseSettings):
     auth_cookie_secure: bool = False
     # Comma-separated extra CORS origins (Tailscale UI URL, etc.)
     cors_origins: str = ""
+
+    # Centralization feature flags (defaults preserve current local behavior).
+    feature_legacy_excel_read: bool = True
+    feature_legacy_excel_write: bool = True
+    feature_approval_workflow: bool = False
+    feature_cloud_storage: bool = False
+
+    @property
+    def migration_database_url(self) -> str:
+        """URL for Alembic / one-shot migration tasks (prefer direct when set)."""
+        return self.database_direct_url or self.database_url
 
 
 settings = Settings()

@@ -6,7 +6,10 @@ from sqlalchemy import engine_from_config, pool
 from pms_platform.config import settings
 from pms_platform.db.base import Base
 from pms_platform.models import (  # noqa: F401
+    AuditEvent,
     BenchmarkTri,
+    ChangeOperation,
+    ChangeRequest,
     CompanyFundamentalsQuarterly,
     DailyPrice,
     DecisionEvent,
@@ -17,9 +20,11 @@ from pms_platform.models import (  # noqa: F401
     ImportBatch,
     InsiderDisclosureDay,
     InvestmentEpisode,
+    Job,
     LiquidTransaction,
     BhavImportRun,
     NseBhavBar,
+    OutboxEvent,
     PivotPortfolioSymbol,
     PivotVolExp,
     PortfolioSnapshotRecord,
@@ -30,6 +35,7 @@ from pms_platform.models import (  # noqa: F401
     SellAssessment,
     Transaction,
     User,
+    UserPermission,
     Watchlist,
     WatchlistAlert,
     WatchlistMember,
@@ -39,7 +45,7 @@ from pms_platform.models import (  # noqa: F401
 )
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.database_url)
+config.set_main_option("sqlalchemy.url", settings.migration_database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

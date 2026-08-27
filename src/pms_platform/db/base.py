@@ -13,6 +13,12 @@ class Base(DeclarativeBase):
 
 
 @lru_cache
+def get_migration_engine():
+    """Engine for Alembic and controlled schema migrations."""
+    return create_engine(settings.migration_database_url, pool_pre_ping=True)
+
+
+@lru_cache
 def get_engine():
     """Return a cached SQLAlchemy engine."""
     return create_engine(settings.database_url, pool_pre_ping=True)
