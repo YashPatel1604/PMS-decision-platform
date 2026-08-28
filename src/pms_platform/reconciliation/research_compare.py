@@ -100,13 +100,18 @@ def compare_research_masters(
         julesh_names = _db_portfolio_names(julesh)
         union_db = samir_names | julesh_names
         only_research = sorted(research_names - union_db)
+        if samir_names != julesh_names:
+            count_cls = Classification.VALUE_CONFLICT
+        elif len(research_names) != len(union_db):
+            # Research workbook footprint vs DB — not a Samir/Julesh drift signal.
+            count_cls = Classification.ONLY_IN_RESEARCH
+        else:
+            count_cls = Classification.IDENTICAL
         rows.append(
             ReconRow(
                 domain="research_masters",
                 key="security_master:count",
-                classification=Classification.IDENTICAL
-                if len(research_names) == len(union_db)
-                else Classification.VALUE_CONFLICT,
+                classification=count_cls,
                 samir_value=len(samir_names),
                 julesh_value=len(julesh_names),
                 notes=f"research_names={len(research_names)}",

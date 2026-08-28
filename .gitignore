@@ -37,6 +37,14 @@ data/external/
 data/exports/
 data/uploads/
 
+# Reconciliation dumps (never commit)
+data/reconciliation/dumps/
+data/reconciliation/reconciliation.json
+data/reconciliation/migration_bundle.json
+data/reconciliation/DATA_RECONCILIATION_REPORT.md
+data/reconciliation/canonical_source.json
+*.dump
+
 # Docker
 postgres_data/
 

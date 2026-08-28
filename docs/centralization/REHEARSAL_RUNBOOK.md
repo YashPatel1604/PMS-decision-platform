@@ -6,11 +6,13 @@ Goal: dry-run the full cutover on an **isolated** database with real Samir + Jul
 
 ## Prerequisites
 
-- [ ] Samir legacy Postgres dump or URL (`SAMIR_DATABASE_URL`)
-- [ ] Julesh legacy Postgres dump or URL (`JULESH_DATABASE_URL`)
-- [ ] Research tree available locally (`RESEARCH_DIR`, read-only)
-- [ ] Feature branch: `feature/centralized-cloud-approval-workflow`
-- [ ] Empty rehearsal target DB (`REHEARSAL_DATABASE_URL` or local Docker postgres)
+- [x] Canonical Postgres dump — Yash PC (`data/reconciliation/dumps/yash-canonical.dump`)
+- [x] Samir/Julesh assumed identical to Yash PC ([D13](DECISIONS.md)) — no separate dumps required
+- [x] Research tree available locally (`RESEARCH_DIR`)
+- [x] Feature branch: `feature/centralized-cloud-approval-workflow`
+- [x] Rehearsal target DB: `pms_rehearsal` on local Docker Postgres
+
+See [`REHEARSAL_RESULTS.md`](REHEARSAL_RESULTS.md) for 2026-08-28 run outcomes.
 
 ## 1. Restore legacy snapshots (isolated)
 

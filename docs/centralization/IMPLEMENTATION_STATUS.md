@@ -13,7 +13,7 @@ Master plan: [`../CURSOR_CENTRALIZATION_MASTER_PLAN.md`](../CURSOR_CENTRALIZATIO
 | 5 — Domain migrations | complete | Client + SCA qty approval; Charts DB; bhav auto; staged Research imports; client index/mcap + SCA bank in DB | — |
 | 6 — Reconciliation tooling | complete | `reconcile-cutover` CLI, JSON + markdown reports, Research row diff, pivot order, migration bundle | — |
 | 7 — Deployment preparation | complete | `deploy/railway/`, `pms-platform migrate` + `worker`, docker worker/migrate entrypoints, `.github/workflows/ci.yml`, `SUPABASE_SETUP.md`, `SECURITY_RUNBOOK.md`, expanded deployment/rollback runbooks | Staging cloud deploy when credentials provided (human) |
-| 8 — Migration rehearsal | tooling_complete | `import-migration-bundle`, `verify-rehearsal`, `rehearsal-capacity`, `copy_bhav_bars`, `REHEARSAL_RUNBOOK.md` | Human rehearsal with Samir/Julesh DB dumps + sign-off |
+| 8 — Migration rehearsal | complete | [`REHEARSAL_RESULTS.md`](REHEARSAL_RESULTS.md): Yash canonical dump, reconcile pass, bundle import/verify, backup restore drill, approval pytest | Optional: Samir 2-min browser qty-approval smoke |
 | 9 — Production cutover | blocked | — | Requires human credentials + explicit authorization |
 | 10 — Cleanup after stabilization | not_started | — | After Phase 9 sign-off |
 

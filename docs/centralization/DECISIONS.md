@@ -14,6 +14,7 @@
 | D10 | **Excel import/export only after cutover** | Continue DailyEdit live reads | Ends formula-cache and per-PC workbook drift |
 | D11 | **Pivot daily checkbox filter stays browser localStorage** | Firm-shared DB + Samir approval | Personal UI scope only; bhav/portfolio firms remain in Postgres |
 | D12 | **Samir approval only for holdings qty** | Approve Charts, bhav, pivot prefs | Client Portfolio + SCA LLP qty only; everything else stays direct/auto |
+| D13 | **Yash PC as canonical migration source** | Separate Samir + Julesh dumps | Phase 8 rehearsal used one snapshot; all PCs assumed identical baseline |
 
 ## Approval scope (locked)
 
