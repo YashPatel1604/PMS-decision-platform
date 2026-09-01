@@ -67,7 +67,7 @@ def test_upload_materializes_and_dedupes(session, storage, daily_edit_dir) -> No
         storage=storage,
     )
     assert first.deduplicated is False
-    assert (daily_edit_dir / "Charts_MCAP.xlsx").is_file()
+    assert (daily_edit_dir / "Charts.xlsx").is_file()
 
     second = upload_daily_edit(
         session,
