@@ -17,7 +17,6 @@ from pms_platform.domain.client_positions import reimport_client_positions
 from pms_platform.market_data.charts_dashboard import parse_charts_range
 from pms_platform.market_data.client_portfolio_parse import (
     clear_client_portfolio_cache,
-    load_client_portfolio_book,
 )
 from pms_platform.market_data.daily_edit_bhav import (
     charts_workbook_path,
@@ -31,6 +30,13 @@ DAILY_EDIT_CATEGORIES = frozenset({"client_portfolio", "charts", "sca_llp", "piv
 _REIMPORT_CATEGORIES = frozenset({"client_portfolio", "charts"})
 
 _CATEGORY_BOOK = {"client_portfolio": "client"}
+
+_CANONICAL_FILENAMES = {
+    "client_portfolio": "PMS_ClientPortfolio.xlsx",
+    "charts": "Charts.xlsx",
+    "sca_llp": "SCA_LLP Stock Holding.xlsx",
+    "pivot_points": "PivotPoints.xlsx",
+}
 
 
 class DailyEditSyncError(Exception):
@@ -81,10 +87,26 @@ def _latest_version(session: Session, category: str) -> SourceFileVersion | None
 def _materialize_bytes(category: str, filename: str, data: bytes) -> Path:
     root = _daily_edit_root()
     root.mkdir(parents=True, exist_ok=True)
-    dest = root / _safe_filename(filename)
+    dest_name = _CANONICAL_FILENAMES.get(category) or _safe_filename(filename)
+    dest = root / dest_name
     dest.write_bytes(data)
     clear_client_portfolio_cache()
     return dest
+
+
+def _latest_uploaded_path(session: Session, category: str) -> Path | None:
+    version = _latest_version(session, category)
+    if version is None:
+        return None
+    candidate = _daily_edit_root() / version.original_filename
+    if candidate.is_file():
+        return candidate
+    canonical = _CANONICAL_FILENAMES.get(category)
+    if canonical:
+        path = _daily_edit_root() / canonical
+        if path.is_file():
+            return path
+    return _workbook_path_for_category(category)
 
 
 def upload_daily_edit(
@@ -197,14 +219,22 @@ def reimport_daily_edit(
     if category not in _REIMPORT_CATEGORIES:
         raise DailyEditSyncError(f"reimport not supported for category: {category}")
 
-    path = _workbook_path_for_category(category)
+    path = _latest_uploaded_path(session, category) or _workbook_path_for_category(category)
     if path is None or not path.is_file():
         raise DailyEditSyncError(f"no workbook on disk for {category} — upload first")
 
     if category == "client_portfolio":
-        book = load_client_portfolio_book(path)
-        if book is None or not book.model:
-            raise DailyEditSyncError("could not parse client portfolio workbook")
+        from pms_platform.market_data.client_portfolio_parse import parse_client_portfolio_workbook
+
+        try:
+            book = parse_client_portfolio_workbook(path)
+        except Exception as exc:  # noqa: BLE001
+            raise DailyEditSyncError(f"workbook parse failed ({path.name}): {exc}") from exc
+        if not book.model:
+            raise DailyEditSyncError(
+                f"no Model holdings in {path.name} — upload the full PMS_ClientPortfolio.xlsx "
+                "(Model + Stocks sheets), not a CSV or Model-only export"
+            )
         holdings = [
             {
                 "symbol": pos.symbol,
