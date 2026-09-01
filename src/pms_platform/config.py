@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     feature_approval_workflow: bool = False
     feature_cloud_storage: bool = False
 
+    supabase_url: str = ""
+    supabase_service_role_key: str = ""
+    supabase_storage_bucket: str = "source-files"
+
     @property
     def migration_database_url(self) -> str:
         """URL for Alembic / one-shot migration tasks (prefer direct when set)."""

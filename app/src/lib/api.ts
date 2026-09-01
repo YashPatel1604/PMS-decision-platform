@@ -556,6 +556,50 @@ export type StagedImportRun = {
   deduplicated?: boolean;
 };
 
+export type DailyEditCategory =
+  | "client_portfolio"
+  | "charts"
+  | "sca_llp"
+  | "pivot_points";
+
+export type DailyEditCategoryStatus = {
+  category: DailyEditCategory;
+  reimport_supported: boolean;
+  uploaded: boolean;
+  filename: string | null;
+  checksum_sha256: string | null;
+  uploaded_at: string | null;
+  on_disk: boolean;
+  local_path: string | null;
+  local_mtime?: string | null;
+};
+
+export type DailyEditStatus = {
+  daily_edit_dir: string;
+  cloud_storage: boolean;
+  categories: Record<DailyEditCategory, DailyEditCategoryStatus>;
+};
+
+export type DailyEditUploadResult = {
+  category: DailyEditCategory;
+  filename: string;
+  checksum_sha256: string;
+  byte_size: number;
+  local_path: string;
+  deduplicated: boolean;
+};
+
+export type DailyEditReimportResult = {
+  category: DailyEditCategory;
+  workbook: string;
+  dry_run: boolean;
+  added?: string[] | number[];
+  removed?: string[] | number[];
+  metadata_updated?: string[];
+  qty_updated?: string[];
+  updated?: number[];
+};
+
 export type HealthResponse = {
   status: string;
   approval_workflow?: boolean;
@@ -734,6 +778,7 @@ export type ChartsDashboard = {
   rows: ChartsRangeRow[];
   missing_symbols: string[];
   error: string | null;
+  approval_workflow?: boolean;
 };
 
 export type ClientPortfolioHolding = {
@@ -1266,6 +1311,43 @@ export const api = {
     request<StagedImportRun>(`/imports/staged/${importRunId}`),
   applyStagedImport: (importRunId: string) =>
     request<StagedImportRun>(`/imports/staged/${importRunId}/apply`, { method: "POST" }),
+  getDailyEditStatus: () => request<DailyEditStatus>("/daily-edit/status"),
+  uploadDailyEdit: async (category: DailyEditCategory, file: File) => {
+    const body = new FormData();
+    body.append("category", category);
+    body.append("file", file);
+    const response = await fetch(`${API_BASE}/daily-edit/upload`, {
+      method: "POST",
+      body,
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new ApiError(text || response.statusText, response.status);
+    }
+    return response.json() as Promise<DailyEditUploadResult>;
+  },
+  reimportDailyEdit: async (
+    category: DailyEditCategory,
+    opts: { dryRun?: boolean; updateQty?: boolean } = {},
+  ) => {
+    const body = new FormData();
+    body.append("category", category);
+    body.append("dry_run", opts.dryRun === false ? "false" : "true");
+    body.append("update_qty", opts.updateQty ? "true" : "false");
+    const response = await fetch(`${API_BASE}/daily-edit/reimport`, {
+      method: "POST",
+      body,
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new ApiError(text || response.statusText, response.status);
+    }
+    return response.json() as Promise<DailyEditReimportResult>;
+  },
   listMasters: () => request<MasterWorkbook[]>("/masters"),
   getMasterPreview: (
     kind: MasterKind,

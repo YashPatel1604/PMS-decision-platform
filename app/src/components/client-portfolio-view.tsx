@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { DraftTray, holdingsDraftDomain } from "@/components/draft-tray";
+import { DailyEditPanel } from "@/components/daily-edit-panel";
 import { ViewModeToggle } from "@/components/view-mode-toggle";
 
 function num(value: number | null | undefined, digits = 2): string {
@@ -176,6 +177,10 @@ export function ClientPortfolioView({
           </Link>
         </div>
       </div>
+
+      {book === "client" && data?.approval_workflow ? (
+        <DailyEditPanel category="client_portfolio" />
+      ) : null}
 
       {data?.as_of ? (
         <p className="text-sm text-stone-500">

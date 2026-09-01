@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api, type ChartsDashboard, type ChartsRangeRow } from "@/lib/api";
+import { DailyEditPanel } from "@/components/daily-edit-panel";
 import { formatDate } from "@/lib/format";
 
 const CORR_KEY = "charts-corr-pcts";
@@ -185,6 +186,8 @@ export function ChartsView() {
           </button>
         </div>
       </div>
+
+      {data?.approval_workflow ? <DailyEditPanel category="charts" /> : null}
 
       {data?.as_of ? (
         <p className="text-sm text-stone-500">

@@ -8,9 +8,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from pms_platform.domain.client_positions import resolve_client_portfolio_book
 from pms_platform.market_data.client_portfolio_parse import (
     book_meta,
-    load_client_portfolio_book,
     mcap_and_firm_at_price,
     yearly_as_dicts,
 )
@@ -93,13 +93,17 @@ def build_client_portfolio_dashboard(
         from pms_platform.market_data.daily_edit_bhav import sca_llp_workbook_path
 
         source_path = sca_llp_workbook_path()
-        loaded = load_client_portfolio_book(source_path) if source_path else None
+        loaded = (
+            resolve_client_portfolio_book(session, path=source_path, book=book_key)
+            if source_path
+            else resolve_client_portfolio_book(session, book=book_key)
+        )
         missing_msg = (
             "SCA_LLP Stock Holding.xlsx not found under DailyEditFiles "
             "(set DAILY_EDIT_DIR / pin Always keep on this device)."
         )
     else:
-        loaded = load_client_portfolio_book()
+        loaded = resolve_client_portfolio_book(session, book=book_key)
         missing_msg = (
             "PMS_ClientPortfolio.xlsx not found under DailyEditFiles "
             "(set DAILY_EDIT_DIR / pin Always keep on this device)."

@@ -10,6 +10,7 @@ from pms_platform.api.routes import (
     change_requests,
     client_portfolio,
     charts,
+    daily_edit,
     dashboard,
     episodes,
     health,
@@ -51,6 +52,7 @@ app.include_router(backtests.router, prefix="/backtests", tags=["backtests"])
 app.include_router(holdings.router, prefix="/holdings", tags=["holdings"])
 app.include_router(imports.router, prefix="/imports", tags=["imports"])
 app.include_router(staged_imports.router)
+app.include_router(daily_edit.router)
 app.include_router(masters.router, prefix="/masters", tags=["masters"])
 app.include_router(market_data.router, prefix="/market-data", tags=["market-data"])
 app.include_router(pivot_strategy.router, prefix="/strategy/pivot", tags=["pivot-strategy"])

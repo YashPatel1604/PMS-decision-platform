@@ -35,6 +35,27 @@ def sync_rows_from_parse(session: Session, parsed: list[dict[str, Any]]) -> None
         )
 
 
+def parsed_rows_from_db(session: Session) -> list[dict[str, Any]]:
+    """Charts dashboard rows from DB when DailyEdit Charts.xlsx is absent."""
+    rows = session.scalars(select(ChartsRangeRow).order_by(ChartsRangeRow.excel_row)).all()
+    return [
+        {
+            "name": row.name,
+            "symbol": row.symbol,
+            "section": row.section,
+            "excel_row": row.excel_row,
+            "series": "EQ",
+            "high": row.high,
+            "low": row.low,
+            "excel_close": row.close_override,
+            "weekly_close": row.weekly_close,
+            "support_resistance": row.support_resistance,
+            "weekly_close_date": row.weekly_close_date,
+        }
+        for row in rows
+    ]
+
+
 def ensure_charts_row(session: Session, excel_row: int) -> ChartsRangeRow:
     """Return DB row, seeding from Excel on first touch."""
     row = session.get(ChartsRangeRow, excel_row)
@@ -74,6 +95,65 @@ def merge_db_into_parsed(session: Session, parsed: list[dict[str, Any]]) -> list
                 copy["weekly_close_date"] = row.weekly_close_date
         out.append(copy)
     return out
+
+
+def reimport_rows_from_parse(
+    session: Session,
+    parsed: list[dict[str, Any]],
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Sync Charts Range structure from Excel; preserve stored level overrides."""
+    excel_rows = {int(raw["excel_row"]): raw for raw in parsed}
+    official = {r.excel_row: r for r in session.scalars(select(ChartsRangeRow)).all()}
+    added = sorted(set(excel_rows) - set(official))
+    removed = sorted(set(official) - set(excel_rows))
+    updated: list[int] = []
+    for excel_row, raw in excel_rows.items():
+        row = official.get(excel_row)
+        if row is None:
+            continue
+        if (
+            row.symbol != str(raw["symbol"])
+            or row.name != str(raw["name"])
+            or row.section != str(raw.get("section") or "holdings")
+        ):
+            updated.append(excel_row)
+
+    if dry_run:
+        return {"added": added, "removed": removed, "updated": updated}
+
+    for excel_row in removed:
+        session.delete(official[excel_row])
+    for excel_row in added:
+        raw = excel_rows[excel_row]
+        session.add(
+            ChartsRangeRow(
+                excel_row=excel_row,
+                symbol=str(raw["symbol"]),
+                name=str(raw["name"]),
+                section=str(raw.get("section") or "holdings"),
+                high=raw.get("high"),
+                low=raw.get("low"),
+                close_override=raw.get("excel_close"),
+                weekly_close=raw.get("weekly_close"),
+                support_resistance=raw.get("support_resistance"),
+                weekly_close_date=raw.get("weekly_close_date"),
+                row_version=1,
+            )
+        )
+    session.flush()
+    official = {r.excel_row: r for r in session.scalars(select(ChartsRangeRow)).all()}
+    for excel_row, raw in excel_rows.items():
+        row = official.get(excel_row)
+        if row is None:
+            continue
+        row.symbol = str(raw["symbol"])
+        row.name = str(raw["name"])
+        row.section = str(raw.get("section") or "holdings")
+        row.row_version = row.row_version + 1
+    session.flush()
+    return {"added": added, "removed": removed, "updated": updated}
 
 
 def apply_row_patch(

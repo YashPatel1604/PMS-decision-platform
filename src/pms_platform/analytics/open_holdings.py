@@ -24,9 +24,9 @@ from pms_platform.analytics.research_portfolio_value import (
     lookup_research_portfolio_value,
 )
 from pms_platform.analytics.successor_chain import resolve_price_security_id
+from pms_platform.domain.client_positions import resolve_client_portfolio_book
 from pms_platform.market_data.client_portfolio_parse import (
     ClientPortfolioPosition,
-    load_client_portfolio_book,
     mcap_and_firm_at_price,
 )
 from pms_platform.market_data.contracts import REQUIRED_BENCHMARKS
@@ -740,7 +740,7 @@ def analyze_open_holdings(
     primary = benchmark_codes[0] if benchmark_codes else default_benchmark_codes()[0]
     live_refresh: dict[str, object] | None = None
 
-    client_book = load_client_portfolio_book()
+    client_book = resolve_client_portfolio_book(session)
     model_by_symbol = (
         {pos.symbol: pos for pos in client_book.model} if client_book is not None else {}
     )

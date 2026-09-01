@@ -10,7 +10,11 @@ from typing import Any
 from openpyxl import load_workbook
 from sqlalchemy.orm import Session
 
-from pms_platform.domain.charts_rows import merge_db_into_parsed, sync_rows_from_parse
+from pms_platform.domain.charts_rows import (
+    merge_db_into_parsed,
+    parsed_rows_from_db,
+    sync_rows_from_parse,
+)
 from pms_platform.feature_flags import approval_workflow_enabled
 from pms_platform.market_data.client_portfolio_parse import _to_decimal
 from pms_platform.market_data.daily_edit_bhav import charts_workbook_path
@@ -131,6 +135,7 @@ def build_charts_dashboard(
     if as_of is None:
         as_of = dates[0] if dates else None
     path = charts_workbook_path()
+    workflow = approval_workflow_enabled()
     empty = {
         "as_of": as_of.isoformat() if as_of else None,
         "available_dates": [d.isoformat() for d in dates],
@@ -139,20 +144,32 @@ def build_charts_dashboard(
         "rows": [],
         "missing_symbols": [],
         "error": None,
+        "approval_workflow": workflow,
     }
-    if path is None or not path.is_file():
+    if path is not None and path.is_file():
+        empty["excel_mtime"] = datetime.fromtimestamp(path.stat().st_mtime).isoformat(
+            timespec="seconds"
+        )
+        names = parse_charts_range(path)
+        if workflow:
+            sync_rows_from_parse(session, names)
+            session.flush()
+            names = merge_db_into_parsed(session, names)
+    elif workflow:
+        names = parsed_rows_from_db(session)
+        if not names:
+            empty["error"] = (
+                "Charts.xlsx not found under DailyEditFiles "
+                "(set DAILY_EDIT_DIR / pin Always keep on this device)."
+            )
+            return empty
+        empty["source_file"] = "db://charts_range_rows"
+    else:
         empty["error"] = (
             "Charts.xlsx not found under DailyEditFiles "
             "(set DAILY_EDIT_DIR / pin Always keep on this device)."
         )
         return empty
-    empty["excel_mtime"] = datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds")
-    names = parse_charts_range(path)
-    workflow = approval_workflow_enabled()
-    if workflow:
-        sync_rows_from_parse(session, names)
-        session.flush()
-        names = merge_db_into_parsed(session, names)
     if as_of is None:
         empty["error"] = "No bhav days committed yet — upload on Pivot Point."
         return empty

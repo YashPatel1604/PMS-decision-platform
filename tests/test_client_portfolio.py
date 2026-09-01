@@ -37,8 +37,8 @@ def test_client_portfolio_dashboard_joins_bhav(session, tmp_path, monkeypatch) -
         str(tmp_path),
     )
     monkeypatch.setattr(
-        "pms_platform.market_data.client_portfolio_dashboard.load_client_portfolio_book",
-        lambda path=None: parse_client_portfolio_workbook(BOOK),
+        "pms_platform.market_data.client_portfolio_dashboard.resolve_client_portfolio_book",
+        lambda session, path=None, book="client": parse_client_portfolio_workbook(BOOK),
     )
     sync_bhav_file(session, FIXTURES / "bhav_2026-08-19.csv")
     upsert_portfolio_symbols(session, [{"symbol": "RELIANCE", "portfolio_a": True}])
@@ -225,8 +225,8 @@ def test_mcap_firm_from_bhav_not_excel_cache(tmp_path: Path, session, monkeypatc
         str(tmp_path / "uploads"),
     )
     monkeypatch.setattr(
-        "pms_platform.market_data.client_portfolio_dashboard.load_client_portfolio_book",
-        lambda _path=None: parse_client_portfolio_workbook(path),
+        "pms_platform.market_data.client_portfolio_dashboard.resolve_client_portfolio_book",
+        lambda session, path=None, book="client": parse_client_portfolio_workbook(path),
     )
     sync_bhav_file(session, FIXTURES / "bhav_2026-08-19.csv")
     dash = build_client_portfolio_dashboard(session, as_of=date(2026, 8, 19))

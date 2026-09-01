@@ -50,9 +50,9 @@ def open_holding_nse_symbols(session: Session) -> list[str]:
             if text and text not in {"NAN", "NONE", "NULL"}:
                 symbols.add(text)
     # Julesh-only PCs have no episodes; Samir may still want Model names too.
-    from pms_platform.market_data.client_portfolio_parse import load_client_portfolio_book
+    from pms_platform.domain.client_positions import resolve_client_portfolio_book
 
-    book = load_client_portfolio_book()
+    book = resolve_client_portfolio_book(session)
     if book is not None:
         for pos in book.model:
             if pos.symbol:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -271,3 +272,143 @@ def apply_approved_qty_change(
     pos.updated_by = updated_by
     session.flush()
     return pos
+
+
+def book_from_official_positions(session: Session, *, book: str = "client"):
+    """Build a ClientPortfolioBook from approved DB rows (cloud when Excel is absent)."""
+    from pms_platform.market_data.client_portfolio_parse import (
+        ClientPortfolioBook,
+        ClientPortfolioPosition,
+    )
+
+    positions = official_positions(session, book=book)
+    if not positions:
+        return None
+    model = [
+        ClientPortfolioPosition(
+            symbol=sym,
+            qty=pos.qty,
+            excel_price=None,
+            excel_value=None,
+            excel_percent=None,
+            index_label=pos.index_label,
+            mcap_factor=pos.mcap_factor,
+        )
+        for sym, pos in sorted(positions.items())
+    ]
+    bank_balance = None
+    if book == "sca":
+        bank_balance = bank_balance_for_book(session, book, excel_bank=None)
+    return ClientPortfolioBook(
+        path=Path("db://client_positions"),
+        mtime=0.0,
+        model=model,
+        stocks_qty={sym: pos.qty for sym, pos in positions.items()},
+        excel_total_value=None,
+        yearly=(),
+        bank_balance=bank_balance,
+    )
+
+
+def resolve_client_portfolio_book(
+    session: Session,
+    *,
+    path: Path | None = None,
+    book: str = "client",
+):
+    """Excel workbook when present; else approved DB positions when workflow is on."""
+    from pms_platform.feature_flags import approval_workflow_enabled
+    from pms_platform.market_data.client_portfolio_parse import load_client_portfolio_book
+
+    loaded = load_client_portfolio_book(path)
+    if loaded is not None:
+        return loaded
+    if approval_workflow_enabled():
+        return book_from_official_positions(session, book=book)
+    return None
+
+
+def reimport_client_positions(
+    session: Session,
+    holdings: list[dict[str, Any]],
+    *,
+    book: str = "client",
+    update_qty: bool = False,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Sync symbol add/remove and metadata from Excel; qty only when update_qty."""
+    book_key = (book or "client").strip().lower()
+    excel_symbols: dict[str, dict[str, Any]] = {}
+    for row in holdings:
+        symbol = str(row.get("symbol") or "").strip().upper()
+        if not symbol:
+            continue
+        excel_symbols[symbol] = row
+
+    official = official_positions(session, book=book_key)
+    added = sorted(set(excel_symbols) - set(official))
+    removed = sorted(set(official) - set(excel_symbols))
+    metadata_updated: list[str] = []
+    qty_updated: list[str] = []
+
+    for symbol, row in excel_symbols.items():
+        pos = official.get(symbol)
+        mcap_factor = row.get("mcap_factor")
+        index_label = row.get("index_label")
+        qty = row.get("qty")
+        if pos is None:
+            continue
+        if mcap_factor is not None and (
+            pos.mcap_factor is None or pos.mcap_factor != Decimal(str(mcap_factor))
+        ):
+            metadata_updated.append(symbol)
+        elif index_label and (pos.index_label or "") != str(index_label).strip():
+            metadata_updated.append(symbol)
+        if update_qty and qty is not None and pos.qty != Decimal(str(qty)):
+            qty_updated.append(symbol)
+
+    if dry_run:
+        return {
+            "added": added,
+            "removed": removed,
+            "metadata_updated": sorted(set(metadata_updated)),
+            "qty_updated": qty_updated,
+        }
+
+    for symbol in removed:
+        session.delete(official[symbol])
+    for symbol in added:
+        row = excel_symbols[symbol]
+        qty = row.get("qty")
+        session.add(
+            ClientPosition(
+                book=book_key,
+                symbol=symbol,
+                qty=Decimal(str(qty)) if qty is not None else Decimal(0),
+                mcap_factor=Decimal(str(row["mcap_factor"]))
+                if row.get("mcap_factor") is not None
+                else None,
+                index_label=str(row["index_label"]).strip() if row.get("index_label") else None,
+                row_version=1,
+            )
+        )
+    session.flush()
+    official = official_positions(session, book=book_key)
+    for symbol, row in excel_symbols.items():
+        pos = official.get(symbol)
+        if pos is None:
+            continue
+        if row.get("mcap_factor") is not None:
+            pos.mcap_factor = Decimal(str(row["mcap_factor"]))
+        if row.get("index_label"):
+            pos.index_label = str(row["index_label"]).strip() or None
+        if update_qty and row.get("qty") is not None:
+            pos.qty = Decimal(str(row["qty"]))
+        pos.row_version = pos.row_version + 1
+    session.flush()
+    return {
+        "added": added,
+        "removed": removed,
+        "metadata_updated": sorted(set(metadata_updated)),
+        "qty_updated": qty_updated,
+    }

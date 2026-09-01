@@ -77,8 +77,8 @@ def test_reconcile_closes_open_episode_absent_from_model(
         excel_total_value=Decimal(300),
     )
     monkeypatch.setattr(
-        "pms_platform.episodes.model_reconcile.load_client_portfolio_book",
-        lambda: fake_book,
+        "pms_platform.episodes.model_reconcile.resolve_client_portfolio_book",
+        lambda session: fake_book,
     )
 
     closed = reconcile_open_episodes_to_client_model(session)

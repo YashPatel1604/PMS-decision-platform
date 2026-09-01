@@ -15,7 +15,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from pms_platform.market_data.client_portfolio_parse import load_client_portfolio_book
+from pms_platform.domain.client_positions import resolve_client_portfolio_book
 from pms_platform.market_data.nse_bhav_store import (
     latest_bhav_trade_date,
     lookup_bhav_close,
@@ -57,7 +57,7 @@ def reconcile_open_episodes_to_client_model(
 
     Returns closed rows. No-op if the workbook is missing or too thin.
     """
-    book = load_client_portfolio_book()
+    book = resolve_client_portfolio_book(session)
     if book is None:
         return []
     model_symbols = {pos.symbol for pos in book.model}
