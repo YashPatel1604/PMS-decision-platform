@@ -55,7 +55,10 @@ class SupabaseStorage:
         return f"{self._base}/storage/v1/object/{self._bucket}/{safe}"
 
     def _headers(self, content_type: str | None = None) -> dict[str, str]:
-        headers = {"Authorization": f"Bearer {self._key}"}
+        headers = {
+            "Authorization": f"Bearer {self._key}",
+            "apikey": self._key,
+        }
         if content_type:
             headers["Content-Type"] = content_type
         return headers
@@ -70,7 +73,8 @@ class SupabaseStorage:
                 content=data,
                 headers={**self._headers(mime), "x-upsert": "true"},
             )
-            response.raise_for_status()
+            if response.is_error:
+                raise RuntimeError(f"Supabase upload {response.status_code}: {response.text[:500]}")
         return key
 
     def get(self, key: str) -> bytes:

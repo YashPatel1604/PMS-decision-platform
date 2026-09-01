@@ -11,6 +11,7 @@ from pms_platform.auth.permissions import PERMISSION_VIEW_ALL_SUBMITTED
 from pms_platform.feature_flags import approval_workflow_enabled
 from pms_platform.ingestion.daily_edit_sync import (
     DAILY_EDIT_CATEGORIES,
+    DailyEditCloudUploadError,
     DailyEditSyncError,
     daily_edit_status,
     reimport_daily_edit,
@@ -72,9 +73,24 @@ async def post_upload(
             mime_type=file.content_type,
         )
         session.commit()
+    except DailyEditCloudUploadError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        ) from exc
     except DailyEditSyncError as exc:
         session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not write workbook to daily edit dir: {exc}",
+        ) from exc
+    except RuntimeError as exc:
+        session.rollback()
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {
         "category": result.category,
         "filename": result.filename,
@@ -85,12 +101,18 @@ async def post_upload(
     }
 
 
+def _form_bool(value: str | bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 @router.post("/reimport")
 def post_reimport(
     request: Request,
     category: str = Form(...),
-    update_qty: bool = Form(False),
-    dry_run: bool = Form(True),
+    update_qty: str | bool = Form(False),
+    dry_run: str | bool = Form(True),
     session: Session = Depends(get_db),
 ) -> dict:
     if not approval_workflow_enabled():
@@ -101,16 +123,21 @@ def post_reimport(
     _require_admin(session, user)
 
     cat = category.strip()
+    dry = _form_bool(dry_run)
+    qty = _form_bool(update_qty)
     try:
         result = reimport_daily_edit(
             session,
             category=cat,
-            update_qty=update_qty,
-            dry_run=dry_run,
+            update_qty=qty,
+            dry_run=dry,
         )
-        if not dry_run:
+        if not dry:
             session.commit()
     except DailyEditSyncError as exc:
         session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return result

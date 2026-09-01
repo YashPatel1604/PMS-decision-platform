@@ -37,6 +37,14 @@ class DailyEditSyncError(Exception):
     """Business rule violation in DailyEdit sync."""
 
 
+class DailyEditCloudUploadError(DailyEditSyncError):
+    """Workbook saved locally but cloud archive failed."""
+
+    def __init__(self, message: str, *, local_path: str) -> None:
+        super().__init__(message)
+        self.local_path = local_path
+
+
 @dataclass(frozen=True)
 class UploadResult:
     category: str
@@ -110,8 +118,14 @@ def upload_daily_edit(
         )
 
     storage_key = f"daily_edit/{category}/{checksum}/{safe_name}"
-    storage.put(storage_key, data, content_type=mime_type)
     local = _materialize_bytes(category, safe_name, data)
+    try:
+        storage.put(storage_key, data, content_type=mime_type)
+    except Exception as exc:  # noqa: BLE001 — surface cloud failure after local save
+        raise DailyEditCloudUploadError(
+            f"saved to {local} but cloud upload failed: {exc}",
+            local_path=str(local),
+        ) from exc
 
     source = session.scalar(
         select(SourceFile).where(SourceFile.category == category).order_by(SourceFile.created_at.desc())
