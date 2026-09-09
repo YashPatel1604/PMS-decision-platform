@@ -6,19 +6,24 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
 
+from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
 from pms_platform.analytics.industry_peers import compute_industry_equal_weight
 from pms_platform.analytics.portfolio_value import equity_portfolio_market_value
 from pms_platform.analytics.successor_chain import resolve_price_security_id
 from pms_platform.market_data.contracts import REQUIRED_BENCHMARKS
-from pms_platform.market_data.lookup import lookup_benchmark_tri, lookup_daily_price
 from pms_platform.market_data.yahoo_finance import YahooFinanceClient
-from pms_platform.models import InvestmentEpisode
+from pms_platform.models import BenchmarkTri, DailyPrice, InvestmentEpisode, SecuritySuccessor
 
 _HUNDRED = Decimal("100")
 _ONE = Decimal("1")
 _MAX_PEERS = 6
+_SOURCE_PRIORITY = case(
+    (DailyPrice.source == "YAHOO_CHART_REPAIR", 0),
+    (DailyPrice.source.in_(frozenset({"YAHOO_FINANCE", "INDIAN_STOCK_API"})), 1),
+    else_=2,
+)
 
 
 @dataclass(frozen=True)
@@ -118,17 +123,80 @@ def _linear_normalized(
     return 100.0 + (end_level - 100.0) * frac
 
 
-def _peer_price_on_or_before(
+def _on_or_before(
     hist: list[tuple[date, Decimal]], day: date
 ) -> Decimal | None:
-    """Last close on/before day from sorted (date, close) bars."""
-    px = None
-    for d, price in hist:
+    """Last value on/before day from sorted (date, value) rows."""
+    value = None
+    for d, level in hist:
         if d <= day:
-            px = price
+            value = level
         else:
             break
-    return px
+    return value
+
+
+def _load_adj_close_series(
+    session: Session, security_id: str, start: date, end: date
+) -> list[tuple[date, Decimal]]:
+    """One query: best-source adjusted close per trade date in [start, end]."""
+    widened = date.fromordinal(max(start.toordinal() - 21, 1))
+    rows = session.execute(
+        select(DailyPrice.trade_date, DailyPrice.adjusted_close)
+        .where(
+            DailyPrice.security_id == security_id,
+            DailyPrice.trade_date >= widened,
+            DailyPrice.trade_date <= end,
+        )
+        .order_by(DailyPrice.trade_date, _SOURCE_PRIORITY, DailyPrice.source)
+    ).all()
+    best: dict[date, Decimal] = {}
+    for trade_date, adj in rows:
+        if trade_date not in best:
+            best[trade_date] = adj
+    return sorted(best.items())
+
+
+def _load_benchmark_series(
+    session: Session, benchmark_code: str, start: date, end: date
+) -> list[tuple[date, Decimal]]:
+    """One query: TRI levels in [start, end] (first source wins per date)."""
+    widened = date.fromordinal(max(start.toordinal() - 21, 1))
+    code = benchmark_code.strip().upper()
+    rows = session.execute(
+        select(BenchmarkTri.trade_date, BenchmarkTri.tri_level)
+        .where(
+            BenchmarkTri.benchmark_code == code,
+            BenchmarkTri.trade_date >= widened,
+            BenchmarkTri.trade_date <= end,
+        )
+        .order_by(BenchmarkTri.trade_date, BenchmarkTri.source)
+    ).all()
+    best: dict[date, Decimal] = {}
+    for trade_date, level in rows:
+        if trade_date not in best:
+            best[trade_date] = level
+    return sorted(best.items())
+
+
+def _price_security_ids(
+    session: Session, security_id: str, sample: list[date]
+) -> dict[date, str]:
+    """Map sample days → price security id without N successor queries when unused."""
+    has_succ = (
+        session.scalar(
+            select(SecuritySuccessor.successor_id)
+            .where(
+                SecuritySuccessor.predecessor_security_id == security_id,
+                SecuritySuccessor.confirmed.is_(True),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+    if not has_succ:
+        return {day: security_id for day in sample}
+    return {day: resolve_price_security_id(session, security_id, day) for day in sample}
 
 
 def _peer_price_map(
@@ -147,13 +215,13 @@ def _peer_price_map(
         return [], None
 
     hist = sorted(history)
-    start_px = _peer_price_on_or_before(hist, start)
+    start_px = _on_or_before(hist, start)
     if start_px is None:
         for day, price in hist:
             if day >= start:
                 start_px = price
                 break
-    end_px = _peer_price_on_or_before(hist, end) or (hist[-1][1] if hist else None)
+    end_px = _on_or_before(hist, end) or (hist[-1][1] if hist else None)
     total = None
     if start_px is not None and end_px is not None and start_px > 0:
         total = ((end_px / start_px) - _ONE) * _HUNDRED
@@ -189,14 +257,18 @@ def build_compare_series(
     period_start = max(start_date, episode.entry_date)
     sample = _sample_dates(period_start, end_date)
 
-    # Stock base
-    price_id = resolve_price_security_id(session, security_id, period_start)
-    stock_base_obs = lookup_daily_price(session, price_id, period_start)
-    stock_base = stock_base_obs.adjusted_close if stock_base_obs else None
+    sid_by_day = _price_security_ids(session, security_id, sample)
+    unique_sids = sorted(set(sid_by_day.values()))
+    stock_series = {
+        sid: _load_adj_close_series(session, sid, period_start, end_date)
+        for sid in unique_sids
+    }
+    start_sid = sid_by_day[sample[0]] if sample else security_id
+    stock_base = _on_or_before(stock_series.get(start_sid) or [], period_start)
 
     bench_code = REQUIRED_BENCHMARKS[0]
-    bench_base_obs = lookup_benchmark_tri(session, bench_code, period_start)
-    bench_base = bench_base_obs.tri_level if bench_base_obs else None
+    bench_series = _load_benchmark_series(session, bench_code, period_start, end_date)
+    bench_base = _on_or_before(bench_series, period_start)
     if bench_base is None:
         notes.append(f"No {bench_code} TRI at period start")
 
@@ -224,41 +296,40 @@ def build_compare_series(
     peer_hists: dict[str, list[tuple[date, Decimal]]] = {}
     peer_bases: dict[str, Decimal | None] = {}
     if tickers:
-        yahoo = client or YahooFinanceClient()
-        for ticker in tickers:
-            try:
-                hist, total = _peer_price_map(yahoo, ticker, period_start, end_date)
-                peer_hists[ticker] = hist
-                peer_returns[ticker] = total
-                base = _peer_price_on_or_before(hist, period_start)
-                if base is None and hist:
-                    for day, price in hist:
-                        if day >= period_start:
-                            base = price
-                            break
-                peer_bases[ticker] = base
-                if total is None:
-                    notes.append(f"No Yahoo prices for peer {ticker}")
-            except Exception as exc:  # noqa: BLE001
-                notes.append(f"Peer {ticker} fetch failed: {exc}")
+        try:
+            yahoo = client or YahooFinanceClient()
+        except Exception as exc:  # noqa: BLE001
+            yahoo = None
+            notes.append(f"Yahoo client unavailable: {exc}")
+        if yahoo is not None:
+            for ticker in tickers:
+                try:
+                    hist, total = _peer_price_map(yahoo, ticker, period_start, end_date)
+                    peer_hists[ticker] = hist
+                    peer_returns[ticker] = total
+                    base = _on_or_before(hist, period_start)
+                    if base is None and hist:
+                        for day, price in hist:
+                            if day >= period_start:
+                                base = price
+                                break
+                    peer_bases[ticker] = base
+                    if total is None:
+                        notes.append(f"No Yahoo prices for peer {ticker}")
+                except Exception as exc:  # noqa: BLE001
+                    notes.append(f"Peer {ticker} fetch failed: {exc}")
 
     points: list[CompareSeriesPoint] = []
     for day in sample:
-        sid = resolve_price_security_id(session, security_id, day)
-        stock_obs = lookup_daily_price(session, sid, day)
-        stock_n = _normalize(
-            stock_obs.adjusted_close if stock_obs else None, stock_base
-        )
-
-        bench_obs = lookup_benchmark_tri(session, bench_code, day)
-        bench_n = _normalize(bench_obs.tri_level if bench_obs else None, bench_base)
-
+        sid = sid_by_day[day]
+        stock_n = _normalize(_on_or_before(stock_series.get(sid) or [], day), stock_base)
+        bench_n = _normalize(_on_or_before(bench_series, day), bench_base)
         port_n = _linear_normalized(day, period_start, end_date, port_return)
         industry_n = _linear_normalized(day, period_start, end_date, industry_return)
 
         peer_levels: dict[str, float | None] = {}
         for ticker in tickers:
-            px = _peer_price_on_or_before(peer_hists.get(ticker) or [], day)
+            px = _on_or_before(peer_hists.get(ticker) or [], day)
             peer_levels[ticker] = _normalize(px, peer_bases.get(ticker))
 
         points.append(

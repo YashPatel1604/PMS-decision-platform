@@ -420,14 +420,20 @@ def compare_series(
     if episode is None:
         raise HTTPException(status_code=404, detail="Open holding not found")
     start, end = _resolve_period(session, episode, as_of, from_date)
-    result = build_compare_series(
-        session,
-        episode_id=episode_id,
-        start_date=start,
-        end_date=end,
-        peer_ticker=peer_ticker,
-        peer_tickers=peer_tickers,
-    )
+    try:
+        result = build_compare_series(
+            session,
+            episode_id=episode_id,
+            start_date=start,
+            end_date=end,
+            peer_ticker=peer_ticker,
+            peer_tickers=peer_tickers,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail=f"compare-series failed: {type(exc).__name__}: {exc}"[:300],
+        ) from exc
     return CompareSeriesResponse(
         episode_id=result.episode_id,
         security_id=result.security_id,
