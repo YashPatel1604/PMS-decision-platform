@@ -1279,7 +1279,22 @@ Until then, the “software” is the data and analytical engine, not the user i
 
 ---
 
-## 26. Final rule
+## 26. Cloud staging — deferred (nice later)
+
+Not required for Samir/Julesh to start using the hosted staging app. Track and do after cutover smoke tests and secret rotation.
+
+| Item | Notes |
+|------|--------|
+| Mac auto-upload watcher | Watch `DailyEditFiles` and upload on save. Manual **Upload + Reimport** in the UI is enough for v1. |
+| Pivot filename polish | Server already materializes as `PivotPoints.xlsx`. Optional: rename the source workbook so uploads don’t carry the long “Backup 17.07…” name. |
+| Commit `scripts/sync_daily_edit_canonical.sh` | Local helper that copies the newest Client/Charts/SCA/Pivot matches into the four canonical DailyEdit names. Optional to keep in git. |
+| Keep `RESET_FILES/` out of git | Approved one-shot workbooks for resets. Do not commit large `.xlsx` into the repo; leave the folder gitignored or local-only. |
+
+Related cutover docs: `docs/centralization/DEPLOYMENT_RUNBOOK.md`, `deploy/railway/README.md`.
+
+---
+
+## 27. Final rule
 
 Do not optimize the interface before validating the investment logic.
 

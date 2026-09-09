@@ -12,7 +12,6 @@ import {
 } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { DraftTray, holdingsDraftDomain } from "@/components/draft-tray";
-import { DailyEditPanel } from "@/components/daily-edit-panel";
 import { ViewModeToggle } from "@/components/view-mode-toggle";
 
 function num(value: number | null | undefined, digits = 2): string {
@@ -41,6 +40,10 @@ function apiDetail(err: Error): string {
   return err.message;
 }
 
+function todayIstInput(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
 const PRESELECT_KEY = "pivot-preselect-symbols";
 
 export function ClientPortfolioView({
@@ -52,6 +55,7 @@ export function ClientPortfolioView({
   const [asOf, setAsOf] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [fetchMsg, setFetchMsg] = useState<string | null>(null);
+  const [pullDate, setPullDate] = useState(todayIstInput);
   const [view, setView] = useState<PortfolioView>("official");
 
   const dashQuery = useQuery({
@@ -68,10 +72,11 @@ export function ClientPortfolioView({
   });
 
   const fetchNseMutation = useMutation({
-    mutationFn: () => api.fetchNseBhav(),
+    mutationFn: () => api.fetchNseBhav(pullDate || null),
     onSuccess: (result) => {
       setFetchMsg(result.message);
       setAsOf(result.trade_date);
+      if (result.trade_date) setPullDate(result.trade_date);
       void queryClient.invalidateQueries({ queryKey: ["client-portfolio-dashboard"] });
       void queryClient.invalidateQueries({ queryKey: ["pivot-dashboard"] });
     },
@@ -148,16 +153,26 @@ export function ClientPortfolioView({
               ) : null}
             </select>
           </label>
+          <label className="flex flex-col gap-1 text-sm text-stone-600">
+            Pull date
+            <input
+              type="date"
+              className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-stone-900 shadow-sm"
+              value={pullDate}
+              max={todayIstInput()}
+              onChange={(e) => setPullDate(e.target.value)}
+            />
+          </label>
           <button
             type="button"
-            disabled={fetchNseMutation.isPending}
+            disabled={fetchNseMutation.isPending || !pullDate}
             onClick={() => {
               setFetchMsg(null);
               fetchNseMutation.mutate();
             }}
             className="rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {fetchNseMutation.isPending ? "Pulling NSE…" : "Pull today's bhav"}
+            {fetchNseMutation.isPending ? "Pulling NSE…" : "Pull bhav"}
           </button>
           {asOf && data?.available_dates?.[0] && asOf !== data.available_dates[0] ? (
             <button
@@ -177,10 +192,6 @@ export function ClientPortfolioView({
           </Link>
         </div>
       </div>
-
-      {book === "client" && data?.approval_workflow ? (
-        <DailyEditPanel category="client_portfolio" />
-      ) : null}
 
       {data?.as_of ? (
         <p className="text-sm text-stone-500">

@@ -15,7 +15,13 @@ function apiDetail(err: Error): string {
   return err.message;
 }
 
-export function DailyEditPanel({ category }: { category: DailyEditCategory }) {
+export function DailyEditPanel({
+  category,
+  title,
+}: {
+  category: DailyEditCategory;
+  title?: string;
+}) {
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -70,7 +76,9 @@ export function DailyEditPanel({ category }: { category: DailyEditCategory }) {
 
   return (
     <section className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
-      <h3 className="font-medium text-slate-800">DailyEdit cloud sync</h3>
+      <h3 className="font-medium text-slate-800">
+        {title ?? "DailyEdit cloud sync"}
+      </h3>
       <p className="mt-1 text-slate-600">
         Upload the workbook from your Mac, then reimport to refresh server data.
       </p>

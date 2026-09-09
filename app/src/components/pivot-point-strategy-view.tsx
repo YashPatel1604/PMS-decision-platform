@@ -18,6 +18,11 @@ const TABS: { id: TabId; label: string }[] = [
 const PRESELECT_KEY = "pivot-preselect-symbols";
 const SELECTED_FIRMS_KEY = "pivot-selected-firms";
 
+/** YYYY-MM-DD in Asia/Kolkata (matches NSE bhav “today”). */
+function todayIstInput(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
 function loadSelectedFirms(): string[] {
   try {
     const raw = localStorage.getItem(SELECTED_FIRMS_KEY);
@@ -73,6 +78,7 @@ export function PivotPointStrategyView() {
   const [addFirmError, setAddFirmError] = useState<string | null>(null);
   const [firmSuggestOpen, setFirmSuggestOpen] = useState(false);
   const [fetchMsg, setFetchMsg] = useState<string | null>(null);
+  const [pullDate, setPullDate] = useState(todayIstInput);
 
   const dashQuery = useQuery({
     queryKey: ["pivot-dashboard", asOf ?? "latest"],
@@ -89,10 +95,11 @@ export function PivotPointStrategyView() {
   });
 
   const fetchNseMutation = useMutation({
-    mutationFn: () => api.fetchNseBhav(),
+    mutationFn: () => api.fetchNseBhav(pullDate || null),
     onSuccess: (result) => {
       setFetchMsg(result.message);
       setAsOf(result.trade_date);
+      if (result.trade_date) setPullDate(result.trade_date);
       void queryClient.invalidateQueries({ queryKey: ["pivot-dashboard"] });
       void queryClient.invalidateQueries({ queryKey: ["client-portfolio-dashboard"] });
     },
@@ -328,16 +335,26 @@ export function PivotPointStrategyView() {
               {!data?.available_dates?.length ? <option value="">No bhav days yet</option> : null}
             </select>
           </label>
+          <label className="flex flex-col gap-1 text-sm text-stone-600">
+            Pull date
+            <input
+              type="date"
+              className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-stone-900 shadow-sm"
+              value={pullDate}
+              max={todayIstInput()}
+              onChange={(e) => setPullDate(e.target.value)}
+            />
+          </label>
           <button
             type="button"
-            disabled={fetchNseMutation.isPending}
+            disabled={fetchNseMutation.isPending || !pullDate}
             onClick={() => {
               setFetchMsg(null);
               fetchNseMutation.mutate();
             }}
             className="rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {fetchNseMutation.isPending ? "Pulling NSE…" : "Pull today's bhav"}
+            {fetchNseMutation.isPending ? "Pulling NSE…" : "Pull bhav"}
           </button>
           {asOf && data?.available_dates?.[0] && asOf !== data.available_dates[0] ? (
             <button
@@ -737,7 +754,7 @@ function DailySheetTable({
               <th className="px-3 py-2">TradDt</th>
               <th className="px-3 py-2">TckrSymb</th>
               <th className="px-3 py-2">SctySrs</th>
-              <th className="px-3 py-2 text-right text-red-700">S4-0.3</th>
+              <th className="px-3 py-2 text-right bg-red-50">S4-0.3</th>
               <th className="px-3 py-2 text-right">S3-0.3</th>
               <th className="px-3 py-2 text-right">S2-03</th>
               <th className="px-3 py-2 text-right">S1-03</th>
@@ -745,7 +762,7 @@ function DailySheetTable({
               <th className="px-3 py-2 text-right">R1+0.3</th>
               <th className="px-3 py-2 text-right">R2+0.3</th>
               <th className="px-3 py-2 text-right">R3+0.3</th>
-              <th className="px-3 py-2 text-right text-blue-700">R4+0.3</th>
+              <th className="px-3 py-2 text-right bg-blue-50">R4+0.3</th>
               <th className="px-3 py-2 text-right">
                 {showPrevDayVol ? "Prev vol" : "Vol Exp"}
               </th>
@@ -770,7 +787,7 @@ function DailySheetTable({
                   <td className="px-3 py-1.5 whitespace-nowrap">{formatDate(row.trade_date)}</td>
                   <td className="px-3 py-1.5 font-medium">{row.symbol}</td>
                   <td className="px-3 py-1.5">{row.series}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums font-medium text-red-700">
+                  <td className="bg-red-50 px-3 py-1.5 text-right tabular-nums">
                     {miss ? "—" : pivotNum(p?.s4_03)}
                   </td>
                   <td className="px-3 py-1.5 text-right tabular-nums">
@@ -794,7 +811,7 @@ function DailySheetTable({
                   <td className="px-3 py-1.5 text-right tabular-nums">
                     {miss ? "—" : pivotNum(p?.r3_03)}
                   </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums font-medium text-blue-700">
+                  <td className="bg-blue-50 px-3 py-1.5 text-right tabular-nums">
                     {miss ? "—" : pivotNum(p?.r4_03)}
                   </td>
                   <td className="px-3 py-1.5 text-right tabular-nums">

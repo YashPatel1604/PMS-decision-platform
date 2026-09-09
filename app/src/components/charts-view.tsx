@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api, type ChartsDashboard, type ChartsRangeRow } from "@/lib/api";
-import { DailyEditPanel } from "@/components/daily-edit-panel";
 import { formatDate } from "@/lib/format";
 
 const CORR_KEY = "charts-corr-pcts";
@@ -49,6 +48,10 @@ function apiDetail(err: Error): string {
     /* plain */
   }
   return err.message;
+}
+
+function todayIstInput(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 }
 
 function parseNum(raw: string): number | null {
@@ -97,6 +100,7 @@ export function ChartsView() {
   const [asOf, setAsOf] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [fetchMsg, setFetchMsg] = useState<string | null>(null);
+  const [pullDate, setPullDate] = useState(todayIstInput);
   const [corrPcts, setCorrPcts] = useState(loadCorrPcts);
 
   useEffect(() => {
@@ -114,10 +118,11 @@ export function ChartsView() {
   const data = dashQuery.data;
 
   const fetchNse = useMutation({
-    mutationFn: () => api.fetchNseBhav(),
+    mutationFn: () => api.fetchNseBhav(pullDate || null),
     onSuccess: (result) => {
       setFetchMsg(result.message);
       setAsOf(result.trade_date);
+      if (result.trade_date) setPullDate(result.trade_date);
       void queryClient.invalidateQueries({ queryKey: ["charts-dashboard"] });
       void queryClient.invalidateQueries({ queryKey: ["pivot-dashboard"] });
       void queryClient.invalidateQueries({ queryKey: ["client-portfolio-dashboard"] });
@@ -173,21 +178,29 @@ export function ChartsView() {
               ) : null}
             </select>
           </label>
+          <label className="flex flex-col gap-1 text-sm text-stone-600">
+            Pull date
+            <input
+              type="date"
+              className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-stone-900 shadow-sm"
+              value={pullDate}
+              max={todayIstInput()}
+              onChange={(e) => setPullDate(e.target.value)}
+            />
+          </label>
           <button
             type="button"
-            disabled={fetchNse.isPending}
+            disabled={fetchNse.isPending || !pullDate}
             onClick={() => {
               setFetchMsg(null);
               fetchNse.mutate();
             }}
             className="rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {fetchNse.isPending ? "Pulling NSE…" : "Pull today's bhav"}
+            {fetchNse.isPending ? "Pulling NSE…" : "Pull bhav"}
           </button>
         </div>
       </div>
-
-      {data?.approval_workflow ? <DailyEditPanel category="charts" /> : null}
 
       {data?.as_of ? (
         <p className="text-sm text-stone-500">

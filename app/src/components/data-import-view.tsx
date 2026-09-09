@@ -10,6 +10,14 @@ import {
   type UploadBatch,
   type UploadKind,
 } from "@/lib/api";
+import { DailyEditPanel } from "@/components/daily-edit-panel";
+
+const DAILY_EDIT_PANELS: { category: "client_portfolio" | "charts" | "sca_llp" | "pivot_points"; title: string }[] = [
+  { category: "client_portfolio", title: "Client Portfolio (PMS_ClientPortfolio.xlsx)" },
+  { category: "charts", title: "Charts (Charts.xlsx)" },
+  { category: "sca_llp", title: "SCA LLP" },
+  { category: "pivot_points", title: "Pivot Points" },
+];
 
 const KIND_OPTIONS: { value: UploadKind; label: string; help: string }[] = [
   {
@@ -584,6 +592,27 @@ export function DataImportView() {
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
           {error}
         </p>
+      ) : null}
+
+      {stagedWorkflow ? (
+        <section className="space-y-4">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight">DailyEdit cloud sync</h2>
+            <p className="mt-1 text-sm text-stone-600">
+              Upload workbooks from your Mac, then preview/apply reimport. Lives only on this
+              Admin → Data page — not on Client / Charts strategy screens.
+            </p>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {DAILY_EDIT_PANELS.map((panel) => (
+              <DailyEditPanel
+                key={panel.category}
+                category={panel.category}
+                title={panel.title}
+              />
+            ))}
+          </div>
+        </section>
       ) : null}
 
       {stagedWorkflow ? (
