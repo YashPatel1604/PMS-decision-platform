@@ -701,18 +701,20 @@ def fetch_disclosed_deals(
         )
         try:
             frame = fetch_bse_disclosed_deals_history(kind, start, end)
-        except Exception:
-            if kind == "block":
-                try:
-                    frame = _fetch_bse_beta_block_deals_frame()
-                except Exception as exc:
-                    raise DisclosedDealsFetchError(
-                        f"Failed to fetch BSE {kind} deals: {exc}"
-                    ) from exc
-            else:
+        except Exception as hist_exc:
+            # Latest-session HTML is a last resort for block only, and only when
+            # the caller did not ask for a specific month/day (calendar accuracy).
+            if kind != "block":
                 raise DisclosedDealsFetchError(
-                    f"Failed to fetch BSE historical {kind} deals"
-                )
+                    f"Failed to fetch BSE historical {kind} deals: {hist_exc}"
+                ) from hist_exc
+            try:
+                frame = _fetch_bse_beta_block_deals_frame()
+            except Exception as exc:
+                raise DisclosedDealsFetchError(
+                    f"Failed to fetch BSE {kind} deals "
+                    f"(history: {hist_exc}; latest: {exc})"
+                ) from exc
 
     try:
         all_deals = normalize_disclosed_deals_frame(frame, kind=kind)
@@ -723,6 +725,15 @@ def fetch_disclosed_deals(
 
     if session is not None:
         all_deals = enrich_with_portfolio(all_deals, session)
+
+    # Scope calendar highlights to the month being viewed when one was requested.
+    if month_year is not None and month_num is not None:
+        month_start, month_end = _month_bounds(month_year, month_num)
+        all_deals = [
+            d
+            for d in all_deals
+            if d.deal_date is not None and month_start <= d.deal_date <= month_end
+        ]
 
     available = tuple(
         sorted({d.deal_date for d in all_deals if d.deal_date is not None}, reverse=True)

@@ -138,26 +138,31 @@ function CorporateDisclosuresView({ kind }: { kind: DisclosureKind }) {
 
   useEffect(() => {
     if (!disclosuresQuery.data?.as_of_date || disclosuresQuery.isFetching) return;
+    const dataMonth = toMonthKey(disclosuresQuery.data.as_of_date);
+    const month = viewMonth ?? dataMonth;
     if (!viewMonth) {
-      setViewMonth(toMonthKey(disclosuresQuery.data.as_of_date));
+      setViewMonth(dataMonth);
     }
-    if (!selectedDate) {
-      const month = viewMonth ?? toMonthKey(disclosuresQuery.data.as_of_date);
-      const inMonth = (disclosuresQuery.data.available_dates ?? []).filter((d) =>
-        d.startsWith(month),
-      );
-      setSelectedDate(inMonth[0] ?? disclosuresQuery.data.as_of_date);
+    const inMonth = (disclosuresQuery.data.available_dates ?? []).filter((d) =>
+      d.startsWith(month),
+    );
+    if (!selectedDate || !selectedDate.startsWith(month)) {
+      setSelectedDate(inMonth[0] ?? null);
     }
   }, [disclosuresQuery.data, disclosuresQuery.isFetching, selectedDate, viewMonth]);
 
-  const availableSet = useMemo(
-    () => new Set(disclosuresQuery.data?.available_dates ?? []),
-    [disclosuresQuery.data?.available_dates],
-  );
-  const portfolioSet = useMemo(
-    () => new Set(disclosuresQuery.data?.portfolio_dates ?? []),
-    [disclosuresQuery.data?.portfolio_dates],
-  );
+  const availableSet = useMemo(() => {
+    const month = viewMonth;
+    const dates = disclosuresQuery.data?.available_dates ?? [];
+    if (!month) return new Set(dates);
+    return new Set(dates.filter((d) => d.startsWith(month)));
+  }, [disclosuresQuery.data?.available_dates, viewMonth]);
+  const portfolioSet = useMemo(() => {
+    const month = viewMonth;
+    const dates = disclosuresQuery.data?.portfolio_dates ?? [];
+    if (!month) return new Set(dates);
+    return new Set(dates.filter((d) => d.startsWith(month)));
+  }, [disclosuresQuery.data?.portfolio_dates, viewMonth]);
 
   const minCap = useMemo(() => {
     const n = Number(minMarketCapCr);

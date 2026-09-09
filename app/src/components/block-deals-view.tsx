@@ -95,26 +95,32 @@ function DisclosedDealsView({ kind }: { kind: DealKind }) {
 
   useEffect(() => {
     if (!dealsQuery.data?.as_of_date || dealsQuery.isFetching) return;
+    const dataMonth = toMonthKey(dealsQuery.data.as_of_date);
+    const month = viewMonth ?? dataMonth;
     if (!viewMonth) {
-      setViewMonth(toMonthKey(dealsQuery.data.as_of_date));
+      setViewMonth(dataMonth);
     }
-    if (!selectedDate) {
-      const month = viewMonth ?? toMonthKey(dealsQuery.data.as_of_date);
-      const inMonth = (dealsQuery.data.available_dates ?? []).filter((d) =>
-        d.startsWith(month),
-      );
-      setSelectedDate(inMonth[0] ?? dealsQuery.data.as_of_date);
+    const inMonth = (dealsQuery.data.available_dates ?? []).filter((d) =>
+      d.startsWith(month),
+    );
+    // Never keep a selected day from another month (stale keepPreviousData).
+    if (!selectedDate || !selectedDate.startsWith(month)) {
+      setSelectedDate(inMonth[0] ?? null);
     }
   }, [dealsQuery.data, dealsQuery.isFetching, selectedDate, viewMonth]);
 
-  const availableSet = useMemo(
-    () => new Set(dealsQuery.data?.available_dates ?? []),
-    [dealsQuery.data?.available_dates],
-  );
-  const portfolioSet = useMemo(
-    () => new Set(dealsQuery.data?.portfolio_dates ?? []),
-    [dealsQuery.data?.portfolio_dates],
-  );
+  const availableSet = useMemo(() => {
+    const month = viewMonth;
+    const dates = dealsQuery.data?.available_dates ?? [];
+    if (!month) return new Set(dates);
+    return new Set(dates.filter((d) => d.startsWith(month)));
+  }, [dealsQuery.data?.available_dates, viewMonth]);
+  const portfolioSet = useMemo(() => {
+    const month = viewMonth;
+    const dates = dealsQuery.data?.portfolio_dates ?? [];
+    if (!month) return new Set(dates);
+    return new Set(dates.filter((d) => d.startsWith(month)));
+  }, [dealsQuery.data?.portfolio_dates, viewMonth]);
 
   const minCap = useMemo(() => {
     const n = Number(minMarketCapCr);

@@ -469,13 +469,14 @@ def fetch_corporate_disclosures(
                     sync_insider_days,
                 )
 
-                # Always fill missing calendar days. Refresh re-pulls the last 14 days.
+                # Always fill missing calendar days. Refresh re-pulls recent days and
+                # runs the scrip sweep on BSE's 25-row capped days (Aurionpro-class gaps).
                 sync_insider_days(
                     session,
                     start,
                     end,
                     today=today,
-                    scrip_backfill=False,
+                    scrip_backfill=refresh_insider,
                     refresh_recent=refresh_insider,
                 )
                 session.commit()
