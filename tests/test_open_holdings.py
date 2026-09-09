@@ -91,12 +91,12 @@ def test_open_holding_from_date_window(
         lambda _as_of: None,
     )
     monkeypatch.setattr(
-        "pms_platform.analytics.open_holdings.load_client_portfolio_book",
-        lambda: None,
+        "pms_platform.analytics.open_holdings.resolve_client_portfolio_book",
+        lambda *a, **k: None,
     )
     monkeypatch.setattr(
-        "pms_platform.episodes.model_reconcile.load_client_portfolio_book",
-        lambda: None,
+        "pms_platform.episodes.model_reconcile.resolve_client_portfolio_book",
+        lambda *a, **k: None,
     )
     monkeypatch.setattr(
         "pms_platform.analytics.open_holdings.latest_research_book_date",
@@ -157,8 +157,8 @@ def test_open_holding_from_date_bhav_uses_adjusted_start(
 
     for target in (
         "pms_platform.analytics.open_holdings.lookup_research_portfolio_value",
-        "pms_platform.analytics.open_holdings.load_client_portfolio_book",
-        "pms_platform.episodes.model_reconcile.load_client_portfolio_book",
+        "pms_platform.analytics.open_holdings.resolve_client_portfolio_book",
+        "pms_platform.episodes.model_reconcile.resolve_client_portfolio_book",
         "pms_platform.analytics.open_holdings.latest_research_book_date",
     ):
         monkeypatch.setattr(target, lambda *_a, **_k: None)
@@ -233,8 +233,8 @@ def test_open_holding_from_date_uses_adjusted_start_not_adj_times_factor(
     """Period start price is adjusted close (same series as as-of adj), not adj×CA."""
     for target in (
         "pms_platform.analytics.open_holdings.lookup_research_portfolio_value",
-        "pms_platform.analytics.open_holdings.load_client_portfolio_book",
-        "pms_platform.episodes.model_reconcile.load_client_portfolio_book",
+        "pms_platform.analytics.open_holdings.resolve_client_portfolio_book",
+        "pms_platform.episodes.model_reconcile.resolve_client_portfolio_book",
         "pms_platform.analytics.open_holdings.latest_research_book_date",
         "pms_platform.analytics.open_holdings.latest_bhav_trade_date",
     ):
@@ -334,12 +334,12 @@ def test_open_holding_uses_bhav_when_newer_than_book(
         lambda _as_of: None,
     )
     monkeypatch.setattr(
-        "pms_platform.analytics.open_holdings.load_client_portfolio_book",
-        lambda: None,
+        "pms_platform.analytics.open_holdings.resolve_client_portfolio_book",
+        lambda *a, **k: None,
     )
     monkeypatch.setattr(
-        "pms_platform.episodes.model_reconcile.load_client_portfolio_book",
-        lambda: None,
+        "pms_platform.episodes.model_reconcile.resolve_client_portfolio_book",
+        lambda *a, **k: None,
     )
     sample_security.current_nse_symbol = "TESTCO"
     add_transaction(
@@ -390,8 +390,8 @@ def test_open_holding_stock_return_uses_first_buy_not_avg(
     """Adds raise avg buy; Stock % stays first-buy → current."""
     for target in (
         "pms_platform.analytics.open_holdings.lookup_research_portfolio_value",
-        "pms_platform.analytics.open_holdings.load_client_portfolio_book",
-        "pms_platform.episodes.model_reconcile.load_client_portfolio_book",
+        "pms_platform.analytics.open_holdings.resolve_client_portfolio_book",
+        "pms_platform.episodes.model_reconcile.resolve_client_portfolio_book",
         "pms_platform.analytics.open_holdings.latest_research_book_date",
         "pms_platform.analytics.open_holdings.latest_bhav_trade_date",
     ):

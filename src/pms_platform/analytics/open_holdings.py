@@ -17,7 +17,6 @@ from pms_platform.analytics.ownership_metrics import (
 from pms_platform.analytics.portfolio_value import (
     compute_portfolio_period_return,
     equity_portfolio_market_value,
-    list_security_trading_dates,
 )
 from pms_platform.analytics.research_portfolio_value import (
     latest_research_book_date,
@@ -297,38 +296,32 @@ def _days_below_first_buy(
     entry_date: date,
     as_of_date: date,
     events: list[DecisionEvent],
+    *,
+    as_of_price: Decimal | None = None,
 ) -> tuple[bool, int | None]:
+    """Underwater vs first-buy.
+
+    ponytail: full day-by-day scan is O(trading_days) remote lookups and freezes
+    cloud Holdings (years × open names). List path uses as-of mark only; days_below
+    stays None until a dedicated detail/scan endpoint exists.
+    """
+    del entry_date  # reserved for future full scan
     cost_states = _episode_first_buy_states(session, security_id, events)
     if not cost_states:
         return False, None
-    trading_dates = list_security_trading_dates(session, security_id, entry_date, as_of_date)
-    days_below = 0
-    underwater_now = False
-    for trade_date in trading_dates:
-        state = _cost_state_on_date(cost_states, trade_date)
-        if state is None:
-            continue
-        price_security_id = resolve_price_security_id(session, security_id, trade_date)
+    state = _cost_state_on_date(cost_states, as_of_date)
+    if state is None or state.first_buy_price is None or state.first_buy_price <= 0:
+        return False, None
+    mark = as_of_price
+    if mark is None:
+        price_security_id = resolve_price_security_id(session, security_id, as_of_date)
         observation = lookup_daily_price(
-            session, price_security_id, trade_date, allow_live=False
+            session, price_security_id, as_of_date, allow_live=False
         )
-        if observation is None:
-            continue
-        if observation.adjusted_close < state.first_buy_price:
-            days_below += 1
-            if trade_date == trading_dates[-1] or trade_date == as_of_date:
-                underwater_now = True
-    if trading_dates:
-        latest = trading_dates[-1]
-        state = _cost_state_on_date(cost_states, latest)
-        if state is not None:
-            price_security_id = resolve_price_security_id(session, security_id, latest)
-            observation = lookup_daily_price(
-                session, price_security_id, latest, allow_live=False
-            )
-            if observation is not None:
-                underwater_now = observation.adjusted_close < state.first_buy_price
-    return underwater_now, days_below
+        mark = observation.adjusted_close if observation is not None else None
+    if mark is None:
+        return False, None
+    return mark < state.first_buy_price, None
 
 
 def _benchmark_comparisons(
@@ -519,24 +512,25 @@ def _analyze_open_episode(
     first_buy = cost_state.first_buy_price if cost_state is not None else None
 
     price_security_id = resolve_price_security_id(session, episode.security_id, as_of_date)
-    as_of_obs = lookup_daily_price(
-        session, price_security_id, as_of_date, allow_live=False
-    )
-    as_of_adj = as_of_obs.adjusted_close if as_of_obs is not None else None
-    as_of_price_date = as_of_obs.trade_date if as_of_obs is not None else None
-    # Pair ledger qty with adjusted prices via later split/bonus factors;
-    # present price on the as-of share-count basis (matches Model Portfolio CMP).
-    as_of_factor = cumulative_split_bonus_factor_after(
-        session, episode.security_id, as_of_date
-    )
-    as_of_price = as_of_adj * as_of_factor if as_of_adj is not None else None
     used_bhav_mark = False
+    as_of_adj: Decimal | None = None
+    as_of_price_date: date | None = None
+    as_of_price: Decimal | None = None
     bhav_mark = _bhav_close_for_security(session, security, as_of_date)
     if bhav_mark is not None:
-        # Bhav CMP is already on current share count — prefer it when present.
         as_of_price, _bhav_series = bhav_mark
         as_of_price_date = as_of_date
         used_bhav_mark = True
+    else:
+        as_of_obs = lookup_daily_price(
+            session, price_security_id, as_of_date, allow_live=False
+        )
+        as_of_adj = as_of_obs.adjusted_close if as_of_obs is not None else None
+        as_of_price_date = as_of_obs.trade_date if as_of_obs is not None else None
+        as_of_factor = cumulative_split_bonus_factor_after(
+            session, episode.security_id, as_of_date
+        )
+        as_of_price = as_of_adj * as_of_factor if as_of_adj is not None else None
 
     if model_pos is not None and model_pos.mcap_factor is not None and as_of_price is not None:
         live_mcap, _ = mcap_and_firm_at_price(
@@ -570,13 +564,34 @@ def _analyze_open_episode(
     )
 
     # Period return helper (adj/adj, or bhav vs raw start in current shares).
-    period_ret, from_price_date, _, from_mark, period_note = _stock_return_pct(
-        session,
-        episode.security_id,
-        period_start,
-        as_of_date,
-        security=security,
-    )
+    period_window = from_date is not None
+    period_ret = None
+    from_price_date = None
+    from_mark = None
+    period_note = None
+    from_price = None
+    market_value_from: Decimal | None = None
+    if period_window:
+        period_ret, from_price_date, _, from_mark, period_note = _stock_return_pct(
+            session,
+            episode.security_id,
+            period_start,
+            as_of_date,
+            security=security,
+        )
+        start_price_sid = resolve_price_security_id(session, episode.security_id, period_start)
+        start_obs = lookup_daily_price(
+            session, start_price_sid, period_start, allow_live=False
+        )
+        if start_obs is not None:
+            from_price_date = start_obs.trade_date
+            qty_from = _quantity_on_date(events, start_obs.trade_date)
+            if qty_from > 0 and start_obs.close > 0:
+                market_value_from = Decimal(qty_from) * start_obs.close
+            from_price = start_obs.adjusted_close
+        elif from_mark is not None:
+            from_price = from_mark
+
     if as_of_price is None:
         notes.append("Missing as-of price")
     if first_buy is None:
@@ -584,28 +599,18 @@ def _analyze_open_episode(
     elif first_buy <= 0:
         notes.append("Non-positive first-buy price")
 
-    start_price_sid = resolve_price_security_id(session, episode.security_id, period_start)
-    start_obs = lookup_daily_price(
-        session, start_price_sid, period_start, allow_live=False
-    )
-    market_value_from: Decimal | None = None
-    if start_obs is not None:
-        from_price_date = start_obs.trade_date
-        qty_from = _quantity_on_date(events, start_obs.trade_date)
-        # ₹ value that day: ledger qty × that day's face close (same share units).
-        if qty_from > 0 and start_obs.close > 0:
-            market_value_from = Decimal(qty_from) * start_obs.close
-        # Period start mark = adjusted close (vendor series already current-share).
-        # Do not ×/÷ ledger CA factor — that factor is for qty vs adj, not this mark.
-        from_price = start_obs.adjusted_close
-    elif from_mark is not None:
-        from_price = from_mark
-    else:
-        from_price = None
+    if not period_window:
+        # Display period-start mark (entry) without full return helper cost.
+        start_price_sid = resolve_price_security_id(session, episode.security_id, period_start)
+        start_obs = lookup_daily_price(
+            session, start_price_sid, period_start, allow_live=False
+        )
+        if start_obs is not None:
+            from_price = start_obs.adjusted_close
+            from_price_date = start_obs.trade_date
 
     # Any From date → price on period start → as-of (never first-buy).
     # No From → 1st buy → current (since entry).
-    period_window = from_date is not None
     if period_window:
         end_mark = as_of_price if used_bhav_mark else as_of_adj
         if from_price is not None and from_price > 0 and end_mark is not None:
@@ -618,8 +623,6 @@ def _analyze_open_episode(
         stock_return = ((as_of_price / first_buy) - _ONE) * _HUNDRED
     else:
         stock_return = None
-        if period_note:
-            notes.append(period_note)
 
     underwater, days_below = _days_below_first_buy(
         session,
@@ -627,6 +630,7 @@ def _analyze_open_episode(
         episode.entry_date,
         as_of_date,
         events,
+        as_of_price=as_of_price,
     )
     benchmarks = _benchmark_comparisons(
         session,
@@ -642,9 +646,7 @@ def _analyze_open_episode(
     bse_nav = linked_bse_smallcap_return_pct(period_start, as_of_date)
     if bse_nav is not None:
         bse_ret = bse_nav
-        excess_bse = (
-            stock_return - bse_ret if stock_return is not None else None
-        )
+        excess_bse = stock_return - bse_ret if stock_return is not None else None
     else:
         bse_ret, excess_bse = _bse_from_benchmarks(benchmarks, primary)
     if portfolio_return_override is not None:
@@ -720,11 +722,9 @@ def analyze_open_holdings(
 
     closed_now = reconcile_open_episodes_to_client_model(session)
     if closed_now:
-        # Populate EpisodePerformance / post-exit so Dashboard & Episodes see them.
-        from pms_platform.analytics.service import run_full_episode_analysis
-
-        run_full_episode_analysis(session)
-        session.commit()
+        # ponytail: do not run_full_episode_analysis on every Holdings GET —
+        # that freezes cloud. Flush closes; dashboard catches up via analyze-episodes.
+        session.flush()
 
     ceiling = latest_holdings_as_of(session)
     if as_of_date is None:
@@ -754,9 +754,13 @@ def analyze_open_holdings(
         query.order_by(InvestmentEpisode.entry_date, InvestmentEpisode.episode_id)
     ).all()
 
+    security_ids = {row.security_id for row in episodes}
     securities = {
-        row.security_id: row for row in session.scalars(select(Security)).all()
-    }
+        row.security_id: row
+        for row in session.scalars(
+            select(Security).where(Security.security_id.in_(security_ids))
+        ).all()
+    } if security_ids else {}
     episode_ids = [row.episode_id for row in episodes]
     events_by_episode: dict[int, list[DecisionEvent]] = {}
     if episode_ids:
@@ -771,45 +775,43 @@ def analyze_open_holdings(
         ).all():
             events_by_episode.setdefault(event.episode_id, []).append(event)
 
-    equity_mv_reconstructed = equity_portfolio_market_value(
-        session, resolved_as_of, allow_live=False
-    )
-    research_as_of = lookup_research_portfolio_value(resolved_as_of)
+    # Prefer Model×bhav (same as Client Portfolio) before expensive Research/ledger walks.
     model_bhav_total = _client_model_bhav_total(session, resolved_as_of, model_by_symbol)
-    # Exact History/Values day wins; if Research is stale vs as-of (bhav ahead),
-    # prefer live Model×bhav (same as Client Portfolio), else reconstructed.
-    if (
-        research_as_of is not None
-        and research_as_of.observation_date == resolved_as_of
-    ):
-        equity_mv = research_as_of.value
-        portfolio_value_source = research_as_of.source
-        portfolio_value_observation_date = research_as_of.observation_date
-        portfolio_value_check_delta = (
-            equity_mv - equity_mv_reconstructed
-            if equity_mv_reconstructed is not None
-            else None
-        )
-    elif model_bhav_total is not None:
+    equity_mv_reconstructed: Decimal | None = None
+    research_as_of = None
+    if model_bhav_total is not None:
         equity_mv = model_bhav_total
         portfolio_value_source = "CLIENT_MODEL_BHAV"
         portfolio_value_observation_date = resolved_as_of
-        portfolio_value_check_delta = (
-            equity_mv - equity_mv_reconstructed
-            if equity_mv_reconstructed is not None
-            else None
-        )
+        portfolio_value_check_delta = None
     else:
-        equity_mv = equity_mv_reconstructed
-        bhav_day = latest_bhav_trade_date(session)
-        if equity_mv is not None and bhav_day is not None and resolved_as_of == bhav_day:
-            portfolio_value_source = "BHAV_REVALUED"
-        else:
-            portfolio_value_source = "RECONSTRUCTED" if equity_mv is not None else None
-        portfolio_value_observation_date = (
-            resolved_as_of if equity_mv is not None else None
+        research_as_of = lookup_research_portfolio_value(resolved_as_of)
+        equity_mv_reconstructed = equity_portfolio_market_value(
+            session, resolved_as_of, allow_live=False
         )
-        portfolio_value_check_delta = _ZERO if equity_mv is not None else None
+        if (
+            research_as_of is not None
+            and research_as_of.observation_date == resolved_as_of
+        ):
+            equity_mv = research_as_of.value
+            portfolio_value_source = research_as_of.source
+            portfolio_value_observation_date = research_as_of.observation_date
+            portfolio_value_check_delta = (
+                equity_mv - equity_mv_reconstructed
+                if equity_mv_reconstructed is not None
+                else None
+            )
+        else:
+            equity_mv = equity_mv_reconstructed
+            bhav_day = latest_bhav_trade_date(session)
+            if equity_mv is not None and bhav_day is not None and resolved_as_of == bhav_day:
+                portfolio_value_source = "BHAV_REVALUED"
+            else:
+                portfolio_value_source = "RECONSTRUCTED" if equity_mv is not None else None
+            portfolio_value_observation_date = (
+                resolved_as_of if equity_mv is not None else None
+            )
+            portfolio_value_check_delta = _ZERO if equity_mv is not None else None
 
     book_portfolio_return: Decimal | None = None
     equity_mv_from: Decimal | None = None
