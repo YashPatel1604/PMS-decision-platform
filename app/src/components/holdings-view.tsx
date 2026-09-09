@@ -743,6 +743,13 @@ export function HoldingsView() {
                 </p>
                 {seriesQuery.isLoading ? (
                   <p className="text-sm text-stone-500">Loading series…</p>
+                ) : seriesQuery.isError ? (
+                  <p className="text-sm text-stone-500">
+                    Series failed to load
+                    {seriesQuery.error instanceof Error
+                      ? `: ${seriesQuery.error.message.slice(0, 120)}`
+                      : "."}
+                  </p>
                 ) : seriesQuery.data ? (
                   <CompareChart series={seriesQuery.data} />
                 ) : (

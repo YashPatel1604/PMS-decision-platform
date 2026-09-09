@@ -118,51 +118,46 @@ def _linear_normalized(
     return 100.0 + (end_level - 100.0) * frac
 
 
+def _peer_price_on_or_before(
+    hist: list[tuple[date, Decimal]], day: date
+) -> Decimal | None:
+    """Last close on/before day from sorted (date, close) bars."""
+    px = None
+    for d, price in hist:
+        if d <= day:
+            px = price
+        else:
+            break
+    return px
+
+
 def _peer_price_map(
     yahoo: YahooFinanceClient,
     ticker: str,
     start: date,
     end: date,
-) -> tuple[dict[date, Decimal], Decimal | None]:
-    """Daily closes on/before each day, plus total return over the window."""
+) -> tuple[list[tuple[date, Decimal]], Decimal | None]:
+    """Yahoo daily closes plus total return over the window."""
     widened = date.fromordinal(max(start.toordinal() - 14, 1))
     try:
         history = yahoo.fetch_chart_history(ticker, widened, end)
     except Exception:  # noqa: BLE001
-        return {}, None
+        return [], None
     if not history:
-        return {}, None
+        return [], None
 
-    # Forward-fill map for sample lookup: running last close
-    running: Decimal | None = None
-    filled: dict[date, Decimal] = {}
-    cursor = widened
-    hist_idx = 0
     hist = sorted(history)
-    while cursor <= end:
-        while hist_idx < len(hist) and hist[hist_idx][0] <= cursor:
-            running = hist[hist_idx][1]
-            hist_idx += 1
-        if running is not None:
-            filled[cursor] = running
-        cursor = date.fromordinal(cursor.toordinal() + 1)
-
-    start_px = None
-    for day, price in reversed(hist):
-        if day <= start:
-            start_px = price
-            break
-    if start_px is None and hist:
-        # first bar after start
+    start_px = _peer_price_on_or_before(hist, start)
+    if start_px is None:
         for day, price in hist:
             if day >= start:
                 start_px = price
                 break
-    end_px = filled.get(end) or (hist[-1][1] if hist else None)
+    end_px = _peer_price_on_or_before(hist, end) or (hist[-1][1] if hist else None)
     total = None
     if start_px is not None and end_px is not None and start_px > 0:
         total = ((end_px / start_px) - _ONE) * _HUNDRED
-    return filled, total
+    return hist, total
 
 
 def build_compare_series(
@@ -202,8 +197,17 @@ def build_compare_series(
     bench_code = REQUIRED_BENCHMARKS[0]
     bench_base_obs = lookup_benchmark_tri(session, bench_code, period_start)
     bench_base = bench_base_obs.tri_level if bench_base_obs else None
+    if bench_base is None:
+        notes.append(f"No {bench_code} TRI at period start")
 
+    # Portfolio path is O(holdings×lookups) per day — linearize from endpoints
+    # like industry EW. Chart is provisional; headline uses the same endpoints.
+    # ponytail: linear portfolio series (not true path); upgrade = batch MV cache.
     port_base = equity_portfolio_market_value(session, period_start)
+    port_end = equity_portfolio_market_value(session, end_date)
+    port_return: Decimal | None = None
+    if port_base is not None and port_end is not None and port_base > 0:
+        port_return = ((port_end / port_base) - _ONE) * _HUNDRED
 
     industry = compute_industry_equal_weight(
         session,
@@ -213,28 +217,24 @@ def build_compare_series(
         fetch_yahoo=False,
     )
     industry_return = industry.total_return_pct
+    if industry.peer_count == 0:
+        notes.append(industry.notes[0] if industry.notes else "No industry peers")
 
     peer_returns: dict[str, Decimal | None] = {ticker: None for ticker in tickers}
-    peer_price_maps: dict[str, dict[date, Decimal]] = {}
+    peer_hists: dict[str, list[tuple[date, Decimal]]] = {}
     peer_bases: dict[str, Decimal | None] = {}
     if tickers:
         yahoo = client or YahooFinanceClient()
         for ticker in tickers:
             try:
-                price_map, total = _peer_price_map(yahoo, ticker, period_start, end_date)
-                peer_price_maps[ticker] = price_map
+                hist, total = _peer_price_map(yahoo, ticker, period_start, end_date)
+                peer_hists[ticker] = hist
                 peer_returns[ticker] = total
-                base = None
-                for day in sorted(price_map):
-                    if day <= period_start:
-                        base = price_map[day]
-                    else:
-                        break
-                if base is None and price_map:
-                    # first available on/after start
-                    for day in sorted(price_map):
+                base = _peer_price_on_or_before(hist, period_start)
+                if base is None and hist:
+                    for day, price in hist:
                         if day >= period_start:
-                            base = price_map[day]
+                            base = price
                             break
                 peer_bases[ticker] = base
                 if total is None:
@@ -253,21 +253,12 @@ def build_compare_series(
         bench_obs = lookup_benchmark_tri(session, bench_code, day)
         bench_n = _normalize(bench_obs.tri_level if bench_obs else None, bench_base)
 
-        port_v = equity_portfolio_market_value(session, day)
-        port_n = _normalize(port_v, port_base)
-
+        port_n = _linear_normalized(day, period_start, end_date, port_return)
         industry_n = _linear_normalized(day, period_start, end_date, industry_return)
 
         peer_levels: dict[str, float | None] = {}
         for ticker in tickers:
-            price_map = peer_price_maps.get(ticker) or {}
-            # last close on/before sample day
-            px = None
-            for d in sorted(price_map):
-                if d <= day:
-                    px = price_map[d]
-                else:
-                    break
+            px = _peer_price_on_or_before(peer_hists.get(ticker) or [], day)
             peer_levels[ticker] = _normalize(px, peer_bases.get(ticker))
 
         points.append(
