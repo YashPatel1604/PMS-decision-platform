@@ -580,15 +580,6 @@ export type DailyEditStatus = {
   categories: Record<DailyEditCategory, DailyEditCategoryStatus>;
 };
 
-export type DailyEditUploadResult = {
-  category: DailyEditCategory;
-  filename: string;
-  checksum_sha256: string;
-  byte_size: number;
-  local_path: string;
-  deduplicated: boolean;
-};
-
 export type DailyEditReimportResult = {
   category: DailyEditCategory;
   workbook: string;
@@ -599,6 +590,17 @@ export type DailyEditReimportResult = {
   qty_updated?: string[];
   updated?: number[];
   portfolio_symbols?: number;
+  bank_balance?: number;
+};
+
+export type DailyEditUploadResult = {
+  category: DailyEditCategory;
+  filename: string;
+  checksum_sha256: string;
+  byte_size: number;
+  local_path: string;
+  deduplicated: boolean;
+  applied?: DailyEditReimportResult | null;
 };
 
 export type HealthResponse = {
@@ -1331,12 +1333,13 @@ export const api = {
   },
   reimportDailyEdit: async (
     category: DailyEditCategory,
-    opts: { dryRun?: boolean; updateQty?: boolean } = {},
+    opts: { dryRun?: boolean; updateQty?: boolean; authoritative?: boolean } = {},
   ) => {
     const body = new FormData();
     body.append("category", category);
     body.append("dry_run", opts.dryRun === false ? "false" : "true");
     body.append("update_qty", opts.updateQty ? "true" : "false");
+    body.append("authoritative", opts.authoritative ? "true" : "false");
     const response = await fetch(`${API_BASE}/daily-edit/reimport`, {
       method: "POST",
       body,

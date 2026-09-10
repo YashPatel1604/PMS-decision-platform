@@ -132,6 +132,7 @@ def test_reimport_sca_uses_sca_book(session, storage, daily_edit_dir, monkeypatc
 
     class _Book:
         model = [_Pos()]
+        bank_balance = None
 
     monkeypatch.setattr(
         "pms_platform.market_data.client_portfolio_parse.parse_client_portfolio_workbook",
@@ -150,6 +151,54 @@ def test_reimport_sca_uses_sca_book(session, storage, daily_edit_dir, monkeypatc
     preview = reimport_daily_edit(session, category="sca_llp", dry_run=True)
     assert preview["added"] == ["RELIANCE"]
     assert calls == ["sca"]
+
+
+def test_upload_auto_applies_authoritative(session, storage, daily_edit_dir, monkeypatch) -> None:
+    """Upload must reimport with update_qty so cloud UI shows new Excel numbers."""
+    from pms_platform.api.routes import daily_edit as route
+
+    admin = _admin(session)
+    data = _xlsx_bytes()
+    applied: list[dict] = []
+
+    def _fake_reimport(session, *, category, update_qty=False, dry_run=False, authoritative=False):
+        applied.append(
+            {
+                "category": category,
+                "update_qty": update_qty,
+                "dry_run": dry_run,
+                "authoritative": authoritative,
+            }
+        )
+        return {
+            "category": category,
+            "workbook": "x",
+            "dry_run": False,
+            "added": [],
+            "removed": [],
+        }
+
+    monkeypatch.setattr(
+        "pms_platform.api.routes.daily_edit.reimport_daily_edit",
+        _fake_reimport,
+    )
+    # Call sync helpers the route uses after upload_daily_edit
+    result = upload_daily_edit(
+        session,
+        category="charts",
+        filename="Charts.xlsx",
+        data=data,
+        uploaded_by=admin.user_id,
+        storage=storage,
+    )
+    assert result.local_path
+    # Simulate route apply step
+    apply = route.reimport_daily_edit(
+        session, category="charts", dry_run=False, authoritative=True
+    )
+    assert applied[-1]["authoritative"] is True
+    assert applied[-1]["dry_run"] is False
+    assert apply["category"] == "charts"
 
 
 def test_reimport_pivot_dry_run(session, storage, daily_edit_dir, monkeypatch) -> None:

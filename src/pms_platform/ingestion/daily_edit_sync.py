@@ -29,7 +29,8 @@ from pms_platform.storage.adapter import StorageAdapter, sha256_hex
 
 DAILY_EDIT_CATEGORIES = frozenset({"client_portfolio", "charts", "sca_llp", "pivot_points"})
 
-_REIMPORT_CATEGORIES = frozenset({"client_portfolio", "charts", "sca_llp", "pivot_points"})
+REIMPORT_CATEGORIES = frozenset({"client_portfolio", "charts", "sca_llp", "pivot_points"})
+_REIMPORT_CATEGORIES = REIMPORT_CATEGORIES  # alias for older imports
 
 _CATEGORY_BOOK = {"client_portfolio": "client", "sca_llp": "sca"}
 
@@ -205,9 +206,13 @@ def reimport_daily_edit(
     category: str,
     update_qty: bool = False,
     dry_run: bool = False,
+    authoritative: bool = False,
 ) -> dict[str, Any]:
-    if category not in _REIMPORT_CATEGORIES:
+    """Reimport workbook into DB. authoritative=True → qty/levels/bank from Excel win."""
+    if category not in REIMPORT_CATEGORIES:
         raise DailyEditSyncError(f"reimport not supported for category: {category}")
+    if authoritative:
+        update_qty = True
 
     path = _latest_uploaded_path(session, category) or _workbook_path_for_category(category)
     if path is None or not path.is_file():
@@ -250,6 +255,20 @@ def reimport_daily_edit(
             update_qty=update_qty,
             dry_run=False,
         )
+        if authoritative and book_key == "sca" and book.bank_balance is not None:
+            from pms_platform.models.client_book_settings import ClientBookSettings
+
+            settings_row = session.get(ClientBookSettings, "sca")
+            if settings_row is None:
+                session.add(
+                    ClientBookSettings(book="sca", bank_balance=book.bank_balance, row_version=1)
+                )
+            else:
+                settings_row.bank_balance = book.bank_balance
+                settings_row.row_version = settings_row.row_version + 1
+            session.flush()
+            result = {**result, "bank_balance": float(book.bank_balance)}
+        clear_client_portfolio_cache()
         return {"category": category, "workbook": str(path), "dry_run": False, **result}
 
     if category == "pivot_points":
@@ -269,10 +288,14 @@ def reimport_daily_edit(
     parsed = parse_charts_range(path)
     if not parsed:
         raise DailyEditSyncError("could not parse Charts Range sheet")
-    preview = reimport_rows_from_parse(session, parsed, dry_run=True)
+    preview = reimport_rows_from_parse(
+        session, parsed, dry_run=True, replace_levels=authoritative
+    )
     if dry_run:
         return {"category": category, "workbook": str(path), "dry_run": True, **preview}
-    result = reimport_rows_from_parse(session, parsed, dry_run=False)
+    result = reimport_rows_from_parse(
+        session, parsed, dry_run=False, replace_levels=authoritative
+    )
     return {"category": category, "workbook": str(path), "dry_run": False, **result}
 
 
@@ -284,7 +307,7 @@ def daily_edit_status(session: Session) -> dict[str, Any]:
         path = _workbook_path_for_category(category)
         entry: dict[str, Any] = {
             "category": category,
-            "reimport_supported": category in _REIMPORT_CATEGORIES,
+            "reimport_supported": category in REIMPORT_CATEGORIES,
             "uploaded": version is not None,
             "filename": version.original_filename if version else None,
             "checksum_sha256": version.checksum_sha256 if version else None,

@@ -11,6 +11,7 @@ from pms_platform.auth.permissions import PERMISSION_VIEW_ALL_SUBMITTED
 from pms_platform.feature_flags import approval_workflow_enabled
 from pms_platform.ingestion.daily_edit_sync import (
     DAILY_EDIT_CATEGORIES,
+    REIMPORT_CATEGORIES,
     DailyEditCloudUploadError,
     DailyEditSyncError,
     daily_edit_status,
@@ -62,6 +63,7 @@ async def post_upload(
             status_code=400, detail=f"category must be one of {sorted(DAILY_EDIT_CATEGORIES)}"
         )
     data = await file.read()
+    apply: dict | None = None
     try:
         result = upload_daily_edit(
             session,
@@ -72,6 +74,14 @@ async def post_upload(
             storage=get_storage(),
             mime_type=file.content_type,
         )
+        # New upload is primary: push workbook into DB (qty / chart levels / SCA bank).
+        if cat in REIMPORT_CATEGORIES:
+            apply = reimport_daily_edit(
+                session,
+                category=cat,
+                dry_run=False,
+                authoritative=True,
+            )
         session.commit()
     except DailyEditCloudUploadError as exc:
         session.rollback()
@@ -98,6 +108,7 @@ async def post_upload(
         "byte_size": result.byte_size,
         "local_path": result.local_path,
         "deduplicated": result.deduplicated,
+        "applied": apply,
     }
 
 
@@ -113,6 +124,7 @@ def post_reimport(
     category: str = Form(...),
     update_qty: str | bool = Form(False),
     dry_run: str | bool = Form(True),
+    authoritative: str | bool = Form(False),
     session: Session = Depends(get_db),
 ) -> dict:
     if not approval_workflow_enabled():
@@ -125,12 +137,14 @@ def post_reimport(
     cat = category.strip()
     dry = _form_bool(dry_run)
     qty = _form_bool(update_qty)
+    auth = _form_bool(authoritative)
     try:
         result = reimport_daily_edit(
             session,
             category=cat,
             update_qty=qty,
             dry_run=dry,
+            authoritative=auth,
         )
         if not dry:
             session.commit()

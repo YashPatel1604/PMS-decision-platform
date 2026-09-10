@@ -102,8 +102,9 @@ def reimport_rows_from_parse(
     parsed: list[dict[str, Any]],
     *,
     dry_run: bool = False,
+    replace_levels: bool = False,
 ) -> dict[str, Any]:
-    """Sync Charts Range structure from Excel; preserve stored level overrides."""
+    """Sync Charts Range from Excel. With replace_levels, overwrite H/L/C/weekly too."""
     excel_rows = {int(raw["excel_row"]): raw for raw in parsed}
     official = {r.excel_row: r for r in session.scalars(select(ChartsRangeRow)).all()}
     added = sorted(set(excel_rows) - set(official))
@@ -113,11 +114,29 @@ def reimport_rows_from_parse(
         row = official.get(excel_row)
         if row is None:
             continue
-        if (
+        struct_changed = (
             row.symbol != str(raw["symbol"])
             or row.name != str(raw["name"])
             or row.section != str(raw.get("section") or "holdings")
-        ):
+        )
+        levels_changed = False
+        if replace_levels:
+            new_high = raw.get("high")
+            new_low = raw.get("low")
+            new_close = raw.get("excel_close")
+            levels_changed = (
+                (row.high is None) != (new_high is None)
+                or (row.high is not None and new_high is not None and row.high != Decimal(str(new_high)))
+                or (row.low is None) != (new_low is None)
+                or (row.low is not None and new_low is not None and row.low != Decimal(str(new_low)))
+                or (row.close_override is None) != (new_close is None)
+                or (
+                    row.close_override is not None
+                    and new_close is not None
+                    and row.close_override != Decimal(str(new_close))
+                )
+            )
+        if struct_changed or levels_changed:
             updated.append(excel_row)
 
     if dry_run:
@@ -151,6 +170,17 @@ def reimport_rows_from_parse(
         row.symbol = str(raw["symbol"])
         row.name = str(raw["name"])
         row.section = str(raw.get("section") or "holdings")
+        if replace_levels:
+            row.high = Decimal(str(raw["high"])) if raw.get("high") is not None else None
+            row.low = Decimal(str(raw["low"])) if raw.get("low") is not None else None
+            row.close_override = (
+                Decimal(str(raw["excel_close"])) if raw.get("excel_close") is not None else None
+            )
+            row.weekly_close = (
+                Decimal(str(raw["weekly_close"])) if raw.get("weekly_close") is not None else None
+            )
+            row.support_resistance = raw.get("support_resistance")
+            row.weekly_close_date = raw.get("weekly_close_date")
         row.row_version = row.row_version + 1
     session.flush()
     return {"added": added, "removed": removed, "updated": updated}

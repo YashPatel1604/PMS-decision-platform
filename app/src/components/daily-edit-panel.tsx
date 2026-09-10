@@ -26,7 +26,7 @@ export function DailyEditPanel({
   const fileRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [preview, setPreview] = useState<DailyEditReimportResult | null>(null);
-  const [updateQty, setUpdateQty] = useState(false);
+  const [updateQty, setUpdateQty] = useState(true);
 
   const statusQuery = useQuery({
     queryKey: ["daily-edit-status"],
@@ -38,10 +38,15 @@ export function DailyEditPanel({
   const uploadMutation = useMutation({
     mutationFn: (file: File) => api.uploadDailyEdit(category, file),
     onSuccess: (result) => {
+      const applied = result.applied;
+      const delta =
+        applied != null
+          ? ` Applied +${applied.added?.length ?? 0} / −${applied.removed?.length ?? 0}.`
+          : "";
       setMessage(
         result.deduplicated
-          ? "Already uploaded (same file)."
-          : `Uploaded ${result.filename}.`,
+          ? `Same file on server.${delta}`
+          : `Uploaded ${result.filename} as primary.${delta}`,
       );
       setPreview(null);
       void queryClient.invalidateQueries({ queryKey: ["daily-edit-status"] });
@@ -51,7 +56,8 @@ export function DailyEditPanel({
   });
 
   const previewMutation = useMutation({
-    mutationFn: () => api.reimportDailyEdit(category, { dryRun: true, updateQty }),
+    mutationFn: () =>
+      api.reimportDailyEdit(category, { dryRun: true, updateQty, authoritative: true }),
     onSuccess: (result) => {
       setPreview(result);
       setMessage("Preview ready — apply when it looks right.");
@@ -60,11 +66,12 @@ export function DailyEditPanel({
   });
 
   const applyMutation = useMutation({
-    mutationFn: () => api.reimportDailyEdit(category, { dryRun: false, updateQty }),
+    mutationFn: () =>
+      api.reimportDailyEdit(category, { dryRun: false, updateQty, authoritative: true }),
     onSuccess: (result) => {
       setPreview(null);
       setMessage(
-        `Applied: +${result.added?.length ?? 0} / −${result.removed?.length ?? 0} symbols.`,
+        `Applied as primary: +${result.added?.length ?? 0} / −${result.removed?.length ?? 0} symbols.`,
       );
       void queryClient.invalidateQueries();
     },
@@ -80,7 +87,8 @@ export function DailyEditPanel({
         {title ?? "DailyEdit cloud sync"}
       </h3>
       <p className="mt-1 text-slate-600">
-        Upload the workbook from your Mac, then reimport to refresh server data.
+        Upload replaces the server workbook and applies it as the live source (qty,
+        symbols, chart levels, SCA bank).
       </p>
       {catStatus && (
         <p className="mt-2 text-slate-500">
@@ -139,7 +147,7 @@ export function DailyEditPanel({
             checked={updateQty}
             onChange={(e) => setUpdateQty(e.target.checked)}
           />
-          Update approved qty from Excel (default off)
+          Update qty from Excel on manual reimport (uploads always update qty)
         </label>
       ) : null}
       {preview && (
