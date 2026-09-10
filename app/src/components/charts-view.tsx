@@ -90,8 +90,9 @@ function derive(
     corr_a: corr(corrA),
     corr_b: corr(corrB),
     below_trg_89: close != null && trg_89 != null && close < trg_89,
-    below_low: close != null && low != null && close < low,
-    above_high: close != null && high != null && close > high,
+    // At new extreme: user sets High/Low to Close — still flag red/blue.
+    below_low: close != null && low != null && close <= low,
+    above_high: close != null && high != null && close >= high,
   };
 }
 
@@ -156,8 +157,8 @@ export function ChartsView() {
           <p className="mt-1 max-w-2xl text-sm text-stone-600">
             Range from DailyEditFiles <span className="font-medium">Charts.xlsx</span>.
             High / Low / Close are editable (writes Excel or shared DB when cloud mode is on).
-            Corr bands use the sliders below (personal — saved on this device). Close below Low →
-            red; above High → blue.
+            Corr bands use the sliders below (personal — saved on this device). Close at/below Low →
+            red; at/above High → blue.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">

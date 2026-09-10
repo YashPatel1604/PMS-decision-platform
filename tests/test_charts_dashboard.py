@@ -111,6 +111,41 @@ def test_charts_dashboard_joins_bhav(session, tmp_path, monkeypatch) -> None:
     assert abs(rel["pct_from_lows"] - 42.5) < 1e-6
     assert rel["below_trg_89"] is True
     assert rel["missing_bhav"] is False
+    assert rel["below_low"] is False
+    assert rel["above_high"] is False
+
+
+def test_charts_flags_at_new_high_or_low(session, tmp_path, monkeypatch) -> None:
+    """Close equal to High/Low (after updating the extreme) still colors blue/red."""
+    path = tmp_path / "Charts - Copy.xlsx"
+    _range_book(path)
+    monkeypatch.setattr(
+        "pms_platform.market_data.nse_bhav_store.settings.upload_dir",
+        str(tmp_path),
+    )
+    monkeypatch.setattr(
+        "pms_platform.market_data.charts_dashboard.charts_workbook_path",
+        lambda folder=None: path,
+    )
+    monkeypatch.setattr(
+        "pms_platform.market_data.charts_dashboard.approval_workflow_enabled",
+        lambda: False,
+    )
+    sync_bhav_file(session, FIXTURES / "bhav_2026-08-19.csv")
+    session.commit()
+
+    write_charts_range_hlc(3, low=1425)  # new low set to close
+    at_low = build_charts_dashboard(session, as_of=date(2026, 8, 19))["rows"][0]
+    assert at_low["close"] == 1425.0
+    assert at_low["low"] == 1425.0
+    assert at_low["below_low"] is True
+    assert at_low["above_high"] is False
+
+    write_charts_range_hlc(3, high=1425, low=1000)  # new high set to close
+    at_high = build_charts_dashboard(session, as_of=date(2026, 8, 19))["rows"][0]
+    assert at_high["high"] == 1425.0
+    assert at_high["above_high"] is True
+    assert at_high["below_low"] is False
 
 
 def test_write_charts_range_hlc(tmp_path: Path, monkeypatch) -> None:

@@ -219,8 +219,9 @@ def build_charts_dashboard(
             if close is not None and high is not None
             else None,
             "below_trg_89": bool(close is not None and trg_89 is not None and close < trg_89),
-            "below_low": bool(close is not None and low is not None and close < low),
-            "above_high": bool(close is not None and high is not None and close > high),
+            # At new extreme H/L is often set equal to close — still flag red/blue.
+            "below_low": bool(close is not None and low is not None and close <= low),
+            "above_high": bool(close is not None and high is not None and close >= high),
             "weekly_close": _f(raw["weekly_close"]),
             "support_resistance": raw["support_resistance"],
             "weekly_close_date": raw["weekly_close_date"],
