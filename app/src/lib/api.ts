@@ -598,6 +598,7 @@ export type DailyEditReimportResult = {
   metadata_updated?: string[];
   qty_updated?: string[];
   updated?: number[];
+  portfolio_symbols?: number;
 };
 
 export type HealthResponse = {

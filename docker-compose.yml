@@ -33,6 +33,9 @@ services:
       DATABASE_URL: postgresql+psycopg://pms:${POSTGRES_PASSWORD:-pms}@postgres:5432/pms
       RESEARCH_DIR: /data/research
       DAILY_EDIT_DIR: /data/daily_edit
+      ONEDRIVE_BACKUP_DIR: /data/daily_edit_backup
+      ONEDRIVE_BACKUP_ENABLED: ${ONEDRIVE_BACKUP_ENABLED:-0}
+      ONEDRIVE_BACKUP_HOUR_IST: ${ONEDRIVE_BACKUP_HOUR_IST:-19}
       FINAL_MASTER_DIR: /data/final_master
       SNAPSHOT_SEED_DIR: /data/snapshot_seed
       RAW_DATA_DIR: /data/raw
@@ -56,6 +59,9 @@ services:
       - type: bind
         source: ${DAILY_EDIT_DIR:-../DailyEditFiles}
         target: /data/daily_edit
+      - type: bind
+        source: ${ONEDRIVE_BACKUP_DIR:-../DailyEditBackup}
+        target: /data/daily_edit_backup
       - type: bind
         source: ${FINAL_MASTER_DIR:-./docker/final_master_seed}
         target: /data/final_master
@@ -96,6 +102,9 @@ services:
       RUN_MIGRATIONS_ON_START: "0"
       RESEARCH_DIR: /data/research
       DAILY_EDIT_DIR: /data/daily_edit
+      ONEDRIVE_BACKUP_DIR: /data/daily_edit_backup
+      ONEDRIVE_BACKUP_ENABLED: ${ONEDRIVE_BACKUP_ENABLED:-0}
+      ONEDRIVE_BACKUP_HOUR_IST: ${ONEDRIVE_BACKUP_HOUR_IST:-19}
       FINAL_MASTER_DIR: /data/final_master
       SNAPSHOT_SEED_DIR: /data/snapshot_seed
       RAW_DATA_DIR: /data/raw
@@ -114,6 +123,9 @@ services:
       - type: bind
         source: ${DAILY_EDIT_DIR:-../DailyEditFiles}
         target: /data/daily_edit
+      - type: bind
+        source: ${ONEDRIVE_BACKUP_DIR:-../DailyEditBackup}
+        target: /data/daily_edit_backup
       - api_raw:/data/raw
       - api_processed:/data/processed
       - api_exports:/data/exports

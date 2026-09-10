@@ -47,6 +47,18 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""
     supabase_storage_bucket: str = "source-files"
 
+    # Nightly local folder mirror (Mac Docker). Graph uses microsoft_* below.
+    onedrive_backup_enabled: bool = False
+    onedrive_backup_dir: Path | None = None
+    onedrive_backup_hour_ist: int = 19
+    # Microsoft Graph (personal OneDrive). Free Azure app registration — not Azure hosting.
+    microsoft_tenant_id: str = "consumers"
+    microsoft_client_id: str = ""
+    microsoft_client_secret: str = ""
+    microsoft_refresh_token: str = ""
+    # Path under OneDrive root, e.g. PMS-Decision-Platform/DailyEditBackup
+    onedrive_graph_folder: str = "PMS-Decision-Platform/DailyEditBackup"
+
     @property
     def migration_database_url(self) -> str:
         """URL for Alembic / one-shot migration tasks (prefer direct when set)."""

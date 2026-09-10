@@ -13,6 +13,7 @@ from pms_platform.market_data.nse_bhav_parse import normalize_bhav_row
 from pms_platform.market_data.nse_bhav_store import (
     MAX_BHAV_SESSIONS,
     backfill_vol_exp_snapshots,
+    delete_portfolio_symbol,
     prune_bhav_sessions,
     replace_vol_exp_stats,
     sync_bhav_file,
@@ -41,7 +42,8 @@ def _yn(value: object) -> bool:
     return str(value or "").strip().upper() in {"Y", "YES", "TRUE", "1"}
 
 
-def seed_portfolio_from_workbook(session: Session, path: Path) -> int:
+def parse_portfolio_rows(path: Path) -> list[dict[str, Any]]:
+    """Read Portfolio sheet rows (no DB writes)."""
     wb = load_workbook(path, read_only=True, data_only=True)
     if "Portfolio" not in wb.sheetnames:
         wb.close()
@@ -68,7 +70,47 @@ def seed_portfolio_from_workbook(session: Session, path: Path) -> int:
             }
         )
     wb.close()
-    return upsert_portfolio_symbols(session, payload)
+    return payload
+
+
+def seed_portfolio_from_workbook(session: Session, path: Path) -> int:
+    return upsert_portfolio_symbols(session, parse_portfolio_rows(path))
+
+
+def reimport_pivot_portfolio(
+    session: Session,
+    path: Path,
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Upsert Portfolio sheet symbols; remove DB rows missing from Excel."""
+    from sqlalchemy import select
+
+    from pms_platform.models.nse_bhav import PivotPortfolioSymbol
+
+    payload = parse_portfolio_rows(path)
+    excel = {str(r["symbol"]).upper() for r in payload if r.get("symbol")}
+    existing = set(session.scalars(select(PivotPortfolioSymbol.symbol)).all())
+    added = sorted(excel - existing)
+    removed = sorted(existing - excel)
+    if dry_run:
+        return {
+            "added": added,
+            "removed": removed,
+            "metadata_updated": [],
+            "qty_updated": [],
+            "portfolio_symbols": len(excel),
+        }
+    upsert_portfolio_symbols(session, payload)
+    for symbol in removed:
+        delete_portfolio_symbol(session, symbol)
+    return {
+        "added": added,
+        "removed": removed,
+        "metadata_updated": [],
+        "qty_updated": [],
+        "portfolio_symbols": len(excel),
+    }
 
 
 def seed_vol_exp_from_all_symbols(session: Session, path: Path, *, as_of: date) -> int:

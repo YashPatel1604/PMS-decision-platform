@@ -87,6 +87,7 @@ def worker_cmd(*, worker_id: str = "worker-1", idle_seconds: float = 5.0) -> int
     import logging
     import time
 
+    from pms_platform.jobs.onedrive_daily_backup import maybe_run_onedrive_daily_backup
     from pms_platform.jobs.worker import run_worker_once
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -95,6 +96,10 @@ def worker_cmd(*, worker_id: str = "worker-1", idle_seconds: float = 5.0) -> int
     while True:
         session = get_session_factory()()
         try:
+            try:
+                maybe_run_onedrive_daily_backup(session)
+            except Exception:
+                log.exception("onedrive daily backup failed")
             if run_worker_once(session, worker_id=worker_id):
                 session.commit()
             else:
@@ -106,6 +111,77 @@ def worker_cmd(*, worker_id: str = "worker-1", idle_seconds: float = 5.0) -> int
             time.sleep(idle_seconds)
         finally:
             session.close()
+
+
+def onedrive_auth_cmd() -> int:
+    """Browser localhost login; save MICROSOFT_REFRESH_TOKEN into .env."""
+    import pathlib
+    import re
+
+    from pms_platform.storage.onedrive_graph import OneDriveGraphError, run_localhost_auth
+
+    try:
+        tokens = run_localhost_auth()
+    except OneDriveGraphError as exc:
+        print(str(exc), file=sys.stderr)
+        print(
+            "\nIn Azure → App → Authentication:\n"
+            "  1. Add platform Web (or Mobile/desktop)\n"
+            "  2. Redirect URI exactly: http://localhost:8765/callback\n"
+            "  3. Allow public client flows = Yes\n",
+            file=sys.stderr,
+        )
+        return 1
+    refresh = tokens.get("refresh_token")
+    if not refresh:
+        print("No refresh_token — ensure offline_access is allowed on the app", file=sys.stderr)
+        return 1
+    env = pathlib.Path(".env")
+    if not env.is_file():
+        print(f"MICROSOFT_REFRESH_TOKEN={refresh}")
+        return 0
+    text = env.read_text(encoding="utf-8")
+    line = f"MICROSOFT_REFRESH_TOKEN={refresh}"
+    if "MICROSOFT_REFRESH_TOKEN=" in text:
+        text = re.sub(r"^MICROSOFT_REFRESH_TOKEN=.*$", line, text, flags=re.M)
+    else:
+        text = text.rstrip() + "\n" + line + "\n"
+    env.write_text(text, encoding="utf-8")
+    print("Saved MICROSOFT_REFRESH_TOKEN to .env (do not paste it in chat).")
+    return 0
+
+
+def onedrive_backup_cmd(*, force: bool = False) -> int:
+    """Overwrite Client/Charts/SCA/Pivot into DailyEditBackup (Graph or local)."""
+    from pms_platform.jobs.onedrive_daily_backup import (
+        DailyEditBackupError,
+        maybe_run_onedrive_daily_backup,
+        run_onedrive_daily_backup,
+    )
+
+    session = get_session_factory()()
+    try:
+        try:
+            result = (
+                run_onedrive_daily_backup(session)
+                if force
+                else maybe_run_onedrive_daily_backup(session)
+            )
+        except DailyEditBackupError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        if result is None:
+            print("Skipped (disabled, before hour IST, or already ran today).")
+            print("Use --force to overwrite now.")
+            return 0
+        print(f"Via: {result.get('via')}  Folder: {result.get('folder')}")
+        for row in result.get("uploaded") or []:
+            print(f"OK {row['path']} ({row['bytes']} bytes)")
+        for cat in result.get("missing") or []:
+            print(f"MISSING {cat}", file=sys.stderr)
+        return 0 if result.get("ok") else 1
+    finally:
+        session.close()
 
 
 def _parse_date(value: str) -> date:
@@ -1422,6 +1498,21 @@ def main() -> None:
         help="Sleep when no jobs are available",
     )
 
+    onedrive_auth_parser = subparsers.add_parser(
+        "onedrive-auth",
+        help="Device-code Microsoft login; print MICROSOFT_REFRESH_TOKEN",
+    )
+
+    onedrive_backup_parser = subparsers.add_parser(
+        "onedrive-backup",
+        help="Overwrite DailyEdit workbooks into DailyEditBackup (same filenames)",
+    )
+    onedrive_backup_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Run now (ignore 19:00 IST gate and once-per-day marker)",
+    )
+
     market_import_parser = subparsers.add_parser(
         "import-market-data",
         help="Import canonical market-data CSV files from data/external",
@@ -1766,6 +1857,10 @@ def main() -> None:
         raise SystemExit(migrate_cmd(seed_users=not args.no_seed_users))
     if args.command == "worker":
         raise SystemExit(worker_cmd(worker_id=args.worker_id, idle_seconds=args.idle_seconds))
+    if args.command == "onedrive-auth":
+        raise SystemExit(onedrive_auth_cmd())
+    if args.command == "onedrive-backup":
+        raise SystemExit(onedrive_backup_cmd(force=args.force))
     if args.command == "import-market-data":
         raise SystemExit(import_market_data_cmd(args.external_dir))
     if args.command == "import-fundamentals":

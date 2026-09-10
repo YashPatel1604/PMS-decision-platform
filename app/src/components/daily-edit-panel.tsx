@@ -132,7 +132,7 @@ export function DailyEditPanel({
           </>
         )}
       </div>
-      {category === "client_portfolio" && (
+      {category === "client_portfolio" || category === "sca_llp" ? (
         <label className="mt-2 flex items-center gap-2 text-slate-600">
           <input
             type="checkbox"
@@ -141,7 +141,7 @@ export function DailyEditPanel({
           />
           Update approved qty from Excel (default off)
         </label>
-      )}
+      ) : null}
       {preview && (
         <pre className="mt-3 overflow-x-auto rounded bg-white p-2 text-xs text-slate-700">
           {JSON.stringify(preview, null, 2)}

@@ -53,6 +53,27 @@ Copy the same env as API (except no health check). `RUN_MIGRATIONS_ON_START` not
 
 Optional: `WORKER_ID=worker-1` if scaling later (single worker initially per D5).
 
+### DailyEdit OneDrive backup via Graph (19:00 IST)
+
+Worker overwrites four files in `ONEDRIVE_GRAPH_FOLDER` (default
+`PMS-Decision-Platform/DailyEditBackup`) using Microsoft Graph.
+
+On **worker** set:
+
+```
+ONEDRIVE_BACKUP_ENABLED=1
+ONEDRIVE_BACKUP_HOUR_IST=19
+ONEDRIVE_GRAPH_FOLDER=PMS-Decision-Platform/DailyEditBackup
+MICROSOFT_TENANT_ID=common
+MICROSOFT_CLIENT_ID=...
+MICROSOFT_CLIENT_SECRET=...
+MICROSOFT_REFRESH_TOKEN=...   # from local: pms-platform onedrive-auth
+```
+
+Smoke: `railway run --service worker pms-platform onedrive-backup --force`
+
+Local folder mirror (`ONEDRIVE_BACKUP_DIR`) is used only when Graph creds are missing.
+
 ## 4. UI service
 
 | Setting | Value |

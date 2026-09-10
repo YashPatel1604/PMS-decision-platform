@@ -21,15 +21,17 @@ from pms_platform.market_data.client_portfolio_parse import (
 from pms_platform.market_data.daily_edit_bhav import (
     charts_workbook_path,
     client_portfolio_daily_edit_path,
+    pivot_workbook_daily_edit_path,
+    sca_llp_workbook_path,
 )
 from pms_platform.models.source_lineage import SourceFile, SourceFileVersion
 from pms_platform.storage.adapter import StorageAdapter, sha256_hex
 
 DAILY_EDIT_CATEGORIES = frozenset({"client_portfolio", "charts", "sca_llp", "pivot_points"})
 
-_REIMPORT_CATEGORIES = frozenset({"client_portfolio", "charts"})
+_REIMPORT_CATEGORIES = frozenset({"client_portfolio", "charts", "sca_llp", "pivot_points"})
 
-_CATEGORY_BOOK = {"client_portfolio": "client"}
+_CATEGORY_BOOK = {"client_portfolio": "client", "sca_llp": "sca"}
 
 _CANONICAL_FILENAMES = {
     "client_portfolio": "PMS_ClientPortfolio.xlsx",
@@ -190,23 +192,11 @@ def _workbook_path_for_category(category: str) -> Path | None:
         return client_portfolio_daily_edit_path()
     if category == "charts":
         return charts_workbook_path()
-    root = _daily_edit_root()
-    if not root.is_dir():
-        return None
-    needles = {
-        "sca_llp": ("sca",),
-        "pivot_points": ("pivot",),
-    }.get(category)
-    if needles is None:
-        return None
-    hits: list[Path] = []
-    for path in root.glob("*.xlsx"):
-        if path.name.startswith("~$"):
-            continue
-        name = path.name.casefold()
-        if all(n.casefold() in name for n in needles):
-            hits.append(path)
-    return max(hits, key=lambda p: p.stat().st_mtime) if hits else None
+    if category == "sca_llp":
+        return sca_llp_workbook_path()
+    if category == "pivot_points":
+        return pivot_workbook_daily_edit_path()
+    return None
 
 
 def reimport_daily_edit(
@@ -223,7 +213,7 @@ def reimport_daily_edit(
     if path is None or not path.is_file():
         raise DailyEditSyncError(f"no workbook on disk for {category} — upload first")
 
-    if category == "client_portfolio":
+    if category in _CATEGORY_BOOK:
         from pms_platform.market_data.client_portfolio_parse import parse_client_portfolio_workbook
 
         try:
@@ -232,8 +222,7 @@ def reimport_daily_edit(
             raise DailyEditSyncError(f"workbook parse failed ({path.name}): {exc}") from exc
         if not book.model:
             raise DailyEditSyncError(
-                f"no Model holdings in {path.name} — upload the full PMS_ClientPortfolio.xlsx "
-                "(Model + Stocks sheets), not a CSV or Model-only export"
+                f"no holdings in {path.name} — need Model and/or Quantity sheet with symbols"
             )
         holdings = [
             {
@@ -261,6 +250,20 @@ def reimport_daily_edit(
             update_qty=update_qty,
             dry_run=False,
         )
+        return {"category": category, "workbook": str(path), "dry_run": False, **result}
+
+    if category == "pivot_points":
+        from pms_platform.market_data.pivot_seed import reimport_pivot_portfolio
+
+        try:
+            preview = reimport_pivot_portfolio(session, path, dry_run=True)
+        except FileNotFoundError as exc:
+            raise DailyEditSyncError(str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise DailyEditSyncError(f"pivot parse failed ({path.name}): {exc}") from exc
+        if dry_run:
+            return {"category": category, "workbook": str(path), "dry_run": True, **preview}
+        result = reimport_pivot_portfolio(session, path, dry_run=False)
         return {"category": category, "workbook": str(path), "dry_run": False, **result}
 
     parsed = parse_charts_range(path)
