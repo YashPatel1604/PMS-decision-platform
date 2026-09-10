@@ -77,13 +77,91 @@ def seed_portfolio_from_workbook(session: Session, path: Path) -> int:
     return upsert_portfolio_symbols(session, parse_portfolio_rows(path))
 
 
+def reimport_vol_exp_from_daily(
+    session: Session,
+    path: Path,
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Replace pivot_vol_exp for the Daily sheet TradDt from Excel 'Vol Exp' column.
+
+    Software-computed Last20 vol often diverges from the workbook; Excel is source
+    of truth when the Pivot file is reimported.
+    """
+    from decimal import Decimal, InvalidOperation
+
+    wb = load_workbook(path, read_only=True, data_only=True)
+    if "Daily" not in wb.sheetnames:
+        wb.close()
+        raise FileNotFoundError("Workbook has no Daily sheet")
+    ws = wb["Daily"]
+    rows_iter = ws.iter_rows(values_only=True)
+    header = next(rows_iter, None)
+    if not header:
+        wb.close()
+        raise FileNotFoundError("Daily sheet is empty")
+    headers = [str(h).strip() if h is not None else f"c{i}" for i, h in enumerate(header)]
+    idx = {h: i for i, h in enumerate(headers)}
+    need = ("TradDt", "TckrSymb", "SctySrs", "Vol Exp")
+    missing = [c for c in need if c not in idx]
+    if missing:
+        wb.close()
+        raise FileNotFoundError(f"Daily sheet missing columns: {missing}")
+
+    by_sym: dict[str, tuple[Decimal, date]] = {}
+    as_of: date | None = None
+    for row in rows_iter:
+        series = str(row[idx["SctySrs"]] or "").strip().upper()
+        if series not in {"EQ", "BE"}:
+            continue
+        sym = str(row[idx["TckrSymb"]] or "").strip().upper()
+        if not sym:
+            continue
+        raw_dt = row[idx["TradDt"]]
+        if hasattr(raw_dt, "date"):
+            d = raw_dt.date()
+        elif isinstance(raw_dt, date):
+            d = raw_dt
+        else:
+            continue
+        raw_vol = row[idx["Vol Exp"]]
+        if raw_vol is None or raw_vol == "":
+            continue
+        try:
+            vol = Decimal(str(raw_vol).strip().replace(",", ""))
+        except (InvalidOperation, ValueError):
+            continue
+        as_of = d if as_of is None else max(as_of, d)
+        # Prefer EQ when both series present.
+        prev = by_sym.get(sym)
+        if prev is not None and series != "EQ":
+            continue
+        by_sym[sym] = (vol, d)
+    wb.close()
+    if as_of is None or not by_sym:
+        return {"vol_exp_symbols": 0, "as_of": None}
+    # Keep rows for the latest TradDt only (Daily is usually one session).
+    payload = [
+        (sym, vol, None)
+        for sym, (vol, d) in by_sym.items()
+        if d == as_of
+    ]
+    if dry_run:
+        return {"vol_exp_symbols": len(payload), "as_of": as_of.isoformat()}
+    n = replace_vol_exp_stats(session, payload, source="excel_daily", as_of=as_of)
+    return {"vol_exp_symbols": n, "as_of": as_of.isoformat()}
+
+
 def reimport_pivot_portfolio(
     session: Session,
     path: Path,
     *,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """Upsert Portfolio sheet symbols; remove DB rows missing from Excel."""
+    """Upsert Portfolio sheet symbols; remove DB rows missing from Excel.
+
+    Also replaces Vol Exp for the Daily sheet date from Excel (authoritative).
+    """
     from sqlalchemy import select
 
     from pms_platform.models.nse_bhav import PivotPortfolioSymbol
@@ -94,22 +172,26 @@ def reimport_pivot_portfolio(
     added = sorted(excel - existing)
     removed = sorted(existing - excel)
     if dry_run:
+        vol = reimport_vol_exp_from_daily(session, path, dry_run=True)
         return {
             "added": added,
             "removed": removed,
             "metadata_updated": [],
             "qty_updated": [],
             "portfolio_symbols": len(excel),
+            **vol,
         }
     upsert_portfolio_symbols(session, payload)
     for symbol in removed:
         delete_portfolio_symbol(session, symbol)
+    vol = reimport_vol_exp_from_daily(session, path, dry_run=False)
     return {
         "added": added,
         "removed": removed,
         "metadata_updated": [],
         "qty_updated": [],
         "portfolio_symbols": len(excel),
+        **vol,
     }
 
 
