@@ -562,6 +562,20 @@ def parse_client_portfolio_workbook(path: Path) -> ClientPortfolioBook:
             bank_balance = _to_decimal(_cell(row, 5))
             break
 
+    # Quantity-only books (SCA) have no Model Total_Value — use Σ qty×price.
+    if excel_total is None and model:
+        summed = Decimal(0)
+        any_price = False
+        for pos in model:
+            if pos.excel_value is not None:
+                summed += pos.excel_value
+                any_price = True
+            elif pos.excel_price is not None:
+                summed += pos.qty * pos.excel_price
+                any_price = True
+        if any_price:
+            excel_total = summed
+
     model = _attach_mcap_factors(model, path=path)
 
     return ClientPortfolioBook(

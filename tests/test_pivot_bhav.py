@@ -55,7 +55,7 @@ def test_vol_exp_bump_top50_vs_rest() -> None:
     assert ranks["S50"].avg_volume_plus_10pct == Decimal("1200.0000")
 
 
-def test_prune_keeps_only_20_sessions(session, tmp_path, monkeypatch) -> None:
+def test_prune_keeps_only_max_sessions(session, tmp_path, monkeypatch) -> None:
     from datetime import timedelta
 
     from pms_platform.market_data.nse_bhav_store import (
@@ -69,7 +69,7 @@ def test_prune_keeps_only_20_sessions(session, tmp_path, monkeypatch) -> None:
         tmp_path,
     )
     start = date(2026, 1, 1)
-    for i in range(25):
+    for i in range(MAX_BHAV_SESSIONS + 5):
         d = start + timedelta(days=i)
         session.add(
             NseBhavBar(
@@ -90,7 +90,58 @@ def test_prune_keeps_only_20_sessions(session, tmp_path, monkeypatch) -> None:
     assert deleted >= 5
     from pms_platform.market_data.nse_bhav_store import available_trade_dates
 
-    assert len(available_trade_dates(session)) == 20
+    assert len(available_trade_dates(session)) == MAX_BHAV_SESSIONS
+
+
+def test_vol_exp_includes_be_only_symbols(session, tmp_path, monkeypatch) -> None:
+    """E2E-style BE-only names must get a Last20 Vol Exp snapshot."""
+    from datetime import timedelta
+
+    from pms_platform.market_data.nse_bhav_store import snapshot_vol_exp_for_as_of
+    from pms_platform.models.nse_bhav import NseBhavBar, PivotVolExp
+
+    monkeypatch.setattr(
+        "pms_platform.market_data.nse_bhav_store.settings.upload_dir",
+        tmp_path,
+    )
+    as_of = date(2026, 9, 10)
+    for i in range(5):
+        d = as_of - timedelta(days=i)
+        session.add(
+            NseBhavBar(
+                trade_date=d,
+                symbol="E2E",
+                series="BE",
+                open=1,
+                high=2,
+                low=1,
+                close=1.5,
+                volume=1000 + i,
+                turnover=Decimal("10000"),
+                source_key=f"{d.isoformat()}|E2E|BE",
+            )
+        )
+        session.add(
+            NseBhavBar(
+                trade_date=d,
+                symbol="RELIANCE",
+                series="EQ",
+                open=1,
+                high=2,
+                low=1,
+                close=1.5,
+                volume=5000,
+                turnover=Decimal("99999"),
+                source_key=f"{d.isoformat()}|RELIANCE|EQ",
+            )
+        )
+    session.commit()
+    n = snapshot_vol_exp_for_as_of(session, as_of)
+    session.commit()
+    assert n >= 2
+    e2e = session.get(PivotVolExp, {"as_of_date": as_of, "symbol": "E2E"})
+    assert e2e is not None
+    assert float(e2e.vol_exp) > 0
 
 
 def test_parse_fixture_single_day() -> None:

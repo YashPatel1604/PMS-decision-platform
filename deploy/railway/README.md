@@ -56,7 +56,9 @@ Optional: `WORKER_ID=worker-1` if scaling later (single worker initially per D5)
 ### DailyEdit OneDrive backup via Graph (19:00 IST)
 
 Worker overwrites four files in `ONEDRIVE_GRAPH_FOLDER` (default
-`PMS-Decision-Platform/DailyEditBackup`) using Microsoft Graph.
+`PMS-Decision-Platform/DailyEditBackup`) using Microsoft Graph. Bytes are
+**live software numbers** (DB qty / Charts levels / bhav prices / Vol Exp)
+patched onto the workbook template — not a raw copy of DailyEditFiles.
 
 On **worker** set:
 

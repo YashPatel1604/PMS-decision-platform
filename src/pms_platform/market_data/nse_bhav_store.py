@@ -33,9 +33,8 @@ from pms_platform.models.nse_bhav import (
     PivotVolExp,
 )
 
-# Keep enough sessions so prior-day Vol Exp can still see a full 20 working days
-# after today's commit drops the oldest from the current window.
-MAX_BHAV_SESSIONS = 25
+# Keep newest 21 sessions on disk/DB (Last20 window + one prior day).
+MAX_BHAV_SESSIONS = 21
 # Excel Last20Days_test / AvgQty20Days+x% window length.
 LAST20_SESSIONS = 20
 
@@ -384,15 +383,21 @@ def prune_bhav_sessions(session: Session, keep: int = MAX_BHAV_SESSIONS) -> int:
 
 
 def snapshot_vol_exp_for_as_of(session: Session, as_of: date) -> int:
-    """Daily Vol Exp = Last20 avg EQ vol ×1.1 (top 50 by turnover) or ×1.2 (rest).
+    """Daily Vol Exp = Last20 avg vol ×1.1 (top 50 by turnover) or ×1.2 (rest).
 
+    Prefer EQ bars; include BE-only names (e.g. E2E) so portfolio Vol Exp is not blank.
     Call after writing that day's bars and before pruning older sessions so the
     window still matches Excel Last20Days_test (add today, drop the 21st day later).
     """
     dates = last_working_sessions(session, as_of=as_of, limit=LAST20_SESSIONS)
     if not dates:
         return 0
-    ranks = volume_ranks(load_bars_for_dates(session, dates, series="EQ"), series="EQ")
+    eq_bars = load_bars_for_dates(session, dates, series="EQ")
+    be_bars = load_bars_for_dates(session, dates, series="BE")
+    eq_syms = {b.symbol for b in eq_bars}
+    # BE-only listings still need Vol Exp (Excel Daily includes SctySrs=BE).
+    merged = list(eq_bars) + [b for b in be_bars if b.symbol not in eq_syms]
+    ranks = volume_ranks(merged, series=None)
     session.execute(delete(PivotVolExp).where(PivotVolExp.as_of_date == as_of))
     for row in ranks:
         session.add(
@@ -433,7 +438,11 @@ def replace_vol_exp_stats(
 def rebuild_vol_exp_from_bars(session: Session, *, before: date) -> int:
     """Legacy helper: Vol Exp from sessions strictly before ``before``."""
     dates = [d for d in available_trade_dates(session) if d < before][:MAX_BHAV_SESSIONS]
-    ranks = volume_ranks(load_bars_for_dates(session, dates, series="EQ"), series="EQ")
+    eq_bars = load_bars_for_dates(session, dates, series="EQ")
+    be_bars = load_bars_for_dates(session, dates, series="BE")
+    eq_syms = {b.symbol for b in eq_bars}
+    merged = list(eq_bars) + [b for b in be_bars if b.symbol not in eq_syms]
+    ranks = volume_ranks(merged, series=None)
     return replace_vol_exp_stats(
         session,
         [(r.symbol, r.avg_volume_plus_10pct, r.rank) for r in ranks],

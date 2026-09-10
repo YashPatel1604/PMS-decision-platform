@@ -184,15 +184,16 @@ class GainerRow:
 def volume_ranks(
     bars: Iterable[Any],
     *,
-    series: str = "EQ",
+    series: str | None = "EQ",
 ) -> list[VolumeRank]:
     """Average volume + sum turnover over the Last20 bars, ranked by turnover.
 
     Excel AllSymbols ``AvgQty20Days+x%``: top 50 by turnover get +10%, else +20%.
+    Pass ``series=None`` when bars are already EQ-preferred (BE-only names included).
     """
     by_symbol: dict[str, list[Any]] = {}
     for bar in bars:
-        if getattr(bar, "series", None) != series:
+        if series is not None and getattr(bar, "series", None) != series:
             continue
         by_symbol.setdefault(bar.symbol, []).append(bar)
 

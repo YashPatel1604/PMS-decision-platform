@@ -64,14 +64,14 @@ def _use_graph() -> bool:
     return credentials_configured()
 
 
-def resolve_backup_bytes(session: Session | None, category: str) -> tuple[str, bytes] | None:
-    """Prefer live DailyEdit disk copy; else latest storage version."""
+def _template_bytes(session: Session | None, category: str) -> bytes | None:
+    """Workbook shell from disk or storage (structure only — numbers come from live patch)."""
     filename = _CANONICAL.get(category)
     if not filename:
         return None
     local = _daily_edit_root() / filename
     if local.is_file():
-        return filename, local.read_bytes()
+        return local.read_bytes()
     if session is None:
         return None
     from sqlalchemy import select
@@ -89,14 +89,29 @@ def resolve_backup_bytes(session: Session | None, category: str) -> tuple[str, b
     from pms_platform.storage import get_storage
 
     try:
-        return filename, get_storage().get(version.storage_key)
+        return get_storage().get(version.storage_key)
     except Exception as exc:  # noqa: BLE001 — skip category, continue others
         logger.warning("storage get failed for %s: %s", category, exc)
         return None
 
 
+def resolve_backup_bytes(session: Session | None, category: str) -> tuple[str, bytes] | None:
+    """Live software numbers patched onto the workbook template (not a raw DailyEdit copy)."""
+    filename = _CANONICAL.get(category)
+    if not filename:
+        return None
+    raw = _template_bytes(session, category)
+    if raw is None:
+        return None
+    if session is not None:
+        from pms_platform.market_data.daily_edit_live_export import patch_live_workbook
+
+        raw = patch_live_workbook(session, category, raw)
+    return filename, raw
+
+
 def run_onedrive_daily_backup(session: Session | None = None) -> dict[str, Any]:
-    """Overwrite Client + Charts + SCA + Pivot (same filenames). Graph if creds set."""
+    """Overwrite Client + Charts + SCA + Pivot with live app numbers. Graph if creds set."""
     if not settings.onedrive_backup_enabled:
         raise DailyEditBackupError("ONEDRIVE_BACKUP_ENABLED is off")
 
@@ -116,6 +131,7 @@ def run_onedrive_daily_backup(session: Session | None = None) -> dict[str, Any]:
     uploaded: list[dict[str, Any]] = []
     missing: list[str] = []
     errors: list[str] = []
+    daily_root = _daily_edit_root()
 
     for category in sorted(_CANONICAL):
         resolved = resolve_backup_bytes(session, category)
@@ -124,6 +140,12 @@ def run_onedrive_daily_backup(session: Session | None = None) -> dict[str, Any]:
             continue
         filename, data = resolved
         try:
+            # Keep on-disk DailyEdit in sync with what we back up (software truth).
+            try:
+                daily_root.mkdir(parents=True, exist_ok=True)
+                (daily_root / filename).write_bytes(data)
+            except OSError as exc:
+                logger.warning("could not refresh DailyEdit %s: %s", filename, exc)
             if use_graph:
                 from pms_platform.storage.onedrive_graph import put_drive_file
 
@@ -152,7 +174,6 @@ def run_onedrive_daily_backup(session: Session | None = None) -> dict[str, Any]:
                 )
         except Exception as exc:  # noqa: BLE001 — collect per-file errors
             errors.append(f"{category}: {exc}")
-
     result = {
         "ok": not errors and len(uploaded) == len(_CANONICAL),
         "uploaded": uploaded,
