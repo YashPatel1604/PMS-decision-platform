@@ -364,7 +364,7 @@ function ModelTable({
               <th className="px-3 py-2 text-right">Percent</th>
               {sca ? (
                 <>
-                  <th className="px-3 py-2 text-right">Qty − Ramprasath</th>
+                  <th className="px-3 py-2 text-right">Savvy Qty</th>
                   <th className="px-3 py-2 text-right">Ramprasath Reddy Qtyn</th>
                   <th className="px-3 py-2 text-right">Blocked Account</th>
                 </>
