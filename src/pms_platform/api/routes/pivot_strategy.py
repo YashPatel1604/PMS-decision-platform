@@ -168,9 +168,15 @@ def get_bhav(run_id: int, session: Session = Depends(get_db)) -> BhavRunResponse
 @router.get("/dashboard")
 def pivot_dashboard(
     as_of: date | None = Query(default=None),
+    scope: str = Query(default="portfolio"),
+    symbols: str | None = Query(
+        default=None,
+        description="Comma-separated tickers when scope=selected",
+    ),
     session: Session = Depends(get_db),
 ) -> dict:
-    return build_pivot_dashboard(session, as_of=as_of)
+    sym_list = [s.strip() for s in (symbols or "").split(",") if s.strip()] or None
+    return build_pivot_dashboard(session, as_of=as_of, scope=scope, symbols=sym_list)
 
 
 @router.get("/portfolio")

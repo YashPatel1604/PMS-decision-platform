@@ -13,7 +13,6 @@ from pms_platform.market_data.nse_bhav_store import (
     available_trade_dates,
     bars_by_symbol,
     list_session_dates,
-    load_bars_for_dates,
     load_day_bars,
     load_vol_exp_map,
     prior_session_date,
@@ -22,8 +21,6 @@ from pms_platform.market_data.pivot_derived import (
     FloorPivot,
     floor_pivot_levels,
     floor_pivots_for_symbols,
-    gainer_rows,
-    volume_ranks,
 )
 from pms_platform.models.enums import EpisodeStatus
 from pms_platform.models.episode import InvestmentEpisode
@@ -140,8 +137,15 @@ def build_pivot_dashboard(
     session: Session,
     *,
     as_of: date | None = None,
+    scope: str = "portfolio",
+    symbols: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Full tab payload for the pivot strategy UI."""
+    """Pivot strategy UI payload.
+
+    Default ``scope=portfolio`` keeps egress tiny (UI default). ``scope=all`` returns
+    the full Daily universe. ``last20`` / ``ranks`` / ``gainers`` are omitted from the
+    wire payload — the React UI never read them and they were ~17MB/request.
+    """
     dates = available_trade_dates(session)
     if as_of is None:
         as_of = dates[0] if dates else None
@@ -157,14 +161,14 @@ def build_pivot_dashboard(
             "holding_symbols": [],
             "gainers": [],
             "session_dates": [],
+            "scope": scope,
         }
 
+    scope_key = (scope or "portfolio").strip().lower()
+    selected = {s.strip().upper() for s in (symbols or []) if s and str(s).strip()}
     session_dates = list_session_dates(session, as_of=as_of, limit=20)
+    # One day load (EQ+BE); do NOT pull the full Last20 window into the API response.
     daily = load_day_bars(session, as_of, series=None)
-    last20 = load_bars_for_dates(session, session_dates, series="EQ")
-    ranks = volume_ranks(last20, series="EQ")
-    gainers = gainer_rows(load_day_bars(session, as_of, series="EQ"), series="EQ")
-    # Daily Vol Exp = Last20 avg×1.1/1.2 snapshotted for this as_of (Excel Last20Days roll).
     vol_exp_by_symbol = load_vol_exp_map(session, as_of)
     prior_date = prior_session_date(session, as_of)
 
@@ -176,11 +180,16 @@ def build_pivot_dashboard(
             )
         ).all()
     )
-    symbols = [p.symbol for p in portfolio_rows]
-    # Prefer EQ bar per symbol; fall back to BE so BE-only names still get portfolio pivots.
-    last_map = bars_by_symbol(load_day_bars(session, as_of, series="EQ"))
-    for bar in load_day_bars(session, as_of, series="BE"):
-        last_map.setdefault(bar.symbol, bar)
+    portfolio_symbols = [p.symbol for p in portfolio_rows]
+    portfolio_a_by_symbol = {p.symbol: p.portfolio_a for p in portfolio_rows}
+    holding_symbols = open_holding_nse_symbols(session)
+    holding_set = set(holding_symbols)
+
+    last_map = bars_by_symbol([b for b in daily if b.series == "EQ"])
+    for bar in daily:
+        if bar.series == "BE":
+            last_map.setdefault(bar.symbol, bar)
+
     prior_map: dict[str, Any] = {}
     prev_day_volume_by_key: dict[tuple[str, str], int] = {}
     if prior_date:
@@ -193,8 +202,26 @@ def build_pivot_dashboard(
             if bar.series == "BE":
                 prior_map.setdefault(bar.symbol, bar)
 
-    daily_symbols = sorted({b.symbol for b in daily if b.series in DAILY_SERIES})
-    pivot_symbol_list = list(dict.fromkeys([*symbols, *daily_symbols]))
+    if scope_key == "selected" and selected:
+        wanted = selected | set(portfolio_symbols) | holding_set
+    elif scope_key == "all":
+        wanted = None  # full Daily
+    else:
+        # portfolio (default): Portfolio sheet ∪ Our holdings
+        wanted = set(portfolio_symbols) | holding_set
+
+    pivot_symbol_list = (
+        sorted(wanted)
+        if wanted is not None
+        else list(
+            dict.fromkeys(
+                [
+                    *portfolio_symbols,
+                    *[b.symbol for b in daily if b.series in DAILY_SERIES],
+                ]
+            )
+        )
+    )
     pivots = {
         p.symbol: p
         for p in floor_pivots_for_symbols(
@@ -226,13 +253,11 @@ def build_pivot_dashboard(
             }
         )
 
-    portfolio_a_by_symbol = {p.symbol: p.portfolio_a for p in portfolio_rows}
-    holding_symbols = open_holding_nse_symbols(session)
-    holding_set = set(holding_symbols)
-
     daily_payload = []
     for bar in daily:
         if bar.series not in DAILY_SERIES or bar.symbol in HIDDEN_PIVOT_SYMBOLS:
+            continue
+        if wanted is not None and bar.symbol not in wanted:
             continue
         daily_payload.append(
             _daily_row(
@@ -246,28 +271,10 @@ def build_pivot_dashboard(
         if len(daily_payload) >= 5000:
             break
 
-    # Cap can drop late-alphabet holdings; pin Our holdings rows back in.
-    present = {(r["symbol"], r["series"]) for r in daily_payload}
-    for bar in daily:
-        if bar.series not in DAILY_SERIES or bar.symbol not in holding_set:
-            continue
-        key = (bar.symbol, bar.series)
-        if key in present:
-            continue
-        daily_payload.append(
-            _daily_row(
-                bar,
-                as_of=as_of,
-                portfolio_a_by_symbol=portfolio_a_by_symbol,
-                vol_exp_by_symbol=vol_exp_by_symbol,
-                prev_day_volume=prev_day_volume_by_key.get((bar.symbol, bar.series)),
-            )
-        )
-        present.add(key)
-
     run = latest_committed_run(session, as_of)
     last_run = None
     if run is not None:
+        # Omit validation/reconcile blobs from the hot path (can be large).
         last_run = {
             "run_id": run.run_id,
             "trade_date": run.trade_date.isoformat() if run.trade_date else None,
@@ -275,8 +282,8 @@ def build_pivot_dashboard(
             "source_filename": run.source_filename,
             "row_count_all": run.row_count_all,
             "row_count_eq": run.row_count_eq,
-            "validation_report": run.validation_report,
-            "reconcile_report": run.reconcile_report,
+            "validation_report": {},
+            "reconcile_report": {},
             "committed_at": run.committed_at.isoformat() if run.committed_at else None,
         }
 
@@ -286,22 +293,22 @@ def build_pivot_dashboard(
         "session_dates": [d.isoformat() for d in session_dates],
         "last_run": last_run,
         "daily": daily_payload,
-        "last20": [_bar_dict(b) for b in last20],
-        "ranks": [r.as_dict() for r in ranks],
+        # Kept empty for API shape compatibility — never ship Last20 bars on the wire.
+        "last20": [],
+        "ranks": [],
         "portfolio": portfolio_payload,
         "holding_symbols": holding_symbols,
-        "gainers": [g.as_dict() for g in gainers],
+        "gainers": [],
+        "scope": scope_key,
         "formulas": {
             "pivot": "PP=(H+L+C)/3 from same-day bhav (Excel Daily)",
             "s4": "L-3*(H-PP); S3=L-2*(H-PP); S2=PP-(H-L); S1=2*PP-H",
             "r4": "H+3*(PP-L); R3=H+2*(PP-L); R2=PP+(H-L); R1=2*PP-L",
             "bands": "Sx-0.3=Sx*(1-0.003); Rx+0.3=Rx*(1+0.003)",
             "vol_exp": "Last20 avg EQ vol ×1.1 (top 50 turnover) or ×1.2 (rest), snapshotted on commit",
-            "prev_day_volume": "Prior bhav day TtlTradgVol for same symbol + series",
-            "vol_15min": "VolExp/25",
-            "top50": "15minVol*3",
-            "band_51_300": "15minVol*6",
+            "vol_15min": "VolExp/25; Top50=15min×3; 51-300=15min×6",
+            "prev_day_volume": "Prior session TtlTradgVol for same symbol+series",
             "portfolio": "Portfolio sheet PortfolioA (Y/N)",
-            "retention": "Only newest 20 trade sessions kept in DB",
+            "retention": "Newest 21 bhav sessions kept in DB",
         },
     }

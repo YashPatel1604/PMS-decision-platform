@@ -81,8 +81,12 @@ export function PivotPointStrategyView() {
   const [pullDate, setPullDate] = useState(todayIstInput);
 
   const dashQuery = useQuery({
-    queryKey: ["pivot-dashboard", asOf ?? "latest"],
-    queryFn: () => api.getPivotDashboard(asOf),
+    queryKey: ["pivot-dashboard", asOf ?? "latest", dailyScope, selectedSymbols.join(",")],
+    queryFn: () =>
+      api.getPivotDashboard(asOf, {
+        scope: dailyScope,
+        symbols: dailyScope === "selected" ? selectedSymbols : undefined,
+      }),
   });
 
   const data = dashQuery.data;

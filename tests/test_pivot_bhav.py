@@ -224,7 +224,7 @@ def test_open_holding_nse_symbols(session, sample_security, monkeypatch) -> None
 
     monkeypatch.setattr(
         "pms_platform.market_data.client_portfolio_parse.load_client_portfolio_book",
-        lambda: None,
+        lambda *_a, **_k: None,
     )
     sample_security.current_nse_symbol = "AURIONPRO"
     session.add(
@@ -288,7 +288,7 @@ def test_open_holding_unions_client_portfolio(session, sample_security, monkeypa
 
     monkeypatch.setattr(
         "pms_platform.market_data.client_portfolio_parse.load_client_portfolio_book",
-        lambda: _Book(),
+        lambda *_a, **_k: _Book(),
     )
     assert open_holding_nse_symbols(session) == ["AURIONPRO", "INFY"]
 
@@ -319,7 +319,7 @@ def test_open_holding_falls_back_to_client_portfolio(session, monkeypatch) -> No
 
     monkeypatch.setattr(
         "pms_platform.market_data.client_portfolio_parse.load_client_portfolio_book",
-        lambda: _Book(),
+        lambda *_a, **_k: _Book(),
     )
     assert open_holding_nse_symbols(session) == ["INFY", "RELIANCE"]
 
@@ -364,9 +364,14 @@ def test_bhav_validate_commit_reconcile_loop(session, tmp_path, monkeypatch) -> 
     dash = build_pivot_dashboard(session, as_of=date(2026, 8, 19))
     assert dash["as_of"] == "2026-08-19"
     assert len(dash["session_dates"]) == 2
-    assert dash["ranks"][0]["rank"] == 1
-    # INFY has higher sum turnover across window
-    assert dash["ranks"][0]["symbol"] == "INFY"
+    assert dash["last20"] == []
+    assert dash["ranks"] == []
+    assert dash["gainers"] == []
+    # Default scope=portfolio → portfolio ∪ holdings only (fixture has 3 portfolio names).
+    assert {r["symbol"] for r in dash["daily"]} <= {"RELIANCE", "AURIONPRO", "INFY"}
+    assert any(r["symbol"] == "RELIANCE" for r in dash["daily"])
+    all_dash = build_pivot_dashboard(session, as_of=date(2026, 8, 19), scope="all")
+    assert len(all_dash["daily"]) >= len(dash["daily"])
 
     reliance = next(p for p in dash["portfolio"] if p["symbol"] == "RELIANCE")
     pivot = reliance["pivot"]
@@ -387,7 +392,3 @@ def test_bhav_validate_commit_reconcile_loop(session, tmp_path, monkeypatch) -> 
     prior_dash = build_pivot_dashboard(session, as_of=date(2026, 8, 18))
     prior_rel = next(r for r in prior_dash["daily"] if r["symbol"] == "RELIANCE")
     assert daily_rel["prev_day_volume"] == prior_rel["volume"] == 1000
-
-    gainers = dash["gainers"]
-    assert gainers
-    assert all(g["series"] == "EQ" for g in gainers)

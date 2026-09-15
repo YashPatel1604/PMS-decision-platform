@@ -1527,9 +1527,11 @@ export const api = {
     return response.blob();
   },
 
-  getPivotDashboard: (asOf?: string | null) => {
+  getPivotDashboard: (asOf?: string | null, opts?: { scope?: string; symbols?: string[] }) => {
     const params = new URLSearchParams();
     if (asOf) params.set("as_of", asOf);
+    params.set("scope", opts?.scope ?? "portfolio");
+    if (opts?.symbols?.length) params.set("symbols", opts.symbols.join(","));
     const query = params.toString();
     return request<PivotDashboard>(`/strategy/pivot/dashboard${query ? `?${query}` : ""}`);
   },

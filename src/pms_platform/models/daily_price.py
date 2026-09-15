@@ -20,7 +20,7 @@ class DailyPrice(Base):
             "source",
             name="uq_daily_prices_security_date_source",
         ),
-        UniqueConstraint("source_key", name="uq_daily_prices_source_key"),
+        # ponytail: dropped uq_daily_prices_source_key (~65MB index); (sec,date,source) is enough
     )
 
     daily_price_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
