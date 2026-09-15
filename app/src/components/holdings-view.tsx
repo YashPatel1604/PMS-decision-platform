@@ -261,7 +261,10 @@ export function HoldingsView() {
   };
 
   const filtered = useMemo(() => {
-    const rows = holdingsQuery.data?.holdings ?? [];
+    const rows = [...(holdingsQuery.data?.holdings ?? [])];
+    rows.sort((a, b) =>
+      a.portfolio_name.localeCompare(b.portfolio_name, undefined, { sensitivity: "base" }),
+    );
     if (!query.trim()) return rows;
     const needle = query.toLowerCase();
     return rows.filter(

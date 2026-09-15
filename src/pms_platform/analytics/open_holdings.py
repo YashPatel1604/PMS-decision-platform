@@ -868,6 +868,7 @@ def analyze_open_holdings(
         )
         for episode in episodes
     ]
+    holdings.sort(key=lambda row: (row.portfolio_name or "").casefold())
 
     excesses = []
     port_excesses = []

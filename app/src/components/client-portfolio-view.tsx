@@ -86,7 +86,9 @@ export function ClientPortfolioView({
   const data = dashQuery.data;
   const q = query.trim().toLowerCase();
   const holdings = useMemo(() => {
-    const rows = data?.holdings ?? [];
+    const rows = [...(data?.holdings ?? [])].sort((a, b) =>
+      a.symbol.localeCompare(b.symbol, undefined, { sensitivity: "base" }),
+    );
     return q ? rows.filter((r) => r.symbol.toLowerCase().includes(q)) : rows;
   }, [data?.holdings, q]);
 
