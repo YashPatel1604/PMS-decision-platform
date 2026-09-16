@@ -718,12 +718,17 @@ def analyze_open_holdings(
     """
     del refresh_live  # Holdings never refresh or use Yahoo live marks.
     # Close ledger-open names that dad already dropped from Model (e.g. WelEnt).
-    from pms_platform.episodes.model_reconcile import reconcile_open_episodes_to_client_model
+    # Open Model names that are not yet in Holdings (e.g. JYOTICNC).
+    from pms_platform.episodes.model_reconcile import (
+        ensure_open_episodes_for_client_model,
+        reconcile_open_episodes_to_client_model,
+    )
 
+    opened_now = ensure_open_episodes_for_client_model(session)
     closed_now = reconcile_open_episodes_to_client_model(session)
-    if closed_now:
+    if opened_now or closed_now:
         # ponytail: do not run_full_episode_analysis on every Holdings GET —
-        # that freezes cloud. Flush closes; dashboard catches up via analyze-episodes.
+        # that freezes cloud. Flush closes/opens; dashboard catches up via analyze-episodes.
         session.flush()
 
     ceiling = latest_holdings_as_of(session)

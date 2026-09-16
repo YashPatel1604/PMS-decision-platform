@@ -219,6 +219,9 @@ def reimport_from_raw(session: Session, *, raw_dir: Path | None = None) -> Reimp
         )
 
     episodes, decisions = build_episodes(session)
+    from pms_platform.episodes.model_reconcile import ensure_open_episodes_for_client_model
+
+    model_opened = ensure_open_episodes_for_client_model(session)
     model_closed = reconcile_open_episodes_to_client_model(session)
     snap = import_portfolio_snapshots(session, snapshot_dir)
     session.commit()
@@ -226,6 +229,11 @@ def reimport_from_raw(session: Session, *, raw_dir: Path | None = None) -> Reimp
     clear_client_portfolio_cache()
 
     notes = ["Reimport complete"]
+    if model_opened:
+        names = ", ".join(row.symbol for row in model_opened[:8])
+        notes.append(
+            f"Opened {len(model_opened)} Model-only holding(s): {names}"
+        )
     if model_closed:
         names = ", ".join(row.portfolio_name for row in model_closed[:8])
         notes.append(

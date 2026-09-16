@@ -63,8 +63,9 @@ def lookup_daily_price(
     )
     if not allow_live:
         exact_query = exact_query.where(DailyPrice.source.not_in(_LIVE_SOURCES))
+    # scalar() does not add LIMIT; without it Postgres ships every matching row.
     exact = session.scalar(
-        exact_query.order_by(_SOURCE_PRIORITY, DailyPrice.source)
+        exact_query.order_by(_SOURCE_PRIORITY, DailyPrice.source).limit(1)
     )
     if exact is not None:
         return PriceObservation(
@@ -87,7 +88,7 @@ def lookup_daily_price(
             DailyPrice.trade_date.desc(),
             _SOURCE_PRIORITY,
             DailyPrice.source,
-        )
+        ).limit(1)
     )
     if prior is None:
         return None
@@ -115,6 +116,7 @@ def lookup_benchmark_tri(
             BenchmarkTri.trade_date == as_of_date,
         )
         .order_by(BenchmarkTri.source)
+        .limit(1)
     )
     if exact is not None:
         return BenchmarkObservation(
@@ -132,6 +134,7 @@ def lookup_benchmark_tri(
             BenchmarkTri.trade_date < as_of_date,
         )
         .order_by(BenchmarkTri.trade_date.desc(), BenchmarkTri.source)
+        .limit(1)
     )
     if prior is None:
         return None

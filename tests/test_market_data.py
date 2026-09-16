@@ -183,6 +183,19 @@ def test_identifier_resolver_uses_historical_symbol(
     assert historical.security_id == market_security.security_id
 
 
+def test_price_lookup_sql_limits_to_one_row() -> None:
+    """Without LIMIT, a miss pulls the whole history (~2k rows) per holding."""
+
+    class _Spy:
+        def scalar(self, stmt):
+            sql = str(stmt.compile(compile_kwargs={"literal_binds": False})).upper()
+            assert "LIMIT" in sql
+            return None
+
+    lookup_daily_price(_Spy(), "SEC1", date(2019, 1, 4))  # type: ignore[arg-type]
+    lookup_benchmark_tri(_Spy(), "BSE_SMALLCAP", date(2019, 1, 4))
+
+
 def test_lookup_uses_prior_trading_day_for_non_trading_dates(
     session, market_security, predecessor_security
 ) -> None:
