@@ -172,6 +172,7 @@ export function HoldingsView() {
   const [toTouched, setToTouched] = useState(false);
   const [preset, setPreset] = useState<RangePreset>("since_entry");
   const [query, setQuery] = useState("");
+  const [sortBy, setSortBy] = useState<"name" | "stock_asc" | "stock_desc">("name");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [peerQuery, setPeerQuery] = useState("");
   const [peerHits, setPeerHits] = useState<YahooSearchHit[]>([]);
@@ -261,10 +262,18 @@ export function HoldingsView() {
   };
 
   const filtered = useMemo(() => {
+    const byName = (a: { portfolio_name: string }, b: { portfolio_name: string }) =>
+      a.portfolio_name.localeCompare(b.portfolio_name, undefined, { sensitivity: "base" });
     const rows = [...(holdingsQuery.data?.holdings ?? [])];
-    rows.sort((a, b) =>
-      a.portfolio_name.localeCompare(b.portfolio_name, undefined, { sensitivity: "base" }),
-    );
+    rows.sort((a, b) => {
+      if (sortBy === "name") return byName(a, b);
+      const av = a.stock_return_pct;
+      const bv = b.stock_return_pct;
+      if (av == null && bv == null) return byName(a, b);
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return (sortBy === "stock_asc" ? av - bv : bv - av) || byName(a, b);
+    });
     if (!query.trim()) return rows;
     const needle = query.toLowerCase();
     return rows.filter(
@@ -273,7 +282,7 @@ export function HoldingsView() {
         row.security_id.toLowerCase().includes(needle) ||
         (row.industry ?? "").toLowerCase().includes(needle),
     );
-  }, [holdingsQuery.data, query]);
+  }, [holdingsQuery.data, query, sortBy]);
 
   if (holdingsQuery.isLoading) {
     return <p className="text-stone-600">Loading open holdings…</p>;
@@ -449,13 +458,27 @@ export function HoldingsView() {
                 Click a row for the compare panel. Portfolio comparator is provisional.
               </p>
             </div>
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search stocks"
-              className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
-            />
+            <div className="flex flex-wrap gap-2">
+              <select
+                aria-label="Sort holdings"
+                value={sortBy}
+                onChange={(event) =>
+                  setSortBy(event.target.value as "name" | "stock_asc" | "stock_desc")
+                }
+                className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
+              >
+                <option value="name">A–Z</option>
+                <option value="stock_desc">Stock % high → low</option>
+                <option value="stock_asc">Stock % low → high</option>
+              </select>
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search stocks"
+                className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
+              />
+            </div>
           </div>
 
           <div className="max-h-[min(70vh,52rem)] overflow-auto rounded-xl border border-stone-200 bg-white">
