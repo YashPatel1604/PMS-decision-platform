@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from pms_platform.api.deps import get_db
+from pms_platform.documents.coverage import research_status_by_security
 from pms_platform.fundamentals.catalog import FUNDAMENTALS_PROVIDERS, validated_fundamentals_provider
 from pms_platform.models.watchlist import Watchlist, WatchlistAlert, WatchlistMember
 from pms_platform.watchlists import alerts as wa
@@ -61,6 +62,7 @@ class WatchlistMemberResponse(BaseModel):
     sector: str | None = None
     industry: str | None = None
     in_portfolio: bool = False
+    research_status: str = "unlinked"
     added_at: datetime
 
 
@@ -324,7 +326,9 @@ def _watchlist_response(session: Session, row: Watchlist) -> WatchlistResponse:
     )
 
 
-def _member_response(row: WatchlistMember) -> WatchlistMemberResponse:
+def _member_response(
+    row: WatchlistMember, *, research_status: str = "unlinked"
+) -> WatchlistMemberResponse:
     sec = row.security
     return WatchlistMemberResponse(
         member_id=row.member_id,
@@ -343,8 +347,17 @@ def _member_response(row: WatchlistMember) -> WatchlistMemberResponse:
         sector=sec.sector if sec else None,
         industry=sec.industry if sec else None,
         in_portfolio=sec is not None,
+        research_status=research_status,
         added_at=row.added_at,
     )
+
+
+def _research_status_for_member(
+    row: WatchlistMember, status_map: dict[str, str]
+) -> str:
+    if not row.security_id:
+        return "unlinked"
+    return status_map.get(row.security_id, "backlog")
 
 
 @router.get("", response_model=list[WatchlistResponse])
@@ -627,7 +640,13 @@ def list_members(
         rows = wl.list_members(session, watchlist_id)
     except wl.WatchlistNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return [_member_response(row) for row in rows]
+    status_map = research_status_by_security(
+        session, [r.security_id for r in rows if r.security_id]
+    )
+    return [
+        _member_response(row, research_status=_research_status_for_member(row, status_map))
+        for row in rows
+    ]
 
 
 @router.post("/{watchlist_id}/members", response_model=WatchlistMemberResponse, status_code=201)

@@ -19,6 +19,20 @@ function memberKey(hit: WatchlistSearchHit, index: number): string {
   return hit.security_id ?? hit.yahoo_ticker ?? `${hit.portfolio_name}-${index}`;
 }
 
+function researchBadge(status: WatchlistMember["research_status"]): {
+  label: string;
+  className: string;
+} {
+  switch (status) {
+    case "researched":
+      return { label: "Researched", className: "bg-emerald-50 text-emerald-900" };
+    case "backlog":
+      return { label: "Backlog", className: "bg-amber-50 text-amber-950" };
+    default:
+      return { label: "Unlinked", className: "bg-stone-100 text-stone-600" };
+  }
+}
+
 function MemberFixRow({
   member,
   onSaved,
@@ -70,6 +84,14 @@ function MemberFixRow({
       <td className="px-4 py-3 text-stone-600">{member.sector ?? member.industry ?? "—"}</td>
       <td className="px-4 py-3">
         <div className="flex flex-wrap items-center gap-1">
+          {(() => {
+            const badge = researchBadge(member.research_status ?? "unlinked");
+            return (
+              <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${badge.className}`}>
+                {badge.label}
+              </span>
+            );
+          })()}
           <span
             className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${
               member.resolution_status === "RESOLVED" && !member.resolution_stale
@@ -309,14 +331,33 @@ export function WatchlistsView() {
     onError: (err: Error) => setMessage(err.message),
   });
 
+  const [researchFilter, setResearchFilter] = useState<"all" | "backlog" | "researched">(
+    "all",
+  );
+
   if (listsQuery.isLoading) {
     return <p className="text-stone-600">Loading watchlists…</p>;
   }
 
   const lists = listsQuery.data ?? [];
-  const members = membersQuery.data ?? [];
+  const allMembers = membersQuery.data ?? [];
+  const researchedCount = allMembers.filter((m) => m.research_status === "researched").length;
+  const backlogCount = allMembers.filter((m) => m.research_status === "backlog").length;
+  const unlinkedCount = allMembers.filter((m) => (m.research_status ?? "unlinked") === "unlinked").length;
+  const members = [...allMembers]
+    .filter((m) => {
+      if (researchFilter === "all") return true;
+      return (m.research_status ?? "unlinked") === researchFilter;
+    })
+    .sort((a, b) => {
+      const rank = (s: string | undefined) =>
+        s === "backlog" ? 0 : s === "unlinked" ? 1 : 2;
+      const d = rank(a.research_status) - rank(b.research_status);
+      if (d !== 0) return d;
+      return a.display_name.localeCompare(b.display_name);
+    });
   const hits = searchQuery.data ?? [];
-  const unresolvedCount = members.filter(
+  const unresolvedCount = allMembers.filter(
     (m) => m.resolution_status !== "RESOLVED" || m.resolution_stale,
   ).length;
 
@@ -326,7 +367,8 @@ export function WatchlistsView() {
         <h2 className="text-2xl font-semibold tracking-tight">Watchlists</h2>
         <p className="mt-2 max-w-2xl text-stone-600">
           Manage multiple lists in-app. Symbols resolve via security master → BSE → Yahoo.
-          Fix unresolved rows manually or re-resolve stale entries weekly.
+          Research badges show which names already have a brief/thesis/docs vs still need deep
+          research (backlog).
         </p>
       </div>
 
@@ -434,6 +476,42 @@ export function WatchlistsView() {
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
                     {unresolvedCount} need attention
                   </span>
+                ) : null}
+                {activeTab === "members" ? (
+                  <div className="inline-flex items-center gap-1 rounded-lg border border-stone-200 p-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setResearchFilter("all")}
+                      className={`rounded-md px-2 py-1 font-medium ${
+                        researchFilter === "all" ? "bg-stone-800 text-white" : "text-stone-600"
+                      }`}
+                    >
+                      All {allMembers.length}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setResearchFilter("backlog")}
+                      className={`rounded-md px-2 py-1 font-medium ${
+                        researchFilter === "backlog" ? "bg-amber-800 text-white" : "text-stone-600"
+                      }`}
+                    >
+                      Backlog {backlogCount}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setResearchFilter("researched")}
+                      className={`rounded-md px-2 py-1 font-medium ${
+                        researchFilter === "researched"
+                          ? "bg-emerald-800 text-white"
+                          : "text-stone-600"
+                      }`}
+                    >
+                      Researched {researchedCount}
+                    </button>
+                  </div>
+                ) : null}
+                {activeTab === "members" && unlinkedCount > 0 ? (
+                  <span className="text-xs text-stone-500">{unlinkedCount} unlinked</span>
                 ) : null}
                 <button
                   type="button"
@@ -597,7 +675,7 @@ export function WatchlistsView() {
                       <th className="px-4 py-3">NSE</th>
                       <th className="px-4 py-3">BSE</th>
                       <th className="px-4 py-3">Sector</th>
-                      <th className="px-4 py-3">Resolution</th>
+                      <th className="px-4 py-3">Research / resolve</th>
                       <th className="px-4 py-3" />
                     </tr>
                   </thead>

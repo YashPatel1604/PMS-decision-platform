@@ -1125,6 +1125,7 @@ export type WatchlistMember = {
   sector: string | null;
   industry: string | null;
   in_portfolio: boolean;
+  research_status: "researched" | "backlog" | "unlinked";
   added_at: string;
 };
 

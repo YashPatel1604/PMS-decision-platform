@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from pms_platform.documents.analyst import generate_research_brief
 from pms_platform.models.enums import EpisodeStatus
 from pms_platform.models.episode import InvestmentEpisode
-from pms_platform.models.research_document import ResearchDocument, ResearchGoal
+from pms_platform.models.investment_thesis import InvestmentThesis
+from pms_platform.models.research_document import ResearchAnswerCache, ResearchDocument
 from pms_platform.models.watchlist import WatchlistMember
 
 
@@ -20,8 +21,46 @@ class CoverageItem:
     reason: str
 
 
+def research_status_by_security(
+    session: Session, security_ids: list[str] | set[str]
+) -> dict[str, str]:
+    """Map security_id → researched | backlog.
+
+    researched = active thesis, cached brief, or linked research document.
+    """
+    ids = sorted({sid for sid in security_ids if sid})
+    if not ids:
+        return {}
+    researched: set[str] = set()
+    for sid in session.scalars(
+        select(InvestmentThesis.security_id).where(
+            InvestmentThesis.security_id.in_(ids),
+            InvestmentThesis.status == "active",
+        )
+    ).all():
+        if sid:
+            researched.add(sid)
+    for sid in session.scalars(
+        select(ResearchDocument.security_id).where(
+            ResearchDocument.security_id.in_(ids),
+            ResearchDocument.parse_status == "ok",
+        )
+    ).all():
+        if sid:
+            researched.add(sid)
+    for sid in session.scalars(
+        select(ResearchAnswerCache.security_id).where(
+            ResearchAnswerCache.security_id.in_(ids),
+            ResearchAnswerCache.request_kind == "brief",
+        )
+    ).all():
+        if sid:
+            researched.add(sid)
+    return {sid: ("researched" if sid in researched else "backlog") for sid in ids}
+
+
 def securities_needing_coverage(session: Session, *, limit: int = 50) -> list[CoverageItem]:
-    """Open holdings + watchlist members lacking open accepted goals."""
+    """Open holdings + watchlist members lacking research coverage (thesis/docs/brief)."""
     open_ids = set(
         session.scalars(
             select(InvestmentEpisode.security_id).where(
@@ -37,19 +76,13 @@ def securities_needing_coverage(session: Session, *, limit: int = 50) -> list[Co
         if sid
     }
     candidates = sorted(open_ids | watch_ids)
+    status = research_status_by_security(session, candidates)
     out: list[CoverageItem] = []
     for security_id in candidates:
-        open_goals = session.scalar(
-            select(ResearchGoal.goal_id)
-            .where(
-                ResearchGoal.security_id == security_id,
-                ResearchGoal.status.in_(("accepted", "proposed")),
-            )
-            .limit(1)
-        )
-        if open_goals is None:
-            reason = "open_holding" if security_id in open_ids else "watchlist"
-            out.append(CoverageItem(security_id=security_id, reason=reason))
+        if status.get(security_id) == "researched":
+            continue
+        reason = "open_holding" if security_id in open_ids else "watchlist"
+        out.append(CoverageItem(security_id=security_id, reason=reason))
         if len(out) >= limit:
             break
     return out
@@ -61,7 +94,7 @@ def run_coverage_briefs(
     limit: int = 10,
     dry_run: bool = True,
 ) -> list[dict[str, object]]:
-    """Optionally generate briefs for names lacking research goals."""
+    """Optionally generate briefs for names lacking research coverage."""
     items = securities_needing_coverage(session, limit=limit)
     results: list[dict[str, object]] = []
     for item in items:
