@@ -698,37 +698,6 @@ export function WatchlistsView() {
                   </tbody>
                 </table>
               </div>
-              {members.some((m) => m.security_id) ? (
-                <div className="space-y-3 rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-stone-500">
-                    Research on watchlist names
-                  </p>
-                  <p className="text-sm text-stone-600">
-                    Resolved names get a security id (often <code className="text-xs">WL…</code>).
-                    Open Research for briefs, goals, and thesis even if the name is not a holding.
-                    Intelligence tags their insider events under Watchlist changes.
-                  </p>
-                  <ul className="space-y-4">
-                    {members
-                      .filter((m) => m.security_id)
-                      .slice(0, 8)
-                      .map((m) => (
-                        <li key={m.member_id} className="border-t border-stone-100 pt-3 first:border-0 first:pt-0">
-                          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                            <p className="font-medium text-stone-900">{m.display_name}</p>
-                            <Link
-                              href={`/research?security_id=${encodeURIComponent(m.security_id!)}`}
-                              className="text-xs text-emerald-800 hover:underline"
-                            >
-                              {m.security_id} → Research
-                            </Link>
-                          </div>
-                          <SecurityGoalsPanel securityId={m.security_id!} />
-                        </li>
-                      ))}
-                  </ul>
-                </div>
-              ) : null}
               </>
               )}
             </>
