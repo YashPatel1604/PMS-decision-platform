@@ -38,18 +38,18 @@ function agendaItems(response: Record<string, unknown>): Array<{
 }> {
   const raw = response.research_agenda;
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const row = item as Record<string, unknown>;
-      if (typeof row.title !== "string") return null;
-      return {
-        title: row.title,
-        rationale: typeof row.rationale === "string" ? row.rationale : undefined,
-        priority: typeof row.priority === "number" ? row.priority : undefined,
-      };
-    })
-    .filter((item): item is { title: string; rationale?: string; priority?: number } => item !== null);
+  const out: Array<{ title: string; rationale?: string; priority?: number }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    if (typeof row.title !== "string") continue;
+    out.push({
+      title: row.title,
+      rationale: typeof row.rationale === "string" ? row.rationale : undefined,
+      priority: typeof row.priority === "number" ? row.priority : undefined,
+    });
+  }
+  return out;
 }
 
 function monitoringItems(response: Record<string, unknown>): Array<{
@@ -59,20 +59,18 @@ function monitoringItems(response: Record<string, unknown>): Array<{
 }> {
   const raw = response.monitoring_checklist;
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") return null;
-      const row = entry as Record<string, unknown>;
-      if (typeof row.item !== "string") return null;
-      return {
-        item: row.item,
-        cadence: typeof row.cadence === "string" ? row.cadence : undefined,
-        why: typeof row.why === "string" ? row.why : undefined,
-      };
-    })
-    .filter(
-      (entry): entry is { item: string; cadence?: string; why?: string } => entry !== null,
-    );
+  const out: Array<{ item: string; cadence?: string; why?: string }> = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    if (typeof row.item !== "string") continue;
+    out.push({
+      item: row.item,
+      cadence: typeof row.cadence === "string" ? row.cadence : undefined,
+      why: typeof row.why === "string" ? row.why : undefined,
+    });
+  }
+  return out;
 }
 
 function scenarioBlock(
