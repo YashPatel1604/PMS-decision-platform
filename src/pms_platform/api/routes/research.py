@@ -13,7 +13,11 @@ from sqlalchemy.orm import Session
 
 from pms_platform.api.deps import get_current_user, get_db
 from pms_platform.documents.analyst import generate_research_ask, generate_research_brief
-from pms_platform.documents.coverage import run_coverage_briefs, securities_needing_coverage
+from pms_platform.documents.coverage import (
+    list_book_firms,
+    run_coverage_briefs,
+    securities_needing_coverage,
+)
 from pms_platform.documents.goals import create_goal, list_goals, update_goal
 from pms_platform.documents.indexer import (
     index_research_corpus,
@@ -347,6 +351,18 @@ def patch_goal(
     if goal is None:
         raise HTTPException(status_code=404, detail="Goal not found")
     return _goal_response(goal)
+
+
+@router.get("/firms")
+def get_firms(
+    session: Session = Depends(get_db),
+    _user: User | None = Depends(get_current_user),
+) -> list[dict[str, str]]:
+    """Holdings + watchlist firms available for search/brief."""
+    return [
+        {"security_id": f.security_id, "display_name": f.display_name, "source": f.source}
+        for f in list_book_firms(session)
+    ]
 
 
 @router.get("/coverage")

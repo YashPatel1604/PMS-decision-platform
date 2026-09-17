@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -9,6 +9,7 @@ import {
   api,
   type ResearchAnalystResult,
   type ResearchSearchHit,
+  type WatchlistSearchHit,
 } from "@/lib/api";
 
 function asStringList(value: unknown): string[] {
@@ -112,6 +113,9 @@ export function ResearchAnalystView() {
   const initialSecurity = searchParams.get("security_id")?.trim() ?? "";
   const [searchQ, setSearchQ] = useState(searchParams.get("q")?.trim() ?? "");
   const [securityId, setSecurityId] = useState(initialSecurity);
+  const [firmSearch, setFirmSearch] = useState("");
+  const [debouncedFirmSearch, setDebouncedFirmSearch] = useState("");
+  const [firmLabel, setFirmLabel] = useState(initialSecurity);
   const [hits, setHits] = useState<ResearchSearchHit[]>([]);
   const [brief, setBrief] = useState<ResearchAnalystResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +124,17 @@ export function ResearchAnalystView() {
   const statusQuery = useQuery({
     queryKey: ["research-status"],
     queryFn: () => api.getResearchStatus(),
+  });
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedFirmSearch(firmSearch), 300);
+    return () => window.clearTimeout(timer);
+  }, [firmSearch]);
+
+  const firmHitsQuery = useQuery({
+    queryKey: ["research-firm-search", debouncedFirmSearch],
+    queryFn: () => api.searchWatchlistSecurities(debouncedFirmSearch, 20, false),
+    enabled: debouncedFirmSearch.trim().length >= 2,
   });
 
   const [doneNotes, setDoneNotes] = useState<Record<number, string>>({});
@@ -360,17 +375,69 @@ export function ResearchAnalystView() {
       <section className="space-y-4 border-t border-stone-200 pt-6">
         <h2 className="text-lg text-stone-900">Search and brief</h2>
         <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-2">
+            <label className="block text-sm text-stone-700">
+              Firm
+              <input
+                type="search"
+                className="mt-1 w-full border border-stone-300 bg-transparent px-3 py-2"
+                value={firmSearch}
+                onChange={(e) => setFirmSearch(e.target.value)}
+                placeholder="Type name or symbol (min 2 chars)"
+              />
+            </label>
+            {securityId ? (
+              <p className="text-xs text-stone-500">
+                Selected: {firmLabel || securityId}{" "}
+                <button
+                  type="button"
+                  className="underline-offset-2 hover:underline"
+                  onClick={() => {
+                    setSecurityId("");
+                    setFirmLabel("");
+                  }}
+                >
+                  clear
+                </button>
+              </p>
+            ) : null}
+            {debouncedFirmSearch.trim().length >= 2 ? (
+              <ul className="divide-y divide-stone-100 border border-stone-200">
+                {firmHitsQuery.isFetching ? (
+                  <li className="px-3 py-2 text-sm text-stone-500">Searching…</li>
+                ) : (firmHitsQuery.data ?? []).length === 0 ? (
+                  <li className="px-3 py-2 text-sm text-stone-500">No matches</li>
+                ) : (
+                  (firmHitsQuery.data ?? []).map((hit: WatchlistSearchHit, index: number) => (
+                    <li key={`${hit.security_id ?? hit.portfolio_name}-${index}`}>
+                      <button
+                        type="button"
+                        className="flex w-full items-start justify-between gap-3 px-3 py-2 text-left hover:bg-stone-50"
+                        onClick={() => {
+                          if (hit.security_id) setSecurityId(hit.security_id);
+                          setFirmLabel(hit.portfolio_name);
+                          setFirmSearch("");
+                          setSearchQ((prev) => prev.trim() || hit.portfolio_name);
+                        }}
+                      >
+                        <span>
+                          <span className="block text-sm text-stone-900">{hit.portfolio_name}</span>
+                          <span className="block text-xs text-stone-500">
+                            {[hit.source, hit.security_id, hit.nse_symbol, hit.bse_code]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-xs text-emerald-800">Use</span>
+                      </button>
+                    </li>
+                  ))
+                )}
+              </ul>
+            ) : null}
+          </div>
           <label className="block text-sm text-stone-700">
-            Security id
-            <input
-              className="mt-1 w-full border border-stone-300 bg-transparent px-3 py-2"
-              value={securityId}
-              onChange={(e) => setSecurityId(e.target.value)}
-              placeholder="e.g. SEC001"
-            />
-          </label>
-          <label className="block text-sm text-stone-700">
-            Search query / name
+            Search query / topic
             <input
               className="mt-1 w-full border border-stone-300 bg-transparent px-3 py-2"
               value={searchQ}
@@ -421,7 +488,10 @@ export function ResearchAnalystView() {
                       <button
                         type="button"
                         className="underline-offset-2 hover:underline"
-                        onClick={() => setSecurityId(hit.security_id!)}
+                        onClick={() => {
+                          setSecurityId(hit.security_id!);
+                          setFirmLabel(hit.security_id!);
+                        }}
                       >
                         use {hit.security_id}
                       </button>

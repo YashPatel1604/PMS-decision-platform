@@ -20,6 +20,22 @@ ResolutionStatus = Literal["RESOLVED", "EXCHANGE_RESOLVED", "PENDING", "FAILED",
 RESOLVE_STALE_AFTER = timedelta(days=7)
 
 
+def is_resolution_stale(member: WatchlistMember, *, now: datetime | None = None) -> bool:
+    """True when a previously resolved link should be re-checked (weekly).
+
+    Pending / failed / ambiguous rows are *not* stale — they were never resolved.
+    """
+    if member.resolution_status != "RESOLVED":
+        return False
+    if member.resolved_at is None:
+        return True
+    clock = now or datetime.now(timezone.utc)
+    resolved = member.resolved_at
+    if resolved.tzinfo is None:
+        resolved = resolved.replace(tzinfo=timezone.utc)
+    return clock - resolved > RESOLVE_STALE_AFTER
+
+
 @dataclass(frozen=True)
 class ResolutionResult:
     """Outcome of resolving one watchlist member's identifiers."""
@@ -291,18 +307,6 @@ def apply_resolution_to_member(member: WatchlistMember, result: ResolutionResult
     member.resolution_source = result.source
     member.resolution_note = result.note
     member.resolved_at = datetime.now(timezone.utc)
-
-
-def is_resolution_stale(member: WatchlistMember, *, now: datetime | None = None) -> bool:
-    if member.resolution_status in {"PENDING", "FAILED", "EXCHANGE_RESOLVED", "AMBIGUOUS"}:
-        return True
-    if member.resolved_at is None:
-        return True
-    clock = now or datetime.now(timezone.utc)
-    resolved = member.resolved_at
-    if resolved.tzinfo is None:
-        resolved = resolved.replace(tzinfo=timezone.utc)
-    return clock - resolved > RESOLVE_STALE_AFTER
 
 
 def log_resolution_attempt(

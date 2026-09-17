@@ -96,9 +96,11 @@ def test_is_resolution_stale(session) -> None:
     )
     assert res.is_resolution_stale(member) is True
 
-    member.resolution_status = "PENDING"
     member.resolved_at = datetime.now(timezone.utc)
-    assert res.is_resolution_stale(member) is True
+    assert res.is_resolution_stale(member) is False
+
+    member.resolution_status = "PENDING"
+    assert res.is_resolution_stale(member) is False
 
 
 def test_manual_symbol_fix_resolves(session) -> None:

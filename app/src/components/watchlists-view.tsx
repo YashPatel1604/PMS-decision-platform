@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  ApiError,
   api,
   type Watchlist,
   type WatchlistMember,
@@ -100,8 +101,16 @@ function MemberFixRow({
                   : "bg-amber-50 text-amber-900"
             }`}
           >
-            {member.resolution_stale ? "STALE" : member.resolution_status}
+            {member.resolution_status}
           </span>
+          {member.resolution_stale ? (
+            <span
+              className="inline-flex rounded-md bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-600"
+              title="Symbol link is older than 7 days — click Re-resolve"
+            >
+              Stale link
+            </span>
+          ) : null}
           {needsAttention ? (
             <span className="text-amber-600" title="Needs symbol fix or re-resolve">
               ⚠
@@ -277,9 +286,25 @@ export function WatchlistsView() {
       }),
     onSuccess: async () => {
       setSearch("");
+      setResearchFilter("all");
       await notify("Stock added to watchlist");
     },
-    onError: (err: Error) => setMessage(err.message),
+    onError: (err: unknown) => {
+      if (err instanceof ApiError) {
+        try {
+          const parsed = JSON.parse(err.message) as { detail?: unknown };
+          if (typeof parsed.detail === "string") {
+            setMessage(parsed.detail);
+            return;
+          }
+        } catch {
+          /* plain */
+        }
+        setMessage(err.message);
+        return;
+      }
+      setMessage(err instanceof Error ? err.message : "Add failed");
+    },
   });
 
   const bulkMutation = useMutation({
@@ -287,11 +312,27 @@ export function WatchlistsView() {
     onSuccess: async (result) => {
       setPasteText("");
       setShowPaste(false);
+      setResearchFilter("all");
       await notify(
         `Added ${result.added} (${result.pending} pending resolve), skipped ${result.skipped}`,
       );
     },
-    onError: (err: Error) => setMessage(err.message),
+    onError: (err: unknown) => {
+      if (err instanceof ApiError) {
+        try {
+          const parsed = JSON.parse(err.message) as { detail?: unknown };
+          if (typeof parsed.detail === "string") {
+            setMessage(parsed.detail);
+            return;
+          }
+        } catch {
+          /* plain */
+        }
+        setMessage(err.message);
+        return;
+      }
+      setMessage(err instanceof Error ? err.message : "Bulk add failed");
+    },
   });
 
   const resolveAllMutation = useMutation({

@@ -40,6 +40,12 @@ export type ResearchAnalystResult = {
   called_llm: boolean;
 };
 
+export type ResearchFirm = {
+  security_id: string;
+  display_name: string;
+  source: "holding" | "watchlist" | "both" | string;
+};
+
 export type PortfolioEventRow = {
   event_id: number;
   security_id: string | null;
@@ -1783,6 +1789,7 @@ export const api = {
   },
 
   getResearchStatus: () => request<ResearchIndexStatus>("/research/status"),
+  listResearchFirms: () => request<ResearchFirm[]>("/research/firms"),
   indexResearch: () =>
     request<ResearchIndexResult>("/research/index", { method: "POST" }),
   uploadResearchNote: async (file: File, securityId?: string | null) => {

@@ -12,6 +12,7 @@ from pms_platform.models.enums import EpisodeStatus
 from pms_platform.models.episode import InvestmentEpisode
 from pms_platform.models.investment_thesis import InvestmentThesis
 from pms_platform.models.research_document import ResearchAnswerCache, ResearchDocument
+from pms_platform.models.security import Security
 from pms_platform.models.watchlist import WatchlistMember
 
 
@@ -19,6 +20,66 @@ from pms_platform.models.watchlist import WatchlistMember
 class CoverageItem:
     security_id: str
     reason: str
+
+
+@dataclass(frozen=True)
+class BookFirm:
+    security_id: str
+    display_name: str
+    source: str  # holding | watchlist | both
+
+
+def _book_security_id_sets(session: Session) -> tuple[set[str], set[str]]:
+    open_ids = set(
+        session.scalars(
+            select(InvestmentEpisode.security_id).where(
+                InvestmentEpisode.status == EpisodeStatus.OPEN.value
+            )
+        ).all()
+    )
+    watch_ids = {
+        sid
+        for sid in session.scalars(
+            select(WatchlistMember.security_id).where(WatchlistMember.security_id.is_not(None))
+        ).all()
+        if sid
+    }
+    return open_ids, watch_ids
+
+
+def list_book_firms(session: Session) -> list[BookFirm]:
+    """Open holdings + watchlist names that search/brief can target."""
+    open_ids, watch_ids = _book_security_id_sets(session)
+    all_ids = sorted(open_ids | watch_ids)
+    if not all_ids:
+        return []
+    securities = {
+        row.security_id: row
+        for row in session.scalars(select(Security).where(Security.security_id.in_(all_ids))).all()
+    }
+    wl_names: dict[str, str] = {}
+    for sid, name in session.execute(
+        select(WatchlistMember.security_id, WatchlistMember.display_name).where(
+            WatchlistMember.security_id.in_(all_ids)
+        )
+    ).all():
+        if sid and name and sid not in wl_names:
+            wl_names[sid] = name
+    out: list[BookFirm] = []
+    for sid in all_ids:
+        sec = securities.get(sid)
+        display = (
+            (sec.canonical_name or sec.portfolio_name) if sec else None
+        ) or wl_names.get(sid) or sid
+        if sid in open_ids and sid in watch_ids:
+            source = "both"
+        elif sid in open_ids:
+            source = "holding"
+        else:
+            source = "watchlist"
+        out.append(BookFirm(security_id=sid, display_name=display, source=source))
+    out.sort(key=lambda f: f.display_name.casefold())
+    return out
 
 
 def research_status_by_security(
@@ -61,20 +122,7 @@ def research_status_by_security(
 
 def securities_needing_coverage(session: Session, *, limit: int = 50) -> list[CoverageItem]:
     """Open holdings + watchlist members lacking research coverage (thesis/docs/brief)."""
-    open_ids = set(
-        session.scalars(
-            select(InvestmentEpisode.security_id).where(
-                InvestmentEpisode.status == EpisodeStatus.OPEN.value
-            )
-        ).all()
-    )
-    watch_ids = {
-        sid
-        for sid in session.scalars(
-            select(WatchlistMember.security_id).where(WatchlistMember.security_id.is_not(None))
-        ).all()
-        if sid
-    }
+    open_ids, watch_ids = _book_security_id_sets(session)
     candidates = sorted(open_ids | watch_ids)
     status = research_status_by_security(session, candidates)
     out: list[CoverageItem] = []

@@ -572,3 +572,50 @@ def test_research_api_goals_and_search(
         )
         == []
     )
+
+
+def test_list_book_firms_and_api(session: Session, sample_security: Security) -> None:
+    from datetime import date
+
+    from pms_platform.api.routes import research as research_routes
+    from pms_platform.documents.coverage import list_book_firms
+    from pms_platform.models.enums import EpisodeStatus
+    from pms_platform.models.episode import InvestmentEpisode
+    from pms_platform.models.watchlist import Watchlist, WatchlistMember
+
+    assert list_book_firms(session) == []
+
+    session.add(
+        InvestmentEpisode(
+            security_id=sample_security.security_id,
+            episode_number=1,
+            entry_date=date(2024, 1, 1),
+            status=EpisodeStatus.OPEN.value,
+            initial_quantity=10,
+            total_buy_quantity=10,
+            final_quantity=10,
+            max_quantity=10,
+            number_of_buys=1,
+        )
+    )
+    wl = Watchlist(name="Ideas")
+    session.add(wl)
+    session.flush()
+    session.add(
+        WatchlistMember(
+            watchlist_id=wl.watchlist_id,
+            security_id=sample_security.security_id,
+            display_name="TestCo WL",
+            resolution_status="RESOLVED",
+        )
+    )
+    session.flush()
+
+    firms = list_book_firms(session)
+    assert len(firms) == 1
+    assert firms[0].security_id == sample_security.security_id
+    assert firms[0].source == "both"
+    assert "Test" in firms[0].display_name
+
+    api_rows = research_routes.get_firms(session=session, _user=None)
+    assert api_rows[0]["security_id"] == sample_security.security_id
