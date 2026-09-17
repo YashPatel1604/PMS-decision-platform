@@ -19,6 +19,7 @@ from pms_platform.api.routes import (
     market_data,
     masters,
     pivot_strategy,
+    research,
     staged_imports,
     watchlists,
 )
@@ -63,3 +64,4 @@ app.include_router(
 )
 app.include_router(charts.router, prefix="/strategy/charts", tags=["charts"])
 app.include_router(watchlists.router, prefix="/watchlists", tags=["watchlists"])
+app.include_router(research.router, prefix="/research", tags=["research"])

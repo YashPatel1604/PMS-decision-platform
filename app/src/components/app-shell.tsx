@@ -27,6 +27,7 @@ const navGroups: NavGroup[] = [
       { href: "/holdings", label: "Holdings" },
       { href: "/episodes", label: "Episodes" },
       { href: "/watchlists", label: "Watchlists", badgeKey: "watchlists" },
+      { href: "/research", label: "Research" },
     ],
   },
   {

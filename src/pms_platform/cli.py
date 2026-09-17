@@ -23,13 +23,8 @@ from pms_platform.analytics.service import run_full_episode_analysis
 from pms_platform.auth.service import create_user
 from pms_platform.config import settings
 from pms_platform.db.base import get_session_factory
-from pms_platform.fundamentals.service import sync_fundamentals
-from pms_platform.watchlists.refresh import (
-    refresh_watchlist_fundamentals,
-    refresh_watchlist_quotes,
-    sync_all_watchlists,
-)
 from pms_platform.episodes.builder import build_episodes
+from pms_platform.fundamentals.service import sync_fundamentals
 from pms_platform.ingestion.exports import (
     export_decision_events_csv,
     export_episodes_csv,
@@ -57,7 +52,11 @@ from pms_platform.portfolio.position_engine import portfolio_on
 from pms_platform.portfolio.reconciliation import reconcile_all_snapshots
 from pms_platform.reconciliation.cutover import run_cutover_reconciliation
 from pms_platform.reconciliation.report import write_reports
-
+from pms_platform.watchlists.refresh import (
+    refresh_watchlist_fundamentals,
+    refresh_watchlist_quotes,
+    sync_all_watchlists,
+)
 
 def _ensure_schema() -> None:
     """Apply Alembic migrations before running commands."""
@@ -728,10 +727,14 @@ def watchlist_provider_status_cmd() -> int:
 
     try:
         import httpx
+
         from pms_platform.market_data.bse_http import bse_headers
 
         with httpx.Client(headers=bse_headers(), timeout=20.0) as client:
-            r = client.get("https://api.bseindia.com/BseIndiaAPI/api/getScripHeaderData/w", params={"scripcode": "500325"})
+            r = client.get(
+                "https://api.bseindia.com/BseIndiaAPI/api/getScripHeaderData/w",
+                params={"scripcode": "500325"},
+            )
             if r.status_code != 200:
                 raise RuntimeError(f"HTTP {r.status_code}")
         lines.append("  BSE quote header: OK")
@@ -1029,7 +1032,7 @@ def build_corporate_actions_cmd(
     export_out = (output or settings.export_dir / "corporate_actions.csv").resolve()
     external_out = Path(settings.external_data_dir) / "corporate_actions" / "corporate_actions.csv"
 
-    print(f"Building corporate-action calendar from Yahoo…")
+    print("Building corporate-action calendar from Yahoo…")
     print(f"  Security master: {sec_path}")
     print(f"  Transactions:    {txn_path}")
     rows = build_corporate_actions_from_yahoo(
@@ -1082,10 +1085,7 @@ def analyze_episodes(export_dir: Path | None = None) -> int:
         print(f"  Performance report: {(output_dir / 'episode_performance.csv').resolve()}")
         print(f"  Post-exit report: {(output_dir / 'post_exit_performance.csv').resolve()}")
         print(f"  Sell assessments: {(output_dir / 'sell_assessments.csv').resolve()}")
-        print(
-            "  First-buy audit: "
-            f"{(output_dir / 'first_buy_price_audit.csv').resolve()}"
-        )
+        print(f"  First-buy audit: {(output_dir / 'first_buy_price_audit.csv').resolve()}")
         print(f"  Excel workbook: {(output_dir / 'sell_since_analysis.xlsx').resolve()}")
         return 0
     except Exception as exc:
@@ -1321,9 +1321,7 @@ def fetch_bhav_day_cmd(
     _ensure_schema()
     session = get_session_factory()()
     try:
-        result = fetch_and_commit_cm_udiff_bhav(
-            session, trade_date, lookback_days=lookback_days
-        )
+        result = fetch_and_commit_cm_udiff_bhav(session, trade_date, lookback_days=lookback_days)
         session.commit()
         print(result["message"])
         if result.get("skipped"):
@@ -1336,6 +1334,105 @@ def fetch_bhav_day_cmd(
     except Exception as exc:  # noqa: BLE001
         session.rollback()
         print(f"fetch-bhav-day commit failed: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
+def research_index_cmd(root: Path | None = None) -> int:
+    """Index Research corpus into Postgres (idempotent by content hash)."""
+    from pms_platform.documents.indexer import index_research_corpus
+
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        result = index_research_corpus(session, root=root)
+        print(
+            f"Indexed root={result.root} scanned={result.scanned} "
+            f"inserted={result.inserted} updated={result.updated} "
+            f"unchanged={result.unchanged} skipped={result.skipped} "
+            f"errors={result.errors} removed={result.removed}"
+        )
+        return 0 if result.root else 1
+    finally:
+        session.close()
+
+
+def research_search_cmd(
+    query: str,
+    *,
+    security_id: str | None = None,
+    limit: int = 20,
+) -> int:
+    """FTS search over indexed research pages."""
+    from pms_platform.documents.search import search_research_pages
+
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        hits = search_research_pages(session, query, security_id=security_id, limit=limit)
+        if not hits:
+            print("No hits.")
+            return 0
+        for hit in hits:
+            print(f"[{hit.rank:.2f}] {hit.relative_path}:{hit.page_number} (page_id={hit.page_id})")
+            print(f"  {hit.snippet[:240]}")
+        return 0
+    finally:
+        session.close()
+
+
+def research_brief_cmd(
+    *,
+    security_id: str | None,
+    query_name: str | None,
+    force_refresh: bool = False,
+) -> int:
+    """Generate a citation-backed research analyst brief via Grok."""
+    from pms_platform.documents.analyst import generate_research_brief
+    from pms_platform.documents.xai_client import XaiConfigError
+
+    if not security_id and not query_name:
+        print("Provide --security-id or --name", file=sys.stderr)
+        return 1
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        result = generate_research_brief(
+            session,
+            security_id=security_id,
+            query_name=query_name,
+            force_refresh=force_refresh,
+        )
+        import json
+
+        print(
+            f"cache_hit={result.cache_hit} called_llm={result.called_llm} "
+            f"tokens_in={result.token_in} tokens_out={result.token_out}"
+        )
+        print(json.dumps(result.response, indent=2, ensure_ascii=False, default=str))
+        return 0
+    except XaiConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+
+
+def research_coverage_cmd(*, limit: int, apply: bool) -> int:
+    """List or generate briefs for names lacking research goals."""
+    from pms_platform.documents.coverage import run_coverage_briefs
+    from pms_platform.documents.xai_client import XaiConfigError
+
+    _ensure_schema()
+    session = get_session_factory()()
+    try:
+        rows = run_coverage_briefs(session, limit=limit, dry_run=not apply)
+        for row in rows:
+            print(row)
+        return 0
+    except XaiConfigError as exc:
+        print(str(exc), file=sys.stderr)
         return 1
     finally:
         session.close()
@@ -1600,7 +1697,7 @@ def main() -> None:
         help="Limit to one watchlist (default: all)",
     )
 
-    provider_status_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "watchlist-provider-status",
         help="Probe NSE/BSE endpoints and DB freshness for watchlist data",
     )
@@ -1811,6 +1908,44 @@ def main() -> None:
         help="Save CSV under data/uploads/bhav/nse without committing",
     )
 
+    research_index_parser = subparsers.add_parser(
+        "research-index",
+        help="Index Research/ files into Postgres FTS (idempotent; never writes Research)",
+    )
+    research_index_parser.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Override RESEARCH_DIR for this run",
+    )
+
+    research_search_parser = subparsers.add_parser(
+        "research-search",
+        help="Search indexed research pages",
+    )
+    research_search_parser.add_argument("--query", required=True)
+    research_search_parser.add_argument("--security-id", default=None)
+    research_search_parser.add_argument("--limit", type=int, default=20)
+
+    research_brief_parser = subparsers.add_parser(
+        "research-brief",
+        help="Generate Grok research analyst brief (requires XAI_API_KEY unless cached/empty)",
+    )
+    research_brief_parser.add_argument("--security-id", default=None)
+    research_brief_parser.add_argument("--name", default=None, dest="query_name")
+    research_brief_parser.add_argument("--force-refresh", action="store_true")
+
+    research_coverage_parser = subparsers.add_parser(
+        "research-coverage",
+        help="List (default) or generate briefs for holdings/watchlist names lacking goals",
+    )
+    research_coverage_parser.add_argument("--limit", type=int, default=10)
+    research_coverage_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually call brief generation (default is dry-run)",
+    )
+
     args = parser.parse_args()
     if args.command == "import-all":
         raise SystemExit(import_all(args.export_dir))
@@ -1956,9 +2091,7 @@ def main() -> None:
             )
         )
     if args.command == "seed-watchlist":
-        raise SystemExit(
-            seed_watchlist_cmd(path=args.file, name=args.name, force=args.force)
-        )
+        raise SystemExit(seed_watchlist_cmd(path=args.file, name=args.name, force=args.force))
     if args.command == "sync-insider-disclosures":
         raise SystemExit(sync_insider_disclosures_cmd(days=args.days))
     if args.command == "seed-pivot-from-research":
@@ -1985,6 +2118,26 @@ def main() -> None:
                 lookback_days=args.lookback_days,
             )
         )
+    if args.command == "research-index":
+        raise SystemExit(research_index_cmd(root=args.root))
+    if args.command == "research-search":
+        raise SystemExit(
+            research_search_cmd(
+                args.query,
+                security_id=args.security_id,
+                limit=args.limit,
+            )
+        )
+    if args.command == "research-brief":
+        raise SystemExit(
+            research_brief_cmd(
+                security_id=args.security_id,
+                query_name=args.query_name,
+                force_refresh=args.force_refresh,
+            )
+        )
+    if args.command == "research-coverage":
+        raise SystemExit(research_coverage_cmd(limit=args.limit, apply=args.apply))
 
 
 if __name__ == "__main__":

@@ -59,6 +59,20 @@ class Settings(BaseSettings):
     # Path under OneDrive root, e.g. PMS-Decision-Platform/DailyEditBackup
     onedrive_graph_folder: str = "PMS-Decision-Platform/DailyEditBackup"
 
+    # --- Research analyst / Grok (optional) ---
+    xai_api_key: str = ""
+    xai_api_base_url: str = "https://api.x.ai/v1"
+    xai_model: str = "grok-2-latest"
+    research_index_enabled: bool = True
+    research_corpus_globs: str = "**/*.pdf,**/*.md,**/*.txt"
+    research_corpus_exclude_globs: str = "**/~*,**/.tmp/**"
+    research_rag_max_chunks: int = 8
+    research_rag_max_context_tokens: int = 4000
+    research_rag_snippet_chars: int = 1200
+    research_answer_cache_ttl_days: int = 30
+    research_prompt_retention_days: int = 0
+    research_analyst_prompt_version: str = "v1"
+
     @property
     def migration_database_url(self) -> str:
         """URL for Alembic / one-shot migration tasks (prefer direct when set)."""

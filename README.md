@@ -384,6 +384,7 @@ pms-decision-platform/
 - pgvector only where semantic retrieval materially improves search
 - Local embeddings or approved private API
 - Page-level citations for every research answer
+- Optional xAI Grok **research analyst** (thesis maps, research agendas, evidence gaps) — see [`docs/GROK_RESEARCH_ANALYST_PLAN.md`](docs/GROK_RESEARCH_ANALYST_PLAN.md); LLMs must not compute portfolio math or recommendations
 
 ---
 

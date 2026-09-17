@@ -18,11 +18,24 @@ from pms_platform.models.fundamental_snapshot import FundamentalSnapshot
 from pms_platform.models.import_batch import ImportBatch
 from pms_platform.models.insider_disclosure_day import InsiderDisclosureDay
 from pms_platform.models.liquid_transaction import LiquidTransaction
-from pms_platform.models.nse_bhav import BhavImportRun, NseBhavBar, PivotPortfolioSymbol, PivotVolExp
+from pms_platform.models.nse_bhav import (
+    BhavImportRun,
+    NseBhavBar,
+    PivotPortfolioSymbol,
+    PivotVolExp,
+)
 from pms_platform.models.post_exit_horizon_performance import (
     PostExitHorizonPerformance,
 )
 from pms_platform.models.post_exit_performance import PostExitPerformance
+from pms_platform.models.promoter_snapshot import PromoterSnapshot
+from pms_platform.models.research_document import (
+    ResearchAnswerCache,
+    ResearchDocument,
+    ResearchDocumentPage,
+    ResearchGoal,
+    ResearchQueryAudit,
+)
 from pms_platform.models.security import Security
 from pms_platform.models.security_identity_alias import SecurityIdentityAlias
 from pms_platform.models.security_successor import SecuritySuccessor
@@ -31,10 +44,14 @@ from pms_platform.models.sell_assessment import SellAssessment
 from pms_platform.models.snapshot import PortfolioSnapshotRecord
 from pms_platform.models.transaction import Transaction
 from pms_platform.models.user import User
-from pms_platform.models.watchlist import Watchlist, WatchlistAlert, WatchlistMember, WatchlistResolutionLog
-from pms_platform.models.watchlist_member_metrics import WatchlistMemberMetrics
-from pms_platform.models.promoter_snapshot import PromoterSnapshot
 from pms_platform.models.valuation_snapshot import ValuationSnapshot
+from pms_platform.models.watchlist import (
+    Watchlist,
+    WatchlistAlert,
+    WatchlistMember,
+    WatchlistResolutionLog,
+)
+from pms_platform.models.watchlist_member_metrics import WatchlistMemberMetrics
 from pms_platform.models.watchlist_refresh_lock import WatchlistRefreshLock
 
 __all__ = [
@@ -68,6 +85,11 @@ __all__ = [
     "SecuritySymbolHistory",
     "SellAssessment",
     "PromoterSnapshot",
+    "ResearchAnswerCache",
+    "ResearchDocument",
+    "ResearchDocumentPage",
+    "ResearchGoal",
+    "ResearchQueryAudit",
     "Transaction",
     "ClientPosition",
     "ClientBookSettings",
