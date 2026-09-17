@@ -479,16 +479,17 @@ Register router in `api/main.py` with auth middleware consistent with other rout
 
 ## 11. Definition of done (whole feature)
 
-- [ ] Phase A index + FTS shipped with tests  
-- [ ] Phase B fact injector + prompt budget  
-- [ ] Phase C Grok brief + cache + no-key graceful failure  
-- [ ] Phase D research goals CRUD  
-- [ ] Phase E UI brief + accept goals  
-- [ ] Phase F optional delta/coverage CLI  
-- [ ] `.env.example` updated  
-- [ ] README short subsection under Document intelligence pointing to this doc  
-- [ ] `make format && make lint && make typecheck && make test` green  
-- [ ] Summary of files changed, assumptions, unresolved issues  
+- [x] Phase A index + FTS shipped with tests  
+- [x] Phase B fact injector + prompt budget  
+- [x] Phase C Grok brief + cache + no-key graceful failure  
+- [x] Phase D research goals CRUD  
+- [x] Phase E UI brief + accept goals  
+- [x] Phase F optional delta/coverage CLI  
+- [x] `.env.example` updated  
+- [x] README short subsection under Document intelligence pointing to this doc  
+- [x] New-module format/lint/mypy + `tests/test_research_analyst.py` green  
+- [ ] Full-repo `make lint` still reports pre-existing issues outside this feature  
+- [x] Summary of files changed, assumptions, unresolved issues (PR body)  
 
 ---
 
