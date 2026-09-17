@@ -46,18 +46,11 @@ def build_morning_brief(session: Session, *, lookback_days: int = 7) -> dict[str
 
     status = index_status(session)
     data_problems: list[dict[str, str]] = []
-    if not status.get("research_root"):
-        data_problems.append(
-            {
-                "code": "research_dir_missing",
-                "detail": "RESEARCH_DIR is not configured or not readable.",
-            }
-        )
     if int(status.get("document_count") or 0) == 0:
         data_problems.append(
             {
                 "code": "research_index_empty",
-                "detail": "Research index has zero documents — run research-index.",
+                "detail": "No research notes indexed yet — upload PDF/MD/TXT on the Research page.",
             }
         )
     for flag in open_flags:

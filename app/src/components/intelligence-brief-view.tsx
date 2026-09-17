@@ -101,6 +101,7 @@ export function IntelligenceBriefView() {
         <p className="max-w-2xl text-stone-600">
           Filtered surveillance for holdings and watchlist — material events only, with rule-based
           reasons. Sync insider disclosures into the event store, then review what needs attention.
+          Research notes are optional: upload them on the Research page when you want search/briefs.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <button

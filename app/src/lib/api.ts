@@ -1769,6 +1769,27 @@ export const api = {
   getResearchStatus: () => request<ResearchIndexStatus>("/research/status"),
   indexResearch: () =>
     request<ResearchIndexResult>("/research/index", { method: "POST" }),
+  uploadResearchNote: async (file: File, securityId?: string | null) => {
+    const body = new FormData();
+    body.append("file", file);
+    if (securityId?.trim()) body.append("security_id", securityId.trim());
+    const response = await fetch(`${API_BASE}/research/upload`, {
+      method: "POST",
+      body,
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new ApiError(text || response.statusText, response.status);
+    }
+    return response.json() as Promise<{
+      filename: string;
+      action: string;
+      document_count: number;
+      page_count: number;
+    }>;
+  },
   searchResearch: (q: string, securityId?: string | null) => {
     const params = new URLSearchParams({ q });
     if (securityId) params.set("security_id", securityId);

@@ -9,7 +9,13 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from pms_platform.documents.extract import extract_file, file_content_hash, file_mtime_utc
-from pms_platform.documents.scan import CorpusFile, iter_corpus_files, resolve_corpus_root
+from pms_platform.documents.scan import (
+    CorpusFile,
+    corpus_roots,
+    iter_corpus_files,
+    resolve_corpus_root,
+    ui_corpus_dir,
+)
 from pms_platform.models.research_document import ResearchDocument, ResearchDocumentPage
 from pms_platform.models.security import Security
 
@@ -52,7 +58,12 @@ def _guess_security_id(session: Session, relative_path: str, title: str | None) 
     return best[1] if best else None
 
 
-def _upsert_document(session: Session, item: CorpusFile) -> str:
+def _upsert_document(
+    session: Session,
+    item: CorpusFile,
+    *,
+    security_id: str | None = None,
+) -> str:
     """Insert or update one file. Returns action: inserted|updated|unchanged|skipped|error."""
     content_hash = file_content_hash(item.absolute_path)
     existing = session.scalar(
@@ -67,7 +78,7 @@ def _upsert_document(session: Session, item: CorpusFile) -> str:
     extraction = extract_file(item.absolute_path)
     mtime = file_mtime_utc(item.absolute_path)
     byte_size = item.absolute_path.stat().st_size
-    security_id = _guess_security_id(session, item.relative_path, extraction.title)
+    linked = security_id or _guess_security_id(session, item.relative_path, extraction.title)
 
     if existing is None:
         doc = ResearchDocument(
@@ -80,7 +91,7 @@ def _upsert_document(session: Session, item: CorpusFile) -> str:
             title=extraction.title,
             parse_status=extraction.parse_status,
             parse_error=extraction.parse_error,
-            security_id=security_id,
+            security_id=linked,
         )
         session.add(doc)
         session.flush()
@@ -94,7 +105,8 @@ def _upsert_document(session: Session, item: CorpusFile) -> str:
         doc.title = extraction.title
         doc.parse_status = extraction.parse_status
         doc.parse_error = extraction.parse_error
-        doc.security_id = security_id
+        if security_id is not None or doc.security_id is None:
+            doc.security_id = linked
         session.execute(
             delete(ResearchDocumentPage).where(ResearchDocumentPage.document_id == doc.document_id)
         )
@@ -116,13 +128,31 @@ def _upsert_document(session: Session, item: CorpusFile) -> str:
     return action
 
 
+def index_uploaded_file(
+    session: Session,
+    path: Path,
+    *,
+    relative_path: str,
+    security_id: str | None = None,
+) -> str:
+    """Index one UI-uploaded file under source_root=ui."""
+    item = CorpusFile(
+        absolute_path=path.resolve(),
+        relative_path=relative_path,
+        source_root="ui",
+    )
+    action = _upsert_document(session, item, security_id=security_id)
+    session.commit()
+    return action
+
+
 def index_research_corpus(
     session: Session,
     *,
     root: Path | None = None,
     prune_missing: bool = True,
 ) -> IndexResult:
-    """Scan Research, upsert by content hash, optionally prune deleted paths."""
+    """Scan configured corpus roots, upsert by content hash, optionally prune deleted paths."""
     from pms_platform.config import settings
 
     if not settings.research_index_enabled:
@@ -138,8 +168,12 @@ def index_research_corpus(
             removed=0,
         )
 
-    base = resolve_corpus_root(root)
-    files = iter_corpus_files(base)
+    roots = corpus_roots(root)
+    # Ensure UI corpus exists so cloud deploys have a writable root even before first upload.
+    if root is None and not any(src == "ui" for src, _ in roots):
+        ui_corpus_dir(ensure=True)
+        roots = corpus_roots(root)
+
     counts = {
         "inserted": 0,
         "updated": 0,
@@ -147,28 +181,34 @@ def index_research_corpus(
         "skipped": 0,
         "errors": 0,
     }
-    seen_paths: set[str] = set()
-    for item in files:
-        seen_paths.add(item.relative_path)
-        action = _upsert_document(session, item)
-        if action in counts:
-            counts[action] += 1
-        session.flush()
-
+    scanned = 0
     removed = 0
-    if prune_missing and base is not None:
-        existing_docs = session.scalars(
-            select(ResearchDocument).where(ResearchDocument.source_root == "research")
-        ).all()
-        for doc in existing_docs:
-            if doc.relative_path not in seen_paths:
-                session.delete(doc)
-                removed += 1
+    primary: Path | None = roots[0][1] if roots else None
+
+    for source, base in roots:
+        files = iter_corpus_files(base, source_root=source)
+        scanned += len(files)
+        seen_paths: set[str] = set()
+        for item in files:
+            seen_paths.add(item.relative_path)
+            action = _upsert_document(session, item)
+            if action in counts:
+                counts[action] += 1
+            session.flush()
+
+        if prune_missing:
+            existing_docs = session.scalars(
+                select(ResearchDocument).where(ResearchDocument.source_root == source)
+            ).all()
+            for doc in existing_docs:
+                if doc.relative_path not in seen_paths:
+                    session.delete(doc)
+                    removed += 1
 
     session.commit()
     return IndexResult(
-        root=str(base) if base else None,
-        scanned=len(files),
+        root=str(primary) if primary else None,
+        scanned=scanned,
         inserted=counts["inserted"],
         updated=counts["updated"],
         unchanged=counts["unchanged"],
@@ -186,10 +226,13 @@ def index_status(session: Session) -> dict[str, object]:
         select(ResearchDocument.parse_status, func.count()).group_by(ResearchDocument.parse_status)
     ).all()
     last = session.scalar(select(func.max(ResearchDocument.indexed_at)))
+    roots = corpus_roots()
     return {
         "document_count": total,
         "page_count": pages,
         "by_parse_status": {status: count for status, count in by_status_rows},
         "last_indexed_at": last.isoformat() if last else None,
-        "research_root": str(resolve_corpus_root()) if resolve_corpus_root() else None,
+        "research_root": str(roots[0][1]) if roots else None,
+        "corpus_roots": [{"source": src, "path": str(path)} for src, path in roots],
+        "ui_upload_enabled": True,
     }

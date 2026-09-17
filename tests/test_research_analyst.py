@@ -109,6 +109,31 @@ def test_index_disabled_is_noop(
     assert session.scalars(select(ResearchDocument)).all() == []
 
 
+def test_ui_upload_indexes_without_research_dir(
+    session: Session,
+    sample_security: Security,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "research_dir", tmp_path / "no-research")
+    monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
+    from pms_platform.documents.scan import ui_corpus_dir
+    from pms_platform.documents.indexer import index_uploaded_file
+
+    dest = ui_corpus_dir(ensure=True) / "TestCo_note.md"
+    dest.write_text("Promoter pledge risk note.\n", encoding="utf-8")
+    action = index_uploaded_file(
+        session,
+        dest,
+        relative_path="TestCo_note.md",
+        security_id=sample_security.security_id,
+    )
+    assert action == "inserted"
+    hits = search_research_pages(session, "promoter pledge")
+    assert hits
+    assert hits[0].relative_path == "TestCo_note.md"
+
+
 def test_golden_fixture_corpus_searchable(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

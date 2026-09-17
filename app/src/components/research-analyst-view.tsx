@@ -116,6 +116,7 @@ export function ResearchAnalystView() {
   const [hits, setHits] = useState<ResearchSearchHit[]>([]);
   const [brief, setBrief] = useState<ResearchAnalystResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
 
   const statusQuery = useQuery({
     queryKey: ["research-status"],
@@ -139,6 +140,16 @@ export function ResearchAnalystView() {
     mutationFn: () => api.indexResearch(),
     onSuccess: () => {
       setError(null);
+      void queryClient.invalidateQueries({ queryKey: ["research-status"] });
+    },
+    onError: (err: unknown) => setError(errorMessage(err)),
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => api.uploadResearchNote(file, securityId || null),
+    onSuccess: () => {
+      setError(null);
+      setUploadFile(null);
       void queryClient.invalidateQueries({ queryKey: ["research-status"] });
     },
     onError: (err: unknown) => setError(errorMessage(err)),
@@ -229,9 +240,9 @@ export function ResearchAnalystView() {
         <p className="text-sm uppercase tracking-[0.2em] text-stone-500">Research</p>
         <h1 className="font-serif text-3xl text-stone-900 md:text-4xl">Analyst assistant</h1>
         <p className="max-w-2xl text-stone-600">
-          Index local Research notes, retrieve evidence, then generate a citation-backed research
-          agenda. Portfolio math stays in deterministic code — Grok only helps set future research
-          goals.
+          Upload research notes here (PDF, Markdown, or text), search the index, then generate a
+          citation-backed agenda. No local Research folder is required on cloud — portfolio math
+          stays in deterministic code; Grok only helps set future research goals.
         </p>
         <p className="max-w-2xl text-xs text-stone-500">
           When a brief is generated, retrieved text snippets (not whole PDFs) may be sent to xAI.
@@ -240,20 +251,51 @@ export function ResearchAnalystView() {
       </header>
 
       <section className="space-y-3 border-t border-stone-200 pt-6">
-        <h2 className="text-lg text-stone-900">Index</h2>
+        <h2 className="text-lg text-stone-900">Upload notes</h2>
         <p className="text-sm text-stone-600">
           Documents: {statusQuery.data?.document_count ?? "—"} · Pages:{" "}
           {statusQuery.data?.page_count ?? "—"} · Last indexed:{" "}
           {statusQuery.data?.last_indexed_at ?? "never"}
         </p>
-        <button
-          type="button"
-          className="border border-stone-800 px-4 py-2 text-sm text-stone-900 hover:bg-stone-900 hover:text-white disabled:opacity-50"
-          onClick={() => indexMutation.mutate()}
-          disabled={indexMutation.isPending}
-        >
-          {indexMutation.isPending ? "Indexing…" : "Re-index Research"}
-        </button>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block text-sm text-stone-700">
+            File (pdf / md / txt)
+            <input
+              type="file"
+              accept=".pdf,.md,.markdown,.txt,text/plain,application/pdf"
+              className="mt-1 block w-full text-sm text-stone-700"
+              onChange={(e) => {
+                const next = e.target.files?.[0] ?? null;
+                setUploadFile(next);
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="border border-stone-800 px-4 py-2 text-sm text-stone-900 hover:bg-stone-900 hover:text-white disabled:opacity-50"
+            onClick={() => {
+              if (!uploadFile) return;
+              uploadMutation.mutate(uploadFile);
+            }}
+            disabled={uploadMutation.isPending || !uploadFile}
+          >
+            {uploadMutation.isPending ? "Uploading…" : "Upload & index"}
+          </button>
+          <button
+            type="button"
+            className="border border-stone-300 px-4 py-2 text-sm text-stone-700 hover:border-stone-800 disabled:opacity-50"
+            onClick={() => indexMutation.mutate()}
+            disabled={indexMutation.isPending}
+          >
+            {indexMutation.isPending ? "Indexing…" : "Re-index corpus"}
+          </button>
+        </div>
+        {uploadMutation.data ? (
+          <p className="text-xs text-stone-500">
+            {uploadMutation.data.filename}: {uploadMutation.data.action} · docs{" "}
+            {uploadMutation.data.document_count} · pages {uploadMutation.data.page_count}
+          </p>
+        ) : null}
       </section>
 
       <section className="space-y-4 border-t border-stone-200 pt-6">

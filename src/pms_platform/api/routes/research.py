@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import date
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -14,7 +15,12 @@ from pms_platform.api.deps import get_current_user, get_db
 from pms_platform.documents.analyst import generate_research_ask, generate_research_brief
 from pms_platform.documents.coverage import run_coverage_briefs, securities_needing_coverage
 from pms_platform.documents.goals import create_goal, list_goals, update_goal
-from pms_platform.documents.indexer import index_research_corpus, index_status
+from pms_platform.documents.indexer import (
+    index_research_corpus,
+    index_status,
+    index_uploaded_file,
+)
+from pms_platform.documents.scan import ui_corpus_dir
 from pms_platform.documents.search import search_research_pages
 from pms_platform.documents.xai_client import XaiConfigError
 from pms_platform.models.user import User
@@ -122,6 +128,61 @@ def post_index(
 ) -> IndexResponse:
     result = index_research_corpus(session)
     return IndexResponse(**asdict(result))
+
+
+_ALLOWED_UPLOAD_SUFFIXES = {".pdf", ".md", ".markdown", ".txt"}
+
+
+def _safe_upload_name(filename: str) -> str:
+    name = Path(filename).name.strip()
+    if not name or name in {".", ".."}:
+        raise ValueError("invalid filename")
+    # Collapse path separators / control chars.
+    cleaned = "".join(ch if ch.isalnum() or ch in "._- " else "_" for ch in name).strip()
+    if not cleaned:
+        raise ValueError("invalid filename")
+    suffix = Path(cleaned).suffix.lower()
+    if suffix not in _ALLOWED_UPLOAD_SUFFIXES:
+        raise ValueError(f"unsupported type {suffix or '(none)'}; use pdf, md, or txt")
+    return cleaned
+
+
+@router.post("/upload")
+async def post_upload(
+    file: UploadFile = File(...),
+    security_id: str | None = Form(default=None),
+    session: Session = Depends(get_db),
+    _user: User | None = Depends(get_current_user),
+) -> dict[str, object]:
+    """Store a note in the UI corpus and index it (works without RESEARCH_DIR)."""
+    raw_name = file.filename or "note.txt"
+    try:
+        safe_name = _safe_upload_name(raw_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if len(content) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 25MB)")
+
+    dest_dir = ui_corpus_dir(ensure=True)
+    dest = dest_dir / safe_name
+    dest.write_bytes(content)
+    action = index_uploaded_file(
+        session,
+        dest,
+        relative_path=safe_name,
+        security_id=(security_id.strip() or None) if security_id else None,
+    )
+    status = index_status(session)
+    return {
+        "filename": safe_name,
+        "action": action,
+        "document_count": status["document_count"],
+        "page_count": status["page_count"],
+    }
 
 
 @router.get("/status")
