@@ -245,6 +245,9 @@ def test_brief_with_mock_xai_and_cache(
 ) -> None:
     index_research_corpus(session, root=corpus_root)
     monkeypatch.setattr(settings, "xai_api_key", "test-key")
+    hits = search_research_pages(session, "promoter")
+    assert hits
+    real_page_id = hits[0].page_id
 
     payload = {
         "id": "chat",
@@ -283,7 +286,21 @@ def test_brief_with_mock_xai_and_cache(
                                 "bear": {"summary": "Pledge rises", "citations": []},
                             },
                             "insufficient_evidence": [],
-                            "citations": [],
+                            "citations": [
+                                {
+                                    "page_id": real_page_id,
+                                    "document_id": hits[0].document_id,
+                                    "relative_path": hits[0].relative_path,
+                                    "page": hits[0].page_number,
+                                    "quote_span": "promoter pledge",
+                                },
+                                {
+                                    "page_id": 999999,
+                                    "relative_path": "fake.md",
+                                    "page": 1,
+                                    "quote_span": "invented",
+                                },
+                            ],
                         }
                     ),
                 }
@@ -312,6 +329,14 @@ def test_brief_with_mock_xai_and_cache(
     )
     assert first.called_llm is True
     assert first.response["research_agenda"][0]["title"].startswith("Check")
+    assert "thesis_map" in first.response
+    assert first.response["retrieved_page_ids"]
+    assert all(
+        c.get("page_id") in set(first.response["retrieved_page_ids"])
+        for c in first.response["citations"]
+        if c.get("page_id") is not None
+    )
+    assert all(c.get("page_id") != 999999 for c in first.response["citations"])
 
     second = generate_research_brief(
         session,
@@ -320,6 +345,34 @@ def test_brief_with_mock_xai_and_cache(
     )
     assert second.cache_hit is True
     assert second.called_llm is False
+
+
+def test_xai_retries_transient_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pms_platform.documents.xai_client import chat_completion
+
+    monkeypatch.setattr(settings, "xai_api_key", "test-key")
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            return httpx.Response(429, text="rate limited")
+        return httpx.Response(
+            200,
+            json={
+                "model": "grok-2-latest",
+                "choices": [{"message": {"content": '{"ok": true}'}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    monkeypatch.setattr("pms_platform.documents.xai_client.time.sleep", lambda *_: None)
+    result = chat_completion(
+        [{"role": "user", "content": "hi"}],
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    assert calls["n"] == 3
+    assert "ok" in result.content
 
 
 def test_brief_requires_key_when_hits_exist(

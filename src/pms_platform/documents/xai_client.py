@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from pms_platform.config import settings
+
+_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+_MAX_ATTEMPTS = 3
 
 
 class XaiConfigError(RuntimeError):
@@ -56,16 +60,34 @@ def chat_completion(
 
     owns_client = client is None
     http = client or httpx.Client(timeout=timeout_s)
+    payload: dict[str, Any] | None = None
+    last_error = "xAI request failed"
     try:
-        response = http.post(url, headers=headers, json=body)
-        if response.status_code >= 400:
-            raise XaiRequestError(f"xAI HTTP {response.status_code}: {response.text[:500]}")
-        payload = response.json()
-    except httpx.HTTPError as exc:
-        raise XaiRequestError(str(exc)) from exc
+        for attempt in range(_MAX_ATTEMPTS):
+            try:
+                response = http.post(url, headers=headers, json=body)
+            except httpx.HTTPError as exc:
+                last_error = str(exc)
+                if attempt + 1 >= _MAX_ATTEMPTS:
+                    raise XaiRequestError(last_error) from exc
+                time.sleep(0.5 * (2**attempt))
+                continue
+            if response.status_code in _RETRY_STATUSES:
+                last_error = f"xAI HTTP {response.status_code}: {response.text[:500]}"
+                if attempt + 1 >= _MAX_ATTEMPTS:
+                    raise XaiRequestError(last_error)
+                time.sleep(0.5 * (2**attempt))
+                continue
+            if response.status_code >= 400:
+                raise XaiRequestError(f"xAI HTTP {response.status_code}: {response.text[:500]}")
+            payload = response.json()
+            break
     finally:
         if owns_client:
             http.close()
+
+    if payload is None:
+        raise XaiRequestError(last_error)
 
     choices = payload.get("choices") or []
     if not choices:

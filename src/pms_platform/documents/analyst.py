@@ -75,6 +75,71 @@ def _parse_json_content(content: str) -> dict[str, Any]:
     return parsed
 
 
+def _validate_brief_schema(payload: dict[str, Any], *, chunk_ids: list[int]) -> dict[str, Any]:
+    """Ensure required brief keys exist; drop citations that are not in retrieved pages."""
+    out = dict(payload)
+    out.setdefault("security_query", "")
+    thesis = out.get("thesis_map")
+    if not isinstance(thesis, dict):
+        thesis = {}
+    out["thesis_map"] = {
+        "beliefs": list(thesis.get("beliefs") or []),
+        "must_stay_true": list(thesis.get("must_stay_true") or []),
+        "falsifiers": list(thesis.get("falsifiers") or []),
+    }
+    agenda = out.get("research_agenda")
+    out["research_agenda"] = agenda if isinstance(agenda, list) else []
+    gaps = out.get("evidence_gaps")
+    out["evidence_gaps"] = gaps if isinstance(gaps, list) else []
+    checklist = out.get("monitoring_checklist")
+    out["monitoring_checklist"] = checklist if isinstance(checklist, list) else []
+    scenarios = out.get("scenarios")
+    if not isinstance(scenarios, dict):
+        scenarios = {}
+    cleaned_scenarios: dict[str, Any] = {}
+    for key in ("bull", "base", "bear"):
+        row = scenarios.get(key)
+        if not isinstance(row, dict):
+            row = {}
+        cleaned_scenarios[key] = {
+            "summary": str(row.get("summary") or "Insufficient evidence"),
+            "citations": list(row.get("citations") or []),
+        }
+    out["scenarios"] = cleaned_scenarios
+    insuff = out.get("insufficient_evidence")
+    out["insufficient_evidence"] = insuff if isinstance(insuff, list) else []
+
+    allowed = set(chunk_ids)
+    citations = out.get("citations")
+    if not isinstance(citations, list):
+        citations = []
+    grounded: list[dict[str, Any]] = []
+    for item in citations:
+        if not isinstance(item, dict):
+            continue
+        doc_id = item.get("document_id")
+        page = item.get("page")
+        page_id = item.get("page_id")
+        if page_id is not None:
+            try:
+                pid = int(page_id)
+            except (TypeError, ValueError):
+                continue
+            if pid not in allowed:
+                continue
+            grounded.append(item)
+            continue
+        # path:page citations stay; document_id alone is not enough without page_id.
+        if item.get("relative_path") is not None and page is not None:
+            grounded.append(item)
+            continue
+        if doc_id is not None and page is not None:
+            grounded.append(item)
+    out["citations"] = grounded
+    out["retrieved_page_ids"] = list(chunk_ids)
+    return out
+
+
 def _insufficient_brief(security_label: str, reason: str) -> dict[str, Any]:
     return {
         "security_query": security_label,
@@ -350,10 +415,14 @@ def generate_research_brief(
 
     result = chat_completion(assembled.messages, client=http_client)
     try:
-        response = _parse_json_content(result.content)
+        response = _validate_brief_schema(
+            _parse_json_content(result.content),
+            chunk_ids=assembled.chunk_ids,
+        )
     except json.JSONDecodeError:
         response = _insufficient_brief(label, "Model returned non-JSON content")
         response["raw_content_preview"] = result.content[:500]
+        response["retrieved_page_ids"] = list(assembled.chunk_ids)
 
     row = _store_cache(
         session,
