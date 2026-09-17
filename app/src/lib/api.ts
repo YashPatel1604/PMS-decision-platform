@@ -1,3 +1,58 @@
+export type ResearchIndexStatus = {
+  document_count: number;
+  page_count: number;
+  by_parse_status: Record<string, number>;
+  last_indexed_at: string | null;
+  research_root: string | null;
+};
+
+export type ResearchIndexResult = {
+  root: string | null;
+  scanned: number;
+  inserted: number;
+  updated: number;
+  unchanged: number;
+  skipped: number;
+  errors: number;
+  removed: number;
+};
+
+export type ResearchSearchHit = {
+  page_id: number;
+  document_id: number;
+  relative_path: string;
+  page_number: number;
+  title: string | null;
+  security_id: string | null;
+  snippet: string;
+  rank: number;
+};
+
+export type ResearchAnalystResult = {
+  kind: string;
+  response: Record<string, unknown>;
+  cache_hit: boolean;
+  cache_id: number | null;
+  model: string | null;
+  token_in: number | null;
+  token_out: number | null;
+  chunk_ids: number[];
+  called_llm: boolean;
+};
+
+export type ResearchGoal = {
+  goal_id: number;
+  security_id: string;
+  title: string;
+  rationale: string | null;
+  priority: number;
+  status: string;
+  source_cache_id: number | null;
+  created_by_user: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/backend";
 
 export class ApiError extends Error {
@@ -1447,4 +1502,48 @@ export const api = {
       `/strategy/pivot/symbols/search?${params}`,
     );
   },
+
+  getResearchStatus: () => request<ResearchIndexStatus>("/research/status"),
+  indexResearch: () =>
+    request<ResearchIndexResult>("/research/index", { method: "POST" }),
+  searchResearch: (q: string, securityId?: string | null) => {
+    const params = new URLSearchParams({ q });
+    if (securityId) params.set("security_id", securityId);
+    return request<ResearchSearchHit[]>(`/research/search?${params}`);
+  },
+  generateResearchBrief: (body: {
+    security_id?: string | null;
+    query_name?: string | null;
+    extra_question?: string | null;
+    force_refresh?: boolean;
+  }) =>
+    request<ResearchAnalystResult>("/research/brief", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  listResearchGoals: (securityId?: string | null) => {
+    const params = new URLSearchParams();
+    if (securityId) params.set("security_id", securityId);
+    const query = params.toString();
+    return request<ResearchGoal[]>(`/research/goals${query ? `?${query}` : ""}`);
+  },
+  createResearchGoal: (body: {
+    security_id: string;
+    title: string;
+    rationale?: string | null;
+    priority?: number;
+    source_cache_id?: number | null;
+  }) =>
+    request<ResearchGoal>("/research/goals", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateResearchGoal: (
+    goalId: number,
+    body: { title?: string; rationale?: string | null; priority?: number; status?: string },
+  ) =>
+    request<ResearchGoal>(`/research/goals/${goalId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
 };
