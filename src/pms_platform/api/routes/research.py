@@ -239,16 +239,19 @@ def post_goal(
     user: User | None = Depends(get_current_user),
 ) -> GoalResponse:
     created_by = user.email if user is not None else None
-    goal = create_goal(
-        session,
-        security_id=body.security_id,
-        title=body.title,
-        rationale=body.rationale,
-        priority=body.priority,
-        status=body.status,
-        source_cache_id=body.source_cache_id,
-        created_by_user=created_by,
-    )
+    try:
+        goal = create_goal(
+            session,
+            security_id=body.security_id,
+            title=body.title,
+            rationale=body.rationale,
+            priority=body.priority,
+            status=body.status,
+            source_cache_id=body.source_cache_id,
+            created_by_user=created_by,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _goal_response(goal)
 
 
@@ -259,14 +262,17 @@ def patch_goal(
     session: Session = Depends(get_db),
     _user: User | None = Depends(get_current_user),
 ) -> GoalResponse:
-    goal = update_goal(
-        session,
-        goal_id,
-        title=body.title,
-        rationale=body.rationale,
-        priority=body.priority,
-        status=body.status,
-    )
+    try:
+        goal = update_goal(
+            session,
+            goal_id,
+            title=body.title,
+            rationale=body.rationale,
+            priority=body.priority,
+            status=body.status,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if goal is None:
         raise HTTPException(status_code=404, detail="Goal not found")
     return _goal_response(goal)

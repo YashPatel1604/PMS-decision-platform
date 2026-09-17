@@ -14,7 +14,7 @@ from pms_platform.config import settings
 from pms_platform.documents.analyst import generate_research_ask, generate_research_brief
 from pms_platform.documents.extract import extract_file, file_content_hash
 from pms_platform.documents.facts import collect_security_facts
-from pms_platform.documents.goals import create_goal, list_goals, update_goal
+from pms_platform.documents.goals import accept_agenda_item, create_goal, list_goals, update_goal
 from pms_platform.documents.indexer import index_research_corpus
 from pms_platform.documents.prompts import assemble_brief_messages
 from pms_platform.documents.search import SearchHit, search_research_pages
@@ -418,6 +418,54 @@ def test_facts_and_goals(session: Session, sample_security: Security) -> None:
     )
 
 
+def test_goals_priority_ordering_and_accept_from_brief(
+    session: Session, sample_security: Security
+) -> None:
+    create_goal(
+        session,
+        security_id=sample_security.security_id,
+        title="Low priority peer check",
+        priority=5,
+        status="proposed",
+    )
+    accept_agenda_item(
+        session,
+        security_id=sample_security.security_id,
+        title="Check latest pledge disclosure",
+        rationale="From brief agenda",
+        priority=1,
+        source_cache_id=None,
+    )
+    create_goal(
+        session,
+        security_id=sample_security.security_id,
+        title="Middle monitoring KPI",
+        priority=3,
+        status="accepted",
+    )
+    ordered = list_goals(session, security_id=sample_security.security_id)
+    assert [g.title for g in ordered] == [
+        "Check latest pledge disclosure",
+        "Middle monitoring KPI",
+        "Low priority peer check",
+    ]
+    assert ordered[0].status == "accepted"
+
+    patched = update_goal(session, ordered[2].goal_id, title="Peer ROCE table", status="done")
+    assert patched is not None
+    assert patched.title == "Peer ROCE table"
+    assert patched.status == "done"
+    assert list_goals(session, security_id=sample_security.security_id)[2].status == "done"
+
+    with pytest.raises(ValueError, match="status"):
+        create_goal(
+            session,
+            security_id=sample_security.security_id,
+            title="Bad",
+            status="hold",
+        )
+
+
 def test_research_api_goals_and_search(
     session: Session,
     sample_security: Security,
@@ -458,3 +506,22 @@ def test_research_api_goals_and_search(
         _user=None,
     )
     assert len(goals) == 1
+
+    patched = research_routes.patch_goal(
+        created.goal_id,
+        research_routes.GoalUpdateRequest(
+            status="dismissed", title=None, rationale=None, priority=None
+        ),
+        session=session,
+        _user=None,
+    )
+    assert patched.status == "dismissed"
+    assert (
+        research_routes.get_goals(
+            security_id=sample_security.security_id,
+            include_dismissed=False,
+            session=session,
+            _user=None,
+        )
+        == []
+    )
