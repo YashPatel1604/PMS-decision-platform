@@ -84,6 +84,45 @@ def test_outside_allowlist_not_indexed(
     assert all(p.endswith(".md") for p in paths)
 
 
+def test_index_never_writes_research_files(session: Session, corpus_root: Path) -> None:
+    """Indexer may only read Research; originals stay untouched on disk."""
+    before = {
+        path.relative_to(corpus_root).as_posix(): path.read_bytes()
+        for path in corpus_root.rglob("*")
+        if path.is_file()
+    }
+    index_research_corpus(session, root=corpus_root)
+    after = {
+        path.relative_to(corpus_root).as_posix(): path.read_bytes()
+        for path in corpus_root.rglob("*")
+        if path.is_file()
+    }
+    assert after == before
+
+
+def test_index_disabled_is_noop(
+    session: Session, corpus_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "research_index_enabled", False)
+    result = index_research_corpus(session, root=corpus_root)
+    assert result.scanned == 0
+    assert session.scalars(select(ResearchDocument)).all() == []
+
+
+def test_golden_fixture_corpus_searchable(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = Path(__file__).resolve().parent / "fixtures" / "research_corpus"
+    monkeypatch.setattr(settings, "research_dir", root)
+    monkeypatch.setattr(settings, "research_corpus_globs", "**/*.md,**/*.txt")
+    result = index_research_corpus(session, root=root)
+    assert result.inserted >= 1
+    hits = search_research_pages(session, "promoter")
+    assert hits
+    assert hits[0].relative_path.endswith("TestCo_thesis.md")
+    assert hits[0].page_number == 1
+
+
 def test_prompt_respects_chunk_budget() -> None:
     hits = [
         SearchHit(
@@ -100,7 +139,7 @@ def test_prompt_respects_chunk_budget() -> None:
     ]
     assembled = assemble_brief_messages(
         security_label="TestCo",
-        facts={"found": True},
+        facts={"found": True, "portfolio_name": "TestCo"},
         hits=hits,
         max_chunks=3,
         max_context_tokens=500,
@@ -108,6 +147,84 @@ def test_prompt_respects_chunk_budget() -> None:
     )
     assert len(assembled.chunk_ids) <= 3
     assert assembled.approx_tokens > 0
+    payload = json.loads(assembled.messages[1]["content"])
+    assert payload["injected_facts"]["portfolio_name"] == "TestCo"
+    assert payload["task"] == "generate_research_brief"
+
+
+def test_prompt_truncates_by_rank_then_token_budget() -> None:
+    """Higher-rank pages win; later pages drop when the token cap is hit."""
+    hits = [
+        SearchHit(
+            page_id=30,
+            document_id=1,
+            relative_path="low.md",
+            page_number=1,
+            title=None,
+            security_id=None,
+            snippet="low " * 80,
+            rank=1.0,
+        ),
+        SearchHit(
+            page_id=10,
+            document_id=1,
+            relative_path="high.md",
+            page_number=1,
+            title=None,
+            security_id=None,
+            snippet="high " * 80,
+            rank=9.0,
+        ),
+        SearchHit(
+            page_id=20,
+            document_id=1,
+            relative_path="mid.md",
+            page_number=1,
+            title=None,
+            security_id=None,
+            snippet="mid " * 80,
+            rank=5.0,
+        ),
+    ]
+    by_chunks = assemble_brief_messages(
+        security_label="TestCo",
+        facts={"found": True},
+        hits=hits,
+        max_chunks=2,
+        max_context_tokens=50_000,
+        snippet_chars=400,
+    )
+    assert by_chunks.chunk_ids == [10, 20]
+
+    tight = assemble_brief_messages(
+        security_label="TestCo",
+        facts={"found": True},
+        hits=hits,
+        max_chunks=8,
+        max_context_tokens=40,
+        snippet_chars=400,
+    )
+    assert len(tight.chunk_ids) >= 1
+    assert tight.chunk_ids[0] == 10
+    assert len(tight.chunk_ids) < 3
+
+
+def test_facts_injected_into_assembled_messages(
+    session: Session, sample_security: Security
+) -> None:
+    facts = collect_security_facts(session, sample_security.security_id)
+    assert facts["found"] is True
+    assembled = assemble_brief_messages(
+        security_label=str(facts["portfolio_name"]),
+        facts=facts,
+        hits=[],
+        max_chunks=8,
+        max_context_tokens=4000,
+    )
+    payload = json.loads(assembled.messages[1]["content"])
+    assert payload["injected_facts"]["security_id"] == sample_security.security_id
+    assert "open_episodes" in payload["injected_facts"]
+    assert assembled.chunk_ids == []
 
 
 def test_brief_without_hits_skips_llm(

@@ -93,7 +93,9 @@ def assemble_brief_messages(
 
     selected: list[SearchHit] = []
     used_tokens = 0
-    for hit in hits:
+    # Truncate in retrieval rank order (callers may pass unsorted).
+    ranked_hits = sorted(hits, key=lambda h: (-h.rank, h.page_id))
+    for hit in ranked_hits:
         if len(selected) >= max_chunks:
             break
         snippet = hit.snippet if len(hit.snippet) <= snippet_chars else hit.snippet[:snippet_chars]
@@ -108,6 +110,7 @@ def assemble_brief_messages(
             # Always allow one truncated chunk so empty-context path is intentional.
             block = block[: max_context_tokens * 4]
             cost = _approx_tokens(block)
+            snippet = snippet[: max(0, max_context_tokens * 4 - 80)]
         selected.append(
             SearchHit(
                 page_id=hit.page_id,
@@ -116,7 +119,7 @@ def assemble_brief_messages(
                 page_number=hit.page_number,
                 title=hit.title,
                 security_id=hit.security_id,
-                snippet=snippet if len(snippet) <= snippet_chars else snippet[:snippet_chars],
+                snippet=snippet,
                 rank=hit.rank,
             )
         )

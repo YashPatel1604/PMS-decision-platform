@@ -125,6 +125,7 @@ def post_index(
 
 
 @router.get("/status")
+@router.get("/documents")
 def get_status(
     session: Session = Depends(get_db),
     _user: User | None = Depends(get_current_user),

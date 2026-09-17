@@ -123,6 +123,21 @@ def index_research_corpus(
     prune_missing: bool = True,
 ) -> IndexResult:
     """Scan Research, upsert by content hash, optionally prune deleted paths."""
+    from pms_platform.config import settings
+
+    if not settings.research_index_enabled:
+        base = resolve_corpus_root(root)
+        return IndexResult(
+            root=str(base) if base else None,
+            scanned=0,
+            inserted=0,
+            updated=0,
+            unchanged=0,
+            skipped=0,
+            errors=0,
+            removed=0,
+        )
+
     base = resolve_corpus_root(root)
     files = iter_corpus_files(base)
     counts = {
