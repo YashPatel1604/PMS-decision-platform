@@ -10,7 +10,6 @@ import {
   type WatchlistMember,
   type WatchlistSearchHit,
 } from "@/lib/api";
-import { SecurityGoalsPanel } from "@/components/security-goals-panel";
 import { WatchlistScreener } from "@/components/watchlist-screener";
 import { WatchlistAlertsStrip } from "@/components/watchlist-alerts-strip";
 import { WatchlistHealthPanel } from "@/components/watchlist-health-panel";
