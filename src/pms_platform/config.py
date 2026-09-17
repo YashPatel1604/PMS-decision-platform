@@ -62,7 +62,8 @@ class Settings(BaseSettings):
     # --- Research analyst / Grok (optional) ---
     xai_api_key: str = ""
     xai_api_base_url: str = "https://api.x.ai/v1"
-    xai_model: str = "grok-2-latest"
+    # Current chat-completions models (grok-2-latest is retired).
+    xai_model: str = "grok-4.20-0309-non-reasoning"
     research_index_enabled: bool = True
     research_corpus_globs: str = "**/*.pdf,**/*.md,**/*.txt"
     research_corpus_exclude_globs: str = "**/~*,**/.tmp/**"

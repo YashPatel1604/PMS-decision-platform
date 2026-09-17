@@ -279,6 +279,7 @@ def generate_research_brief(
             part
             for part in (
                 label,
+                query_name or "",
                 str(facts.get("nse_symbol") or ""),
                 extra_question or "",
             )

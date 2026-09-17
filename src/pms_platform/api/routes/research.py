@@ -22,7 +22,7 @@ from pms_platform.documents.indexer import (
 )
 from pms_platform.documents.scan import ui_corpus_dir
 from pms_platform.documents.search import search_research_pages
-from pms_platform.documents.xai_client import XaiConfigError
+from pms_platform.documents.xai_client import XaiConfigError, XaiRequestError
 from pms_platform.models.user import User
 
 router = APIRouter()
@@ -238,6 +238,8 @@ def post_brief(
         )
     except XaiConfigError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except XaiRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return AnalystResponse(
         kind=result.kind,
         response=result.response,
@@ -267,6 +269,8 @@ def post_ask(
         )
     except XaiConfigError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except XaiRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return AnalystResponse(

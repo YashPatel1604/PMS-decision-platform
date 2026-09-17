@@ -168,14 +168,18 @@ export function ResearchAnalystView() {
     mutationFn: () =>
       api.generateResearchBrief({
         security_id: securityId.trim() || null,
-        query_name: securityId.trim() ? null : searchQ.trim() || null,
+        // Keep the typed name even when security_id is set — improves retrieval.
+        query_name: searchQ.trim() || null,
         force_refresh: false,
       }),
     onSuccess: (result) => {
       setBrief(result);
       setError(null);
     },
-    onError: (err: unknown) => setError(errorMessage(err)),
+    onError: (err: unknown) => {
+      setBrief(null);
+      setError(errorMessage(err));
+    },
   });
 
   const acceptGoalMutation = useMutation({
