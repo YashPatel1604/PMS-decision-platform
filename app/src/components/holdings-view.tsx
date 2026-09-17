@@ -573,6 +573,12 @@ export function HoldingsView() {
                   {formatDate(selected.period_start_date)} → {formatDate(selected.as_of_date)}
                   {selected.industry ? ` · ${selected.industry}` : ""}
                 </p>
+                <Link
+                  href={`/research?security_id=${encodeURIComponent(selected.security_id)}`}
+                  className="mt-2 inline-block text-xs font-medium text-emerald-800 underline-offset-4 hover:underline"
+                >
+                  Open research brief
+                </Link>
               </div>
 
               <div className="grid grid-cols-2 gap-3 text-sm">

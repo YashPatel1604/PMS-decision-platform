@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  ApiError,
   api,
   type ResearchAnalystResult,
   type ResearchGoal,
@@ -13,6 +15,20 @@ import {
 function asStringList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    try {
+      const parsed = JSON.parse(err.message) as { detail?: unknown };
+      if (typeof parsed.detail === "string") return parsed.detail;
+    } catch {
+      /* plain */
+    }
+    return err.message;
+  }
+  if (err instanceof Error) return err.message;
+  return "Request failed";
 }
 
 function agendaItems(response: Record<string, unknown>): Array<{
@@ -36,10 +52,69 @@ function agendaItems(response: Record<string, unknown>): Array<{
     .filter((item): item is { title: string; rationale?: string; priority?: number } => item !== null);
 }
 
+function monitoringItems(response: Record<string, unknown>): Array<{
+  item: string;
+  cadence?: string;
+  why?: string;
+}> {
+  const raw = response.monitoring_checklist;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const row = entry as Record<string, unknown>;
+      if (typeof row.item !== "string") return null;
+      return {
+        item: row.item,
+        cadence: typeof row.cadence === "string" ? row.cadence : undefined,
+        why: typeof row.why === "string" ? row.why : undefined,
+      };
+    })
+    .filter(
+      (entry): entry is { item: string; cadence?: string; why?: string } => entry !== null,
+    );
+}
+
+function scenarioBlock(
+  response: Record<string, unknown>,
+  key: "bull" | "base" | "bear",
+): { summary: string; citations: string[] } {
+  const scenarios = response.scenarios;
+  if (!scenarios || typeof scenarios !== "object") {
+    return { summary: "—", citations: [] };
+  }
+  const row = (scenarios as Record<string, unknown>)[key];
+  if (!row || typeof row !== "object") return { summary: "—", citations: [] };
+  const data = row as Record<string, unknown>;
+  return {
+    summary: typeof data.summary === "string" ? data.summary : "—",
+    citations: asStringList(data.citations),
+  };
+}
+
+function citationLabels(response: Record<string, unknown>): string[] {
+  const raw = response.citations;
+  if (!Array.isArray(raw)) return [];
+  const labels: string[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    const path = typeof row.relative_path === "string" ? row.relative_path : null;
+    const page = typeof row.page === "number" ? row.page : null;
+    const quote = typeof row.quote_span === "string" ? row.quote_span : null;
+    if (path && page != null) {
+      labels.push(quote ? `${path}:${page} — ${quote}` : `${path}:${page}`);
+    }
+  }
+  return labels;
+}
+
 export function ResearchAnalystView() {
   const queryClient = useQueryClient();
-  const [searchQ, setSearchQ] = useState("");
-  const [securityId, setSecurityId] = useState("");
+  const searchParams = useSearchParams();
+  const initialSecurity = searchParams.get("security_id")?.trim() ?? "";
+  const [searchQ, setSearchQ] = useState(searchParams.get("q")?.trim() ?? "");
+  const [securityId, setSecurityId] = useState(initialSecurity);
   const [hits, setHits] = useState<ResearchSearchHit[]>([]);
   const [brief, setBrief] = useState<ResearchAnalystResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,13 +129,21 @@ export function ResearchAnalystView() {
     queryFn: () => api.listResearchGoals(securityId || null),
   });
 
+  const acceptedTitles = useMemo(() => {
+    const titles = new Set<string>();
+    for (const goal of goalsQuery.data ?? []) {
+      titles.add(goal.title.trim().toLowerCase());
+    }
+    return titles;
+  }, [goalsQuery.data]);
+
   const indexMutation = useMutation({
     mutationFn: () => api.indexResearch(),
     onSuccess: () => {
       setError(null);
       void queryClient.invalidateQueries({ queryKey: ["research-status"] });
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err: unknown) => setError(errorMessage(err)),
   });
 
   const searchMutation = useMutation({
@@ -69,7 +152,7 @@ export function ResearchAnalystView() {
       setHits(result);
       setError(null);
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err: unknown) => setError(errorMessage(err)),
   });
 
   const briefMutation = useMutation({
@@ -83,7 +166,7 @@ export function ResearchAnalystView() {
       setBrief(result);
       setError(null);
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err: unknown) => setError(errorMessage(err)),
   });
 
   const acceptGoalMutation = useMutation({
@@ -100,7 +183,7 @@ export function ResearchAnalystView() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["research-goals"] });
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err: unknown) => setError(errorMessage(err)),
   });
 
   const dismissGoalMutation = useMutation({
@@ -108,7 +191,7 @@ export function ResearchAnalystView() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["research-goals"] });
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err: unknown) => setError(errorMessage(err)),
   });
 
   const thesis = useMemo(() => {
@@ -120,8 +203,25 @@ export function ResearchAnalystView() {
     };
   }, [brief]);
 
-  const agenda = useMemo(
-    () => (brief ? agendaItems(brief.response) : []),
+  const agenda = useMemo(() => (brief ? agendaItems(brief.response) : []), [brief]);
+  const monitoring = useMemo(
+    () => (brief ? monitoringItems(brief.response) : []),
+    [brief],
+  );
+  const citations = useMemo(
+    () => (brief ? citationLabels(brief.response) : []),
+    [brief],
+  );
+  const bull = useMemo(
+    () => (brief ? scenarioBlock(brief.response, "bull") : null),
+    [brief],
+  );
+  const base = useMemo(
+    () => (brief ? scenarioBlock(brief.response, "base") : null),
+    [brief],
+  );
+  const bear = useMemo(
+    () => (brief ? scenarioBlock(brief.response, "bear") : null),
     [brief],
   );
 
@@ -134,6 +234,10 @@ export function ResearchAnalystView() {
           Index local Research notes, retrieve evidence, then generate a citation-backed research
           agenda. Portfolio math stays in deterministic code — Grok only helps set future research
           goals.
+        </p>
+        <p className="max-w-2xl text-xs text-stone-500">
+          When a brief is generated, retrieved text snippets (not whole PDFs) may be sent to xAI.
+          Leave XAI_API_KEY unset to keep search local-only.
         </p>
       </header>
 
@@ -211,6 +315,19 @@ export function ResearchAnalystView() {
               <li key={hit.page_id} className="border-l-2 border-stone-300 pl-3">
                 <p className="text-sm text-stone-900">
                   {hit.relative_path}:{hit.page_number}
+                  {hit.security_id ? (
+                    <>
+                      {" "}
+                      ·{" "}
+                      <button
+                        type="button"
+                        className="underline-offset-2 hover:underline"
+                        onClick={() => setSecurityId(hit.security_id!)}
+                      >
+                        use {hit.security_id}
+                      </button>
+                    </>
+                  ) : null}
                 </p>
                 <p className="text-sm text-stone-600">{hit.snippet}</p>
               </li>
@@ -252,24 +369,30 @@ export function ResearchAnalystView() {
           <div>
             <h3 className="text-sm uppercase tracking-wide text-stone-500">Research agenda</h3>
             <ul className="mt-3 space-y-3">
-              {agenda.map((item) => (
-                <li key={item.title} className="flex flex-col gap-2 border-b border-stone-100 pb-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <p className="text-stone-900">{item.title}</p>
-                    {item.rationale ? (
-                      <p className="text-sm text-stone-600">{item.rationale}</p>
-                    ) : null}
-                  </div>
-                  <button
-                    type="button"
-                    className="shrink-0 border border-stone-700 px-3 py-1 text-xs uppercase tracking-wide disabled:opacity-50"
-                    disabled={!securityId.trim() || acceptGoalMutation.isPending}
-                    onClick={() => acceptGoalMutation.mutate(item)}
+              {agenda.map((item) => {
+                const accepted = acceptedTitles.has(item.title.trim().toLowerCase());
+                return (
+                  <li
+                    key={item.title}
+                    className="flex flex-col gap-2 border-b border-stone-100 pb-3 md:flex-row md:items-start md:justify-between"
                   >
-                    Accept goal
-                  </button>
-                </li>
-              ))}
+                    <div>
+                      <p className="text-stone-900">{item.title}</p>
+                      {item.rationale ? (
+                        <p className="text-sm text-stone-600">{item.rationale}</p>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      className="shrink-0 border border-stone-700 px-3 py-1 text-xs uppercase tracking-wide disabled:opacity-50"
+                      disabled={!securityId.trim() || accepted || acceptGoalMutation.isPending}
+                      onClick={() => acceptGoalMutation.mutate(item)}
+                    >
+                      {accepted ? "Accepted" : "Accept goal"}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </div>
 
@@ -284,6 +407,61 @@ export function ResearchAnalystView() {
               ))}
             </ul>
           </div>
+
+          {monitoring.length > 0 ? (
+            <div>
+              <h3 className="text-sm uppercase tracking-wide text-stone-500">
+                Monitoring checklist
+              </h3>
+              <ul className="mt-3 space-y-2">
+                {monitoring.map((row) => (
+                  <li key={row.item} className="text-sm text-stone-800">
+                    <span className="text-stone-900">{row.item}</span>
+                    {row.cadence ? (
+                      <span className="text-stone-500"> · {row.cadence}</span>
+                    ) : null}
+                    {row.why ? <p className="text-stone-600">{row.why}</p> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {bull && base && bear ? (
+            <div>
+              <h3 className="text-sm uppercase tracking-wide text-stone-500">Scenarios</h3>
+              <div className="mt-3 grid gap-4 md:grid-cols-3">
+                {(
+                  [
+                    ["Bull", bull],
+                    ["Base", base],
+                    ["Bear", bear],
+                  ] as const
+                ).map(([label, block]) => (
+                  <div key={label}>
+                    <p className="text-sm font-medium text-stone-900">{label}</p>
+                    <p className="mt-1 text-sm text-stone-700">{block.summary}</p>
+                    {block.citations.length > 0 ? (
+                      <p className="mt-1 text-xs text-stone-500">
+                        {block.citations.join(" · ")}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {citations.length > 0 ? (
+            <div>
+              <h3 className="text-sm uppercase tracking-wide text-stone-500">Citations</h3>
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-stone-700">
+                {citations.map((label) => (
+                  <li key={label}>{label}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
