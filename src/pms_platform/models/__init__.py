@@ -17,6 +17,11 @@ from pms_platform.models.episode_performance import EpisodePerformance
 from pms_platform.models.fundamental_snapshot import FundamentalSnapshot
 from pms_platform.models.import_batch import ImportBatch
 from pms_platform.models.insider_disclosure_day import InsiderDisclosureDay
+from pms_platform.models.investment_thesis import (
+    InvestmentThesis,
+    PortfolioEvent,
+    ThesisConflictFlag,
+)
 from pms_platform.models.liquid_transaction import LiquidTransaction
 from pms_platform.models.nse_bhav import (
     BhavImportRun,
@@ -71,7 +76,10 @@ __all__ = [
     "ImportBatch",
     "InsiderDisclosureDay",
     "InvestmentEpisode",
+    "InvestmentThesis",
     "LiquidTransaction",
+    "PortfolioEvent",
+    "ThesisConflictFlag",
     "BhavImportRun",
     "NseBhavBar",
     "PivotPortfolioSymbol",

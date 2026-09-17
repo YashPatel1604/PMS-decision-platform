@@ -16,6 +16,7 @@ from pms_platform.api.routes import (
     health,
     holdings,
     imports,
+    intelligence,
     market_data,
     masters,
     pivot_strategy,
@@ -65,3 +66,6 @@ app.include_router(
 app.include_router(charts.router, prefix="/strategy/charts", tags=["charts"])
 app.include_router(watchlists.router, prefix="/watchlists", tags=["watchlists"])
 app.include_router(research.router, prefix="/research", tags=["research"])
+app.include_router(intelligence.router, prefix="/intelligence", tags=["intelligence"])
+# Spec alias: morning brief also available at /ai/brief
+app.include_router(intelligence.router, prefix="/ai", tags=["ai"], include_in_schema=False)

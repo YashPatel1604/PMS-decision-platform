@@ -40,6 +40,36 @@ export type ResearchAnalystResult = {
   called_llm: boolean;
 };
 
+export type PortfolioEventRow = {
+  event_id: number;
+  security_id: string | null;
+  company: string | null;
+  event_type: string;
+  event_date: string | null;
+  source: string;
+  summary: string;
+  materiality: string;
+  materiality_reason: string;
+  universe: string;
+  raw_document_reference: string | null;
+};
+
+export type IntelligenceBrief = {
+  as_of: string;
+  lookback_days: number;
+  needs_attention: PortfolioEventRow[];
+  portfolio_changes: PortfolioEventRow[];
+  watchlist_changes: PortfolioEventRow[];
+  industry_developments: PortfolioEventRow[];
+  data_problems: Array<{ code: string; detail: string }>;
+  counts: {
+    needs_attention: number;
+    portfolio_changes: number;
+    watchlist_changes: number;
+    data_problems: number;
+  };
+};
+
 export type ResearchGoal = {
   goal_id: number;
   security_id: string;
@@ -1779,4 +1809,12 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+
+  getIntelligenceBrief: (lookbackDays = 7) =>
+    request<IntelligenceBrief>(`/intelligence/brief?lookback_days=${lookbackDays}`),
+  syncIntelligenceInsiderEvents: (days = 14) =>
+    request<{ days: number; inserted: number; unchanged: number }>(
+      `/intelligence/events/sync-insider?days=${days}`,
+      { method: "POST" },
+    ),
 };
