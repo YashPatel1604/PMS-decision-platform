@@ -75,7 +75,31 @@ def test_thesis_versioning_and_brief(
     brief = build_morning_brief(session, lookback_days=7)
     assert brief["counts"]["needs_attention"] >= 1
     assert any(e["summary"].startswith("Promoter pledged") for e in brief["needs_attention"])
+    assert all(e["universe"] in ("holding", "watchlist") for e in brief["needs_attention"])
     assert any(p["code"] == "thesis_conflict" for p in brief["data_problems"])
+
+
+def test_needs_attention_excludes_other_universe(
+    session: Session, sample_security: Security
+) -> None:
+    from datetime import date
+
+    from pms_platform.intelligence.brief import build_morning_brief
+    from pms_platform.intelligence.events import upsert_event
+
+    upsert_event(
+        session,
+        dedupe_key="other-urgent",
+        event_type="test",
+        summary="Unrelated promoter resignation",
+        materiality="REVIEW",
+        materiality_reason="test",
+        source="test",
+        event_date=date.today(),
+        universe="other",
+    )
+    brief = build_morning_brief(session, lookback_days=7)
+    assert brief["needs_attention"] == []
 
 
 def test_intelligence_api_brief(session: Session, sample_security: Security) -> None:

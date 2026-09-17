@@ -8,7 +8,6 @@ import {
   ApiError,
   api,
   type ResearchAnalystResult,
-  type ResearchGoal,
   type ResearchSearchHit,
 } from "@/lib/api";
 
@@ -123,19 +122,36 @@ export function ResearchAnalystView() {
     queryFn: () => api.getResearchStatus(),
   });
 
+  const [doneNotes, setDoneNotes] = useState<Record<number, string>>({});
+  const [thesisPaste, setThesisPaste] = useState("");
+  const [monitorPaste, setMonitorPaste] = useState("");
+
   const goalsQuery = useQuery({
     queryKey: ["research-goals", securityId || null],
     queryFn: () => api.listResearchGoals(securityId || null),
   });
 
+  const thesesQuery = useQuery({
+    queryKey: ["investment-theses", securityId || null],
+    queryFn: () => api.listInvestmentTheses(securityId || null, true),
+    enabled: Boolean(securityId.trim()),
+  });
+
+  const openGoals = useMemo(
+    () => (goalsQuery.data ?? []).filter((g) => g.status === "accepted" || g.status === "proposed"),
+    [goalsQuery.data],
+  );
+  const doneGoals = useMemo(
+    () => (goalsQuery.data ?? []).filter((g) => g.status === "done"),
+    [goalsQuery.data],
+  );
   const acceptedTitles = useMemo(() => {
     const titles = new Set<string>();
-    for (const goal of goalsQuery.data ?? []) {
+    for (const goal of openGoals) {
       titles.add(goal.title.trim().toLowerCase());
     }
     return titles;
-  }, [goalsQuery.data]);
-
+  }, [openGoals]);
   const indexMutation = useMutation({
     mutationFn: () => api.indexResearch(),
     onSuccess: () => {
@@ -203,6 +219,45 @@ export function ResearchAnalystView() {
     mutationFn: (goalId: number) => api.updateResearchGoal(goalId, { status: "dismissed" }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["research-goals"] });
+    },
+    onError: (err: unknown) => setError(errorMessage(err)),
+  });
+
+  const doneGoalMutation = useMutation({
+    mutationFn: ({ goalId, note }: { goalId: number; note: string }) => {
+      const existing = (goalsQuery.data ?? []).find((g) => g.goal_id === goalId);
+      const rationale = note.trim()
+        ? [existing?.rationale?.trim(), `[done] ${note.trim()}`].filter(Boolean).join("\n")
+        : existing?.rationale ?? null;
+      return api.updateResearchGoal(goalId, { status: "done", rationale });
+    },
+    onSuccess: (_data, vars) => {
+      setDoneNotes((prev) => {
+        const next = { ...prev };
+        delete next[vars.goalId];
+        return next;
+      });
+      void queryClient.invalidateQueries({ queryKey: ["research-goals"] });
+    },
+    onError: (err: unknown) => setError(errorMessage(err)),
+  });
+
+  const thesisMutation = useMutation({
+    mutationFn: () => {
+      if (!securityId.trim()) throw new Error("Set security id before saving a thesis");
+      if (!thesisPaste.trim()) throw new Error("Paste a memo first");
+      return api.createInvestmentThesis({
+        security_id: securityId.trim(),
+        thesis_summary: thesisPaste.trim(),
+        key_monitoring_variables: monitorPaste.trim() || null,
+        status: "active",
+      });
+    },
+    onSuccess: () => {
+      setError(null);
+      setThesisPaste("");
+      setMonitorPaste("");
+      void queryClient.invalidateQueries({ queryKey: ["investment-theses"] });
     },
     onError: (err: unknown) => setError(errorMessage(err)),
   });
@@ -510,15 +565,61 @@ export function ResearchAnalystView() {
       ) : null}
 
       <section className="space-y-3 border-t border-stone-200 pt-6">
-        <h2 className="text-lg text-stone-900">Accepted goals</h2>
-        {(goalsQuery.data ?? []).length === 0 ? (
+        <h2 className="text-lg text-stone-900">Save thesis from memo</h2>
+        <p className="text-sm text-stone-600">
+          Paste a Gemini (or other) memo to store a versioned thesis for this security — no extra Grok
+          call. Works for holdings and watchlist ids (e.g. WL544081).
+        </p>
+        <label className="block text-sm text-stone-700">
+          Memo / thesis text
+          <textarea
+            className="mt-1 min-h-32 w-full border border-stone-300 bg-transparent px-3 py-2 text-sm"
+            value={thesisPaste}
+            onChange={(e) => setThesisPaste(e.target.value)}
+            placeholder="Paste the full research memo here…"
+          />
+        </label>
+        <label className="block text-sm text-stone-700">
+          Monitoring variables (optional, one per line)
+          <textarea
+            className="mt-1 min-h-20 w-full border border-stone-300 bg-transparent px-3 py-2 text-sm"
+            value={monitorPaste}
+            onChange={(e) => setMonitorPaste(e.target.value)}
+            placeholder={"Order book mix\nHuron EBITDA\nRajkot utilization"}
+          />
+        </label>
+        <button
+          type="button"
+          className="border border-stone-800 px-4 py-2 text-sm hover:bg-stone-900 hover:text-white disabled:opacity-50"
+          disabled={thesisMutation.isPending || !securityId.trim() || !thesisPaste.trim()}
+          onClick={() => thesisMutation.mutate()}
+        >
+          {thesisMutation.isPending ? "Saving…" : "Save thesis version"}
+        </button>
+        {(thesesQuery.data ?? []).length > 0 ? (
+          <ul className="space-y-2 text-sm text-stone-700">
+            {(thesesQuery.data ?? []).slice(0, 3).map((t) => (
+              <li key={t.thesis_id} className="border-l-2 border-stone-300 pl-3">
+                v{t.version} · {t.status} · {t.created_at.slice(0, 10)}
+                {t.thesis_summary ? (
+                  <p className="mt-1 line-clamp-3 text-stone-600">{t.thesis_summary}</p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
+
+      <section className="space-y-3 border-t border-stone-200 pt-6">
+        <h2 className="text-lg text-stone-900">Open research goals</h2>
+        {openGoals.length === 0 ? (
           <p className="text-sm text-stone-600">No open research goals yet.</p>
         ) : (
-          <ul className="space-y-3">
-            {(goalsQuery.data as ResearchGoal[]).map((goal) => (
+          <ul className="space-y-4">
+            {openGoals.map((goal) => (
               <li
                 key={goal.goal_id}
-                className="flex flex-col gap-2 border-b border-stone-100 pb-3 md:flex-row md:items-start md:justify-between"
+                className="space-y-2 border-b border-stone-100 pb-3"
               >
                 <div>
                   <p className="text-stone-900">{goal.title}</p>
@@ -529,18 +630,57 @@ export function ResearchAnalystView() {
                     <p className="text-sm text-stone-600">{goal.rationale}</p>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  className="shrink-0 border border-stone-400 px-3 py-1 text-xs uppercase tracking-wide text-stone-700 disabled:opacity-50"
-                  disabled={dismissGoalMutation.isPending}
-                  onClick={() => dismissGoalMutation.mutate(goal.goal_id)}
-                >
-                  Dismiss
-                </button>
+                <label className="block text-xs text-stone-600">
+                  Optional done note
+                  <input
+                    className="mt-1 w-full border border-stone-300 px-2 py-1 text-sm"
+                    value={doneNotes[goal.goal_id] ?? ""}
+                    onChange={(e) =>
+                      setDoneNotes((prev) => ({ ...prev, [goal.goal_id]: e.target.value }))
+                    }
+                    placeholder="e.g. Q2 call disclosed 5-axis mix"
+                  />
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="border border-stone-800 px-3 py-1 text-xs uppercase tracking-wide disabled:opacity-50"
+                    disabled={doneGoalMutation.isPending}
+                    onClick={() =>
+                      doneGoalMutation.mutate({
+                        goalId: goal.goal_id,
+                        note: doneNotes[goal.goal_id] ?? "",
+                      })
+                    }
+                  >
+                    Mark done
+                  </button>
+                  <button
+                    type="button"
+                    className="border border-stone-400 px-3 py-1 text-xs uppercase tracking-wide text-stone-700 disabled:opacity-50"
+                    disabled={dismissGoalMutation.isPending}
+                    onClick={() => dismissGoalMutation.mutate(goal.goal_id)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
         )}
+        {doneGoals.length > 0 ? (
+          <div className="space-y-2 pt-2">
+            <h3 className="text-sm text-stone-500">Done</h3>
+            <ul className="space-y-2">
+              {doneGoals.map((goal) => (
+                <li key={goal.goal_id} className="text-sm text-stone-500">
+                  <span className="text-stone-700">{goal.title}</span>
+                  {goal.rationale ? ` — ${goal.rationale}` : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </section>
     </div>
   );

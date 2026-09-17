@@ -9,6 +9,7 @@ import {
   type CompareSeries,
   type YahooSearchHit,
 } from "@/lib/api";
+import { SecurityGoalsPanel } from "@/components/security-goals-panel";
 import {
   formatDate,
   formatDays,
@@ -606,6 +607,8 @@ export function HoldingsView() {
                   Open research brief
                 </Link>
               </div>
+
+              <SecurityGoalsPanel securityId={selected.security_id} />
 
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>

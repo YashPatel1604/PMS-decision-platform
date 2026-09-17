@@ -59,6 +59,14 @@ function EventList({ title, rows }: { title: string; rows: PortfolioEventRow[] }
                     {row.universe}
                   </span>
                 ) : null}
+                {row.security_id ? (
+                  <a
+                    href={`/research?security_id=${encodeURIComponent(row.security_id)}`}
+                    className="text-xs text-emerald-800 underline-offset-2 hover:underline"
+                  >
+                    Research
+                  </a>
+                ) : null}
               </div>
               <p className="text-sm text-stone-700">{row.summary}</p>
               <p className="text-xs text-stone-500">{row.materiality_reason}</p>
@@ -73,25 +81,39 @@ function EventList({ title, rows }: { title: string; rows: PortfolioEventRow[] }
 export function IntelligenceBriefView() {
   const queryClient = useQueryClient();
 
+  // Auto-sync insider → events at most once per hour, then load brief.
+  const syncQuery = useQuery({
+    queryKey: ["intelligence-insider-sync"],
+    queryFn: () => api.syncIntelligenceInsiderEvents(14),
+    staleTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
   const briefQuery = useQuery({
-    queryKey: ["intelligence-brief"],
+    queryKey: ["intelligence-brief", syncQuery.isFetched],
     queryFn: () => api.getIntelligenceBrief(7),
+    enabled: syncQuery.isFetched || syncQuery.isError,
   });
 
   const syncMutation = useMutation({
     mutationFn: () => api.syncIntelligenceInsiderEvents(14),
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["intelligence-insider-sync"] });
       void queryClient.invalidateQueries({ queryKey: ["intelligence-brief"] });
     },
   });
 
   const brief: IntelligenceBrief | undefined = briefQuery.data;
   const err =
-    briefQuery.error != null
-      ? errorMessage(briefQuery.error)
-      : syncMutation.error != null
-        ? errorMessage(syncMutation.error)
-        : null;
+    syncQuery.error != null
+      ? errorMessage(syncQuery.error)
+      : briefQuery.error != null
+        ? errorMessage(briefQuery.error)
+        : syncMutation.error != null
+          ? errorMessage(syncMutation.error)
+          : null;
+
+  const syncMeta = syncMutation.data ?? syncQuery.data;
 
   return (
     <div className="mx-auto max-w-5xl space-y-8 px-4 py-8">
@@ -99,18 +121,17 @@ export function IntelligenceBriefView() {
         <p className="text-sm uppercase tracking-[0.2em] text-stone-500">Intelligence</p>
         <h1 className="font-serif text-3xl text-stone-900 md:text-4xl">Morning brief</h1>
         <p className="max-w-2xl text-stone-600">
-          Filtered surveillance for holdings and watchlist — material events only, with rule-based
-          reasons. Sync insider disclosures into the event store, then review what needs attention.
-          Research notes are optional: upload them on the Research page when you want search/briefs.
+          Insider-style events for <span className="text-stone-900">holdings and watchlist</span> only
+          (rule-tagged). Opens with an automatic sync; research notes stay on the Research page.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             className="border border-stone-800 px-4 py-2 text-sm text-stone-900 hover:bg-stone-900 hover:text-white disabled:opacity-50"
             onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
+            disabled={syncMutation.isPending || syncQuery.isFetching}
           >
-            {syncMutation.isPending ? "Syncing…" : "Sync insider events"}
+            {syncMutation.isPending || syncQuery.isFetching ? "Syncing…" : "Sync insider events"}
           </button>
           <button
             type="button"
@@ -126,20 +147,20 @@ export function IntelligenceBriefView() {
             </span>
           ) : null}
         </div>
-        {syncMutation.data ? (
+        {syncMeta ? (
           <p className="text-xs text-stone-500">
-            Insider sync: {syncMutation.data.inserted} new · {syncMutation.data.unchanged} unchanged
-            · {syncMutation.data.days} disclosure days
+            Insider sync: {syncMeta.inserted} new · {syncMeta.unchanged} unchanged · {syncMeta.days}{" "}
+            disclosure days
           </p>
         ) : null}
         {err ? <p className="text-sm text-red-700">{err}</p> : null}
       </header>
 
-      {briefQuery.isLoading ? (
+      {briefQuery.isLoading || (!brief && syncQuery.isFetching) ? (
         <p className="text-sm text-stone-600">Loading brief…</p>
       ) : brief ? (
         <>
-          <EventList title="Needs attention" rows={brief.needs_attention} />
+          <EventList title="Needs attention (book only)" rows={brief.needs_attention} />
           <EventList title="Portfolio changes" rows={brief.portfolio_changes} />
           <EventList title="Watchlist changes" rows={brief.watchlist_changes} />
           <section className="space-y-3 border-t border-stone-200 pt-6">

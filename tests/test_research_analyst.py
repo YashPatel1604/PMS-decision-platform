@@ -109,6 +109,28 @@ def test_index_disabled_is_noop(
     assert session.scalars(select(ResearchDocument)).all() == []
 
 
+def test_goal_open_only_excludes_done(
+    session: Session, sample_security: Security
+) -> None:
+    from pms_platform.documents.goals import create_goal, list_goals, update_goal
+
+    open_goal = create_goal(
+        session,
+        security_id=sample_security.security_id,
+        title="Track order book",
+        status="accepted",
+    )
+    done_goal = create_goal(
+        session,
+        security_id=sample_security.security_id,
+        title="Old item",
+        status="accepted",
+    )
+    update_goal(session, done_goal.goal_id, status="done")
+    open_only = list_goals(session, security_id=sample_security.security_id, open_only=True)
+    assert [g.goal_id for g in open_only] == [open_goal.goal_id]
+
+
 def test_ui_upload_indexes_without_research_dir(
     session: Session,
     sample_security: Security,

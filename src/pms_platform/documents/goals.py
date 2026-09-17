@@ -15,11 +15,14 @@ def list_goals(
     *,
     security_id: str | None = None,
     include_dismissed: bool = False,
+    open_only: bool = False,
 ) -> list[ResearchGoal]:
     stmt = select(ResearchGoal).order_by(ResearchGoal.priority.asc(), ResearchGoal.goal_id.asc())
     if security_id:
         stmt = stmt.where(ResearchGoal.security_id == security_id)
-    if not include_dismissed:
+    if open_only:
+        stmt = stmt.where(ResearchGoal.status.in_(("proposed", "accepted")))
+    elif not include_dismissed:
         stmt = stmt.where(ResearchGoal.status != "dismissed")
     return list(session.scalars(stmt).all())
 

@@ -290,10 +290,16 @@ def post_ask(
 def get_goals(
     security_id: str | None = None,
     include_dismissed: bool = False,
+    open_only: bool = False,
     session: Session = Depends(get_db),
     _user: User | None = Depends(get_current_user),
 ) -> list[GoalResponse]:
-    goals = list_goals(session, security_id=security_id, include_dismissed=include_dismissed)
+    goals = list_goals(
+        session,
+        security_id=security_id,
+        include_dismissed=include_dismissed,
+        open_only=open_only,
+    )
     return [_goal_response(g) for g in goals]
 
 

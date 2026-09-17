@@ -15,9 +15,11 @@ from pms_platform.models.investment_thesis import ThesisConflictFlag
 def build_morning_brief(session: Session, *, lookback_days: int = 7) -> dict[str, object]:
     since = date.today() - timedelta(days=max(lookback_days, 1))
     attention = attention_materialities()
-    needs = list_events(
-        session, since=since, materialities=set(attention), limit=25
+    needs_all = list_events(
+        session, since=since, materialities=set(attention), limit=50
     )
+    book_universes = frozenset({"holding", "watchlist"})
+    needs = [e for e in needs_all if e.universe in book_universes][:25]
     holdings = list_events(
         session,
         since=since,

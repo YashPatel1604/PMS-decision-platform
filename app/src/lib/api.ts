@@ -83,6 +83,21 @@ export type ResearchGoal = {
   updated_at: string;
 };
 
+export type InvestmentThesis = {
+  thesis_id: number;
+  security_id: string;
+  version: number;
+  status: string;
+  thesis_summary: string | null;
+  key_monitoring_variables: string | null;
+  key_risks: string | null;
+  bull_case: string | null;
+  base_case: string | null;
+  bear_case: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/backend";
 
 export class ApiError extends Error {
@@ -1805,9 +1820,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  listResearchGoals: (securityId?: string | null) => {
+  listResearchGoals: (securityId?: string | null, opts?: { openOnly?: boolean }) => {
     const params = new URLSearchParams();
     if (securityId) params.set("security_id", securityId);
+    if (opts?.openOnly) params.set("open_only", "true");
     const query = params.toString();
     return request<ResearchGoal[]>(`/research/goals${query ? `?${query}` : ""}`);
   },
@@ -1828,6 +1844,27 @@ export const api = {
   ) =>
     request<ResearchGoal>(`/research/goals/${goalId}`, {
       method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  listInvestmentTheses: (securityId?: string | null, activeOnly = true) => {
+    const params = new URLSearchParams();
+    if (securityId) params.set("security_id", securityId);
+    params.set("active_only", String(activeOnly));
+    return request<InvestmentThesis[]>(`/intelligence/theses?${params}`);
+  },
+  createInvestmentThesis: (body: {
+    security_id: string;
+    thesis_summary?: string | null;
+    key_monitoring_variables?: string | null;
+    key_risks?: string | null;
+    bull_case?: string | null;
+    base_case?: string | null;
+    bear_case?: string | null;
+    status?: string;
+  }) =>
+    request<InvestmentThesis>("/intelligence/theses", {
+      method: "POST",
       body: JSON.stringify(body),
     }),
 
