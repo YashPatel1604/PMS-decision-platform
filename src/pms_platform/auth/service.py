@@ -14,6 +14,7 @@ VALID_ROLES = frozenset({"admin", "member", "client"})
 _LOCAL_USERS = (
     ("julesh@local", "Julesh", "client", "julesh@2602"),
     ("samir@local", "Samir", "admin", "samir@1510"),
+    ("yash@local", "Yash", "member", "yash@1604"),
 )
 
 
@@ -99,7 +100,7 @@ def count_users(session: Session) -> int:
 
 
 def ensure_builtin_users(session: Session) -> None:
-    """Create Julesh (client) and Samir (admin) if missing; keep seed passwords."""
+    """Create Julesh / Samir / Yash if missing; keep seed passwords."""
     for email, name, role, password in _LOCAL_USERS:
         existing = get_user_by_email(session, email)
         if existing is None:

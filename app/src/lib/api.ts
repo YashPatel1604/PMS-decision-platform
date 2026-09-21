@@ -1703,8 +1703,8 @@ export const api = {
   patchClientPositionQty: (symbol: string, qty: number, book: "client" | "sca" = "client") =>
     request<{
       symbol: string;
-      proposed_qty: number;
-      change_request_id: string;
+      qty: number;
+      row_version: number;
       status: string;
     }>(`/strategy/client-portfolio/positions/${encodeURIComponent(symbol)}/qty?book=${book}`, {
       method: "PATCH",

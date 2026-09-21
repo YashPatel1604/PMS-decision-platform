@@ -78,6 +78,17 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     if (user?.role === "client" && !isLogin && !isClientOnlyPath(pathname)) {
       router.replace("/strategy/pivot-point");
     }
+    // Admin Masters/Data tabs are Yash-only (role=member).
+    if (
+      user &&
+      user.role !== "member" &&
+      (pathname === "/data" ||
+        pathname.startsWith("/data/") ||
+        pathname === "/masters" ||
+        pathname.startsWith("/masters/"))
+    ) {
+      router.replace(clientHome(user.role));
+    }
   }, [meQuery.isSuccess, meQuery.data, isLogin, pathname, router]);
 
   if (meQuery.isLoading) {

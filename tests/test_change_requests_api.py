@@ -71,7 +71,7 @@ def test_workflow_disabled_returns_503(monkeypatch, approval_api) -> None:
     assert client.get("/change-requests/summary").status_code == 503
 
 
-def test_qty_draft_submit_approve_flow(approval_api) -> None:
+def test_qty_applies_immediately(approval_api) -> None:
     client = TestClient(app)
     _login(client, "julesh@local")
 
@@ -80,7 +80,8 @@ def test_qty_draft_submit_approve_flow(approval_api) -> None:
         json={"qty": 1200},
     )
     assert patch.status_code == 200
-    draft_id = patch.json()["change_request_id"]
+    assert patch.json()["status"] == "applied"
+    assert patch.json()["qty"] == 1200
 
     official = client.get("/strategy/client-portfolio/dashboard?view=official")
     assert official.status_code == 200
@@ -89,26 +90,10 @@ def test_qty_draft_submit_approve_flow(approval_api) -> None:
         None,
     )
     if reliance_official is not None:
-        assert reliance_official.get("proposed_qty") in (None, reliance_official.get("qty"))
-
-    mine = client.get("/strategy/client-portfolio/dashboard?view=mine")
-    assert mine.status_code == 200
-    reliance_mine = next(
-        (r for r in mine.json()["holdings"] if r.get("symbol") == "RELIANCE"),
-        {"qty": None},
-    )
-    if reliance_mine.get("qty") is not None:
-        assert reliance_mine["qty"] == 1200
+        assert reliance_official.get("qty") == 1200
 
     submit = client.post("/strategy/client-portfolio/positions/RELIANCE/submit")
-    assert submit.status_code == 200
-    assert submit.json()["status"] == "submitted"
-
-    client.cookies.clear()
-    _login(client, "samir@local")
-    approve = client.post(f"/change-requests/{draft_id}/approve", json={})
-    assert approve.status_code == 200
-    assert approve.json()["status"] == "approved"
+    assert submit.status_code == 410
 
     session = approval_api()
     try:

@@ -48,7 +48,6 @@ const navGroups: NavGroup[] = [
       { href: "/strategy/client-portfolio", label: "Client Portfolio" },
       { href: "/strategy/sca-llp", label: "SCA LLP" },
       { href: "/strategy/sheets", label: "Sheets" },
-      { href: "/strategy/approvals", label: "Approvals", badgeKey: "approvals" },
     ],
   },
   {
@@ -214,16 +213,18 @@ export function AppShell({
     queryKey: ["change-requests-summary"],
     queryFn: () => api.getChangeRequestsSummary(),
     refetchInterval: 15_000,
-    enabled: user?.role === "admin",
+    enabled: false,
     retry: false,
   });
 
   const unacknowledgedAlerts = alertsSummaryQuery.data?.unacknowledged ?? 0;
   const pendingApprovals = approvalsSummaryQuery.data?.pending_submitted ?? 0;
+  // Admin (Masters/Data) is Yash-only (role=member). Julesh=client, Samir=admin.
+  const isOpsOwner = user?.role === "member";
   const visibleGroups =
     user?.role === "client"
       ? navGroups.filter((group) => group.label === "Client" || group.label === "Market")
-      : navGroups;
+      : navGroups.filter((group) => group.label !== "Admin" || isOpsOwner);
   const showChrome = user?.role !== "client";
 
   useEffect(() => {

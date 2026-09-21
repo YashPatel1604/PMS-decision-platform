@@ -8,11 +8,8 @@ import {
   api,
   type ClientPortfolioDashboard,
   type ClientPortfolioYearlySeries,
-  type PortfolioView,
 } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { DraftTray, holdingsDraftDomain } from "@/components/draft-tray";
-import { ViewModeToggle } from "@/components/view-mode-toggle";
 
 function num(value: number | null | undefined, digits = 2): string {
   if (value == null || !Number.isFinite(value)) return "—";
@@ -56,19 +53,11 @@ export function ClientPortfolioView({
   const [query, setQuery] = useState("");
   const [fetchMsg, setFetchMsg] = useState<string | null>(null);
   const [pullDate, setPullDate] = useState(todayIstInput);
-  const [view, setView] = useState<PortfolioView>("official");
+  const view = "official" as const;
 
   const dashQuery = useQuery({
     queryKey: ["client-portfolio-dashboard", book, asOf ?? "latest", view],
     queryFn: () => api.getClientPortfolioDashboard(asOf, book, view),
-  });
-
-  const draftDomain = holdingsDraftDomain(book);
-
-  const draftQuery = useQuery({
-    queryKey: ["change-requests", "my-draft", draftDomain],
-    queryFn: () => api.listChangeRequests("draft", draftDomain),
-    enabled: view === "mine" && Boolean(dashQuery.data?.approval_workflow),
   });
 
   const fetchNseMutation = useMutation({
@@ -118,7 +107,7 @@ export function ClientPortfolioView({
                 Ramprasath Reddy qty stays as typed in Excel; Qty − Ramprasath is D−H;
                 Blocked Account is Ramprasath qty × as-of price.
                 {data?.approval_workflow
-                  ? " Quantity edits use My Working → submit → Samir approves."
+                  ? " Quantity edits save immediately to the shared book."
                   : null}
               </>
             ) : (
@@ -128,16 +117,13 @@ export function ClientPortfolioView({
                 Percent, Mcap, %Firm, and Total_Value use the as-of bhav day (Mcap = Excel
                 share factor × close).
                 {data?.approval_workflow
-                  ? " Quantity edits use My Working → submit → Samir approves; Index and Mcap save directly to the shared database."
+                  ? " Quantity, Index, and Mcap save immediately to the shared database."
                   : " Edit holdings in Excel — this page is view-only for positions."}
               </>
             )}
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
-          {data?.approval_workflow ? (
-            <ViewModeToggle view={view} onChange={setView} disabled={dashQuery.isFetching} />
-          ) : null}
           <label className="flex flex-col gap-1 text-sm text-stone-600">
             As-of (bhav)
             <select
@@ -222,10 +208,6 @@ export function ClientPortfolioView({
         </p>
       ) : null}
 
-      {data?.approval_workflow && view === "mine" ? (
-        <DraftTray draft={draftQuery.data?.[0]} book={book} />
-      ) : null}
-
       {data && !data.error ? (
         <div className="flex flex-wrap gap-4 text-sm text-stone-600">
           <span>
@@ -270,7 +252,7 @@ export function ClientPortfolioView({
           book={book}
           bankBalance={data.bank_balance}
           portfolioTotal={data.portfolio_total}
-          qtyEditable={Boolean(data.approval_workflow) && view === "mine"}
+          qtyEditable={Boolean(data.approval_workflow)}
           fieldsEditable={Boolean(data.approval_workflow) && book === "client"}
         />
       ) : null}

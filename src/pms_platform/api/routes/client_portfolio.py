@@ -10,14 +10,8 @@ from sqlalchemy.orm import Session
 
 from pms_platform.api.deps import get_db
 from pms_platform.api.deps_read_context import read_context_from_query
-from pms_platform.approval.service import (
-    ApprovalError,
-    get_user_draft,
-    submit_request,
-    upsert_client_position_qty_draft,
-)
 from pms_platform.domain.client_positions import (
-    holdings_domain,
+    apply_approved_qty_change,
     official_qty_map,
     set_bank_balance,
     update_position_fields,
@@ -62,6 +56,7 @@ def patch_position_qty(
     book: str = Query(default="client"),
     session: Session = Depends(get_db),
 ) -> dict:
+    """Write qty to the live book immediately — no Samir approval gate."""
     if not approval_workflow_enabled():
         raise HTTPException(
             status_code=400,
@@ -79,23 +74,23 @@ def patch_position_qty(
     official = official_qty_map(session, book=book_key).get(sym)
     base_v = official.row_version if official is not None else 1
     try:
-        draft = upsert_client_position_qty_draft(
+        pos = apply_approved_qty_change(
             session,
-            proposer=user,
             symbol=sym,
             qty=qty_d,
             base_row_version=base_v,
+            updated_by=user.user_id,
             book=book_key,
         )
         session.commit()
-    except ApprovalError as exc:
+    except ValueError as exc:
         session.rollback()
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
         "symbol": sym,
-        "proposed_qty": float(qty_d),
-        "change_request_id": str(draft.change_request_id),
-        "status": draft.status,
+        "qty": float(pos.qty),
+        "row_version": pos.row_version,
+        "status": "applied",
     }
 
 
@@ -106,22 +101,14 @@ def submit_position_qty_change(
     book: str = Query(default="client"),
     session: Session = Depends(get_db),
 ) -> dict:
-    if not approval_workflow_enabled():
-        raise HTTPException(status_code=400, detail="Approval workflow disabled")
-    user = _user(request)
-    if user is None:
+    """Deprecated: qty saves apply immediately. Kept so old UI clients get a clear message."""
+    del symbol, book, session
+    if _user(request) is None:
         raise HTTPException(status_code=401, detail="Authentication required")
-    domain = holdings_domain(book)
-    draft = get_user_draft(session, user_id=user.user_id, domain=domain)
-    if draft is None:
-        raise HTTPException(status_code=404, detail="No draft change request")
-    try:
-        req = submit_request(session, actor=user, change_request_id=draft.change_request_id)
-        session.commit()
-    except ApprovalError as exc:
-        session.rollback()
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"change_request_id": str(req.change_request_id), "status": req.status}
+    raise HTTPException(
+        status_code=410,
+        detail="Qty saves apply immediately — submit for approval is no longer used",
+    )
 
 
 @router.patch("/positions/{symbol}/fields")

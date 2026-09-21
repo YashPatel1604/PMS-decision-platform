@@ -1,4 +1,4 @@
-"""SCA holdings qty approval (book=sca in client_positions)."""
+"""SCA holdings qty applies immediately (no Samir approval)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pms_platform.models.client_position import ClientPosition
 from test_change_requests_api import _login, approval_api  # noqa: F401 — pytest fixtures
 
 
-def test_sca_qty_draft_submit_approve(approval_api) -> None:
+def test_sca_qty_applies_immediately(approval_api) -> None:
     client = TestClient(app)
     _login(client, "julesh@local")
 
@@ -19,29 +19,18 @@ def test_sca_qty_draft_submit_approve(approval_api) -> None:
         json={"qty": 500},
     )
     assert patch.status_code == 200
-    draft_id = patch.json()["change_request_id"]
+    body = patch.json()
+    assert body["status"] == "applied"
+    assert body["qty"] == 500
 
     official = client.get("/strategy/client-portfolio/dashboard?book=sca&view=official")
     assert official.status_code == 200
-
-    mine = client.get("/strategy/client-portfolio/dashboard?book=sca&view=mine")
-    assert mine.status_code == 200
     row = next(
-        (r for r in mine.json()["holdings"] if r.get("symbol") == "ASHAPURMIN"),
+        (r for r in official.json()["holdings"] if r.get("symbol") == "ASHAPURMIN"),
         None,
     )
     if row is not None:
         assert row.get("qty") == 500
-
-    submit = client.post(
-        "/strategy/client-portfolio/positions/ASHAPURMIN/submit?book=sca",
-    )
-    assert submit.status_code == 200
-
-    client.cookies.clear()
-    _login(client, "samir@local")
-    approve = client.post(f"/change-requests/{draft_id}/approve", json={})
-    assert approve.status_code == 200
 
     session = approval_api()
     try:
