@@ -1,5 +1,9 @@
 """FastAPI application entry point."""
 
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -26,7 +30,27 @@ from pms_platform.api.routes import (
 )
 from pms_platform.config import settings
 
-app = FastAPI(title="PMS Decision Platform", version="0.1.0")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # Railway often skips migrate-on-start; still ensure Julesh/Samir/Yash exist.
+    try:
+        from pms_platform.auth.service import ensure_builtin_users
+        from pms_platform.db.base import get_session_factory
+
+        session = get_session_factory()()
+        try:
+            ensure_builtin_users(session)
+            session.commit()
+        finally:
+            session.close()
+    except Exception:
+        # Don't block boot if DB is briefly unavailable; login will fail loudly.
+        pass
+    yield
+
+
+app = FastAPI(title="PMS Decision Platform", version="0.1.0", lifespan=_lifespan)
 
 _default_origins = [
     "http://localhost:3000",
