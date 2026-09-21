@@ -100,7 +100,7 @@ def count_users(session: Session) -> int:
 
 
 def ensure_builtin_users(session: Session) -> None:
-    """Create Julesh / Samir / Yash if missing; keep seed passwords."""
+    """Create Julesh / Samir / Yash if missing; keep seed passwords and roles."""
     for email, name, role, password in _LOCAL_USERS:
         existing = get_user_by_email(session, email)
         if existing is None:
@@ -112,5 +112,7 @@ def ensure_builtin_users(session: Session) -> None:
                 role=role,
             )
             continue
+        if existing.role != role:
+            existing.role = role
         if not verify_password(existing.password_hash, password):
             existing.password_hash = hash_password(password)

@@ -70,6 +70,11 @@ def test_ensure_builtin_users(session) -> None:
     assert count_users(session) == 3
     assert authenticate(session, "yash", "yash@1604") is not None
     assert get_user_by_email(session, "yash@local").role == "member"
+    yash = get_user_by_email(session, "yash@local")
+    yash.role = "admin"
+    session.flush()
+    ensure_builtin_users(session)
+    assert get_user_by_email(session, "yash@local").role == "member"
 
 
 def test_duplicate_email_rejected(session) -> None:

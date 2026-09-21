@@ -219,8 +219,10 @@ export function AppShell({
 
   const unacknowledgedAlerts = alertsSummaryQuery.data?.unacknowledged ?? 0;
   const pendingApprovals = approvalsSummaryQuery.data?.pending_submitted ?? 0;
-  // Admin (Masters/Data) is Yash-only (role=member). Julesh=client, Samir=admin.
-  const isOpsOwner = user?.role === "member";
+  // Admin (Masters/Data) is Yash-only — seeded as member; also allow yash@* emails.
+  const isOpsOwner =
+    user?.role === "member" ||
+    Boolean(user?.email?.toLowerCase().startsWith("yash@"));
   const visibleGroups =
     user?.role === "client"
       ? navGroups.filter((group) => group.label === "Client" || group.label === "Market")
