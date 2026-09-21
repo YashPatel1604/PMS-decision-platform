@@ -1,4 +1,4 @@
-"""DailyEdit workbook upload and reimport (cloud staging)."""
+"""DailyEdit workbook upload and confirm-to-apply (cloud staging)."""
 
 from __future__ import annotations
 
@@ -6,8 +6,6 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from sqlalchemy.orm import Session
 
 from pms_platform.api.deps import get_db
-from pms_platform.approval.service import user_has_permission
-from pms_platform.auth.permissions import PERMISSION_VIEW_ALL_SUBMITTED
 from pms_platform.feature_flags import approval_workflow_enabled
 from pms_platform.ingestion.daily_edit_sync import (
     DAILY_EDIT_CATEGORIES,
@@ -28,18 +26,18 @@ def _user(request: Request) -> User | None:
     return getattr(request.state, "user", None)
 
 
-def _require_admin(session: Session, user: User) -> None:
-    if not user_has_permission(session, user, PERMISSION_VIEW_ALL_SUBMITTED):
-        raise HTTPException(status_code=403, detail="Admin access required")
+def _require_user(request: Request) -> User:
+    user = _user(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return user
 
 
 @router.get("/status")
 def get_status(request: Request, session: Session = Depends(get_db)) -> dict:
     if not approval_workflow_enabled():
         raise HTTPException(status_code=503, detail="Approval workflow is disabled")
-    user = _user(request)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    _require_user(request)
     return daily_edit_status(session)
 
 
@@ -50,12 +48,10 @@ async def post_upload(
     file: UploadFile = File(...),
     session: Session = Depends(get_db),
 ) -> dict:
+    """Store workbook and return a dry-run preview. Does not change live numbers."""
     if not approval_workflow_enabled():
         raise HTTPException(status_code=503, detail="Approval workflow is disabled")
-    user = _user(request)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    _require_admin(session, user)
+    user = _require_user(request)
 
     cat = category.strip()
     if cat not in DAILY_EDIT_CATEGORIES:
@@ -63,7 +59,7 @@ async def post_upload(
             status_code=400, detail=f"category must be one of {sorted(DAILY_EDIT_CATEGORIES)}"
         )
     data = await file.read()
-    apply: dict | None = None
+    pending: dict | None = None
     try:
         result = upload_daily_edit(
             session,
@@ -74,12 +70,12 @@ async def post_upload(
             storage=get_storage(),
             mime_type=file.content_type,
         )
-        # New upload is primary: push workbook into DB (qty / chart levels / SCA bank).
         if cat in REIMPORT_CATEGORIES:
-            apply = reimport_daily_edit(
+            pending = reimport_daily_edit(
                 session,
                 category=cat,
-                dry_run=False,
+                dry_run=True,
+                update_qty=True,
                 authoritative=True,
             )
         session.commit()
@@ -108,7 +104,8 @@ async def post_upload(
         "byte_size": result.byte_size,
         "local_path": result.local_path,
         "deduplicated": result.deduplicated,
-        "applied": apply,
+        "applied": None,
+        "pending": pending,
     }
 
 
@@ -127,12 +124,10 @@ def post_reimport(
     authoritative: str | bool = Form(False),
     session: Session = Depends(get_db),
 ) -> dict:
+    """Preview (dry_run) or confirm new numbers into the live DB (Julesh or admin)."""
     if not approval_workflow_enabled():
         raise HTTPException(status_code=503, detail="Approval workflow is disabled")
-    user = _user(request)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    _require_admin(session, user)
+    _require_user(request)
 
     cat = category.strip()
     dry = _form_bool(dry_run)

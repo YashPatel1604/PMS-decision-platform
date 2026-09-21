@@ -47,6 +47,7 @@ const navGroups: NavGroup[] = [
       { href: "/strategy/charts", label: "Charts" },
       { href: "/strategy/client-portfolio", label: "Client Portfolio" },
       { href: "/strategy/sca-llp", label: "SCA LLP" },
+      { href: "/strategy/sheets", label: "Sheets" },
       { href: "/strategy/approvals", label: "Approvals", badgeKey: "approvals" },
     ],
   },

@@ -599,8 +599,8 @@ export function DataImportView() {
           <div>
             <h2 className="text-xl font-semibold tracking-tight">DailyEdit cloud sync</h2>
             <p className="mt-1 text-sm text-stone-600">
-              Upload workbooks from your Mac, then preview/apply reimport. Lives only on this
-              Admin → Data page — not on Client / Charts strategy screens.
+              Upload stages a workbook; confirm new numbers to make them live. Same flow is on
+              Client → Sheets (Julesh can confirm — no separate admin approval).
             </p>
           </div>
           <div className="grid gap-4 lg:grid-cols-2">

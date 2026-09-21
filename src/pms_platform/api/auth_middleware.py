@@ -17,6 +17,7 @@ _CLIENT_PREFIXES = (
     "/strategy/client-portfolio",
     "/change-requests",
     "/imports/staged",
+    "/daily-edit",
     "/market-data/block-deals",
     "/market-data/bulk-deals",
     "/market-data/sast",

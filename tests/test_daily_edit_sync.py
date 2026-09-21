@@ -153,16 +153,33 @@ def test_reimport_sca_uses_sca_book(session, storage, daily_edit_dir, monkeypatc
     assert calls == ["sca"]
 
 
-def test_upload_auto_applies_authoritative(session, storage, daily_edit_dir, monkeypatch) -> None:
-    """Upload must reimport with update_qty so cloud UI shows new Excel numbers."""
+def test_upload_route_stages_pending_not_applied(
+    session, storage, daily_edit_dir, monkeypatch
+) -> None:
+    """POST /daily-edit/upload must not apply live numbers — only a dry-run pending preview."""
+    import asyncio
+
     from pms_platform.api.routes import daily_edit as route
 
     admin = _admin(session)
-    data = _xlsx_bytes()
-    applied: list[dict] = []
+    calls: list[dict] = []
+
+    def _fake_upload(*_a, **_k):
+        return type(
+            "R",
+            (),
+            {
+                "category": "sca_llp",
+                "filename": "SCA.xlsx",
+                "checksum_sha256": "abc",
+                "byte_size": 12,
+                "local_path": str(daily_edit_dir / "SCA.xlsx"),
+                "deduplicated": False,
+            },
+        )()
 
     def _fake_reimport(session, *, category, update_qty=False, dry_run=False, authoritative=False):
-        applied.append(
+        calls.append(
             {
                 "category": category,
                 "update_qty": update_qty,
@@ -173,32 +190,44 @@ def test_upload_auto_applies_authoritative(session, storage, daily_edit_dir, mon
         return {
             "category": category,
             "workbook": "x",
-            "dry_run": False,
-            "added": [],
+            "dry_run": dry_run,
+            "added": ["RELIANCE"],
             "removed": [],
         }
 
-    monkeypatch.setattr(
-        "pms_platform.api.routes.daily_edit.reimport_daily_edit",
-        _fake_reimport,
+    monkeypatch.setattr(route, "upload_daily_edit", _fake_upload)
+    monkeypatch.setattr(route, "reimport_daily_edit", _fake_reimport)
+    monkeypatch.setattr(route, "get_storage", lambda: storage)
+    monkeypatch.setattr(route, "approval_workflow_enabled", lambda: True)
+
+    class _Req:
+        state = type("S", (), {"user": admin})()
+
+    class _File:
+        filename = "SCA.xlsx"
+        content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+        async def read(self) -> bytes:
+            return b"xlsx"
+
+    out = asyncio.run(
+        route.post_upload(
+            request=_Req(),  # type: ignore[arg-type]
+            category="sca_llp",
+            file=_File(),  # type: ignore[arg-type]
+            session=session,
+        )
     )
-    # Call sync helpers the route uses after upload_daily_edit
-    result = upload_daily_edit(
-        session,
-        category="charts",
-        filename="Charts.xlsx",
-        data=data,
-        uploaded_by=admin.user_id,
-        storage=storage,
-    )
-    assert result.local_path
-    # Simulate route apply step
-    apply = route.reimport_daily_edit(
-        session, category="charts", dry_run=False, authoritative=True
-    )
-    assert applied[-1]["authoritative"] is True
-    assert applied[-1]["dry_run"] is False
-    assert apply["category"] == "charts"
+    assert out["applied"] is None
+    assert out["pending"]["dry_run"] is True
+    assert calls == [
+        {
+            "category": "sca_llp",
+            "update_qty": True,
+            "dry_run": True,
+            "authoritative": True,
+        }
+    ]
 
 
 def test_reimport_pivot_dry_run(session, storage, daily_edit_dir, monkeypatch) -> None:

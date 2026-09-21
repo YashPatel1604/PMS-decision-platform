@@ -17,6 +17,7 @@ const CLIENT_PATHS = [
   "/strategy/charts",
   "/strategy/client-portfolio",
   "/strategy/sca-llp",
+  "/strategy/sheets",
   "/block-deals",
   "/bulk-deals",
   "/sast",

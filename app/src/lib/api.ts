@@ -707,6 +707,7 @@ export type DailyEditUploadResult = {
   local_path: string;
   deduplicated: boolean;
   applied?: DailyEditReimportResult | null;
+  pending?: DailyEditReimportResult | null;
 };
 
 export type HealthResponse = {
