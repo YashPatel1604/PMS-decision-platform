@@ -41,7 +41,7 @@ const KIND_COPY: Record<
     description:
       "BSE Insider Trading Regulations 2015 disclosures submitted by the company (Reg 7(2)).",
     sourceNote:
-      "Green = our firms. Orange = other filings. Grey = none. BSE has no market pagination (25-row cap); capped days are completed by per-scrip fetch of all active equities. Table is paged at 25 rows.",
+      "Green = our firms. Orange = other filings. Grey = none. When BSE blocks the request, filings are loaded from NSE for holdings and the watchlist only. Table is paged at 25 rows.",
     emptyDay: "No insider disclosures reported for",
     hasDealsTitle: (d) => `Insider disclosures on ${d}`,
     noDealsTitle: "No insider disclosures this day",

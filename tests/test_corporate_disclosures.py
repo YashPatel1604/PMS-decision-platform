@@ -78,6 +78,35 @@ def test_normalize_sast_row_resolves_isin() -> None:
     assert row.regulation == "29(1)"
 
 
+def test_nse_insider_row_normalizes() -> None:
+    from pms_platform.market_data.bse_corporate_disclosures import _nse_insider_as_bse_row
+
+    shaped = _nse_insider_as_bse_row(
+        {
+            "symbol": "RELIANCE",
+            "company": "Reliance Industries Limited",
+            "acqName": "BALANADU NARAYAN",
+            "personCategory": "Other",
+            "tdpTransactionType": "Sell",
+            "secAcq": "2320",
+            "secVal": "3294168",
+            "befAcqSharesPer": "0",
+            "afterAcqSharesPer": "0",
+            "date": "18-Feb-2026 19:06",
+            "acqMode": "Off Market",
+            "did": "563850",
+            "remarks": "-",
+        }
+    )
+    row = normalize_insider_row(shaped)
+    assert row is not None
+    assert row.bse_code == "RELIANCE"
+    assert row.disclosure_date == date(2026, 2, 18)
+    assert row.quantity == Decimal("2320")
+    assert row.person_name == "BALANADU NARAYAN"
+    assert row.transaction_type == "Sell"
+
+
 def test_normalize_insider_row() -> None:
     raw = {
         "Fld_ScripCode": 544444,

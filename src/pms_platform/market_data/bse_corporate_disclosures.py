@@ -249,6 +249,132 @@ def fetch_sast_rows(from_date: date, to_date: date) -> list[dict[str, Any]]:
             ) from nse_exc
 
 
+_NSE_PIT_URL = "https://www.nseindia.com/api/corporates-pit"
+# Filled once per process when BSE 403s, then sliced per day (insider_store calls day-by-day).
+_nse_insider_cache: tuple[date, date, list[dict[str, Any]]] | None = None
+_nse_insider_lock = __import__("threading").Lock()
+
+
+def _book_nse_symbols() -> list[str]:
+    from pms_platform.db.base import get_session_factory
+
+    session = get_session_factory()()
+    try:
+        symbols: set[str] = set()
+        for raw in session.scalars(select(Security.current_nse_symbol)):
+            text = _clean_text(raw).upper()
+            if text:
+                symbols.add(text)
+        for raw in session.scalars(select(WatchlistMember.nse_symbol)):
+            text = _clean_text(raw).upper()
+            if text:
+                symbols.add(text)
+        return sorted(symbols)
+    finally:
+        session.close()
+
+
+def _nse_insider_as_bse_row(raw: dict[str, Any]) -> dict[str, Any]:
+    """Shape an NSE PIT row like BSE insider fields so the existing normalizer works."""
+    broadcast = _clean_text(raw.get("date")).split(" ", 1)[0]
+    qty = _to_decimal(raw.get("secAcq"))
+    if qty in (None, Decimal(0)):
+        sold = _to_decimal(raw.get("sellquantity"))
+        bought = _to_decimal(raw.get("buyQuantity"))
+        qty = sold if sold not in (None, Decimal(0)) else bought
+    return {
+        "Fld_ID": raw.get("did"),
+        "Fld_ScripCode": raw.get("symbol"),
+        "Companyname": raw.get("company"),
+        "Fld_PromoterName": raw.get("acqName"),
+        "Fld_PersonCatgName": raw.get("personCategory"),
+        "Fld_TransactionType": raw.get("tdpTransactionType"),
+        "Fld_SecurityNo": qty,
+        "Fld_SecurityValue": raw.get("secVal"),
+        "Fld_PercentofShareholdingPre": raw.get("befAcqSharesPer"),
+        "Fld_PercentofShareholdingPost": raw.get("afterAcqSharesPer"),
+        "Fld_StampDate": broadcast or raw.get("intimDt"),
+        "ModeOfAquisation": raw.get("acqMode"),
+        "Fld_Notes": raw.get("remarks"),
+    }
+
+
+def _fetch_nse_pit_symbol(symbol: str, from_date: date, to_date: date) -> list[dict[str, Any]]:
+    import httpx
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.nseindia.com/companies-listing/corporate-filings-insider-trading",
+    }
+    params = {
+        "index": "equities",
+        "symbol": symbol,
+        "from_date": from_date.strftime("%d-%m-%Y"),
+        "to_date": to_date.strftime("%d-%m-%Y"),
+    }
+    with httpx.Client(headers=headers, timeout=30.0, follow_redirects=True) as client:
+        try:
+            client.get("https://www.nseindia.com/")
+        except Exception:
+            pass
+        response = client.get(_NSE_PIT_URL, params=params)
+        response.raise_for_status()
+        payload = response.json()
+    rows = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return []
+    return [_nse_insider_as_bse_row(row) for row in rows if isinstance(row, dict)]
+
+
+def _fetch_nse_insider_rows(from_date: date, to_date: date) -> list[dict[str, Any]]:
+    """Holdings + watchlist PIT filings. NSE market-wide search returns no rows."""
+    global _nse_insider_cache
+    month_start = date(from_date.year, from_date.month, 1)
+    month_last = calendar.monthrange(to_date.year, to_date.month)[1]
+    span_start = min(from_date, month_start)
+    span_end = max(to_date, date(to_date.year, to_date.month, month_last))
+    with _nse_insider_lock:
+        if (
+            _nse_insider_cache is not None
+            and _nse_insider_cache[0] <= from_date
+            and _nse_insider_cache[1] >= to_date
+        ):
+            cached = _nse_insider_cache[2]
+        else:
+            symbols = _book_nse_symbols()
+            if not symbols:
+                raise CorporateDisclosuresFetchError(
+                    "BSE insider API returned 403 and no NSE symbols are on file"
+                )
+            from concurrent.futures import ThreadPoolExecutor
+
+            merged: list[dict[str, Any]] = []
+            # ponytail: one request per book symbol; widen workers if the book grows past ~200.
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                futures = [
+                    pool.submit(_fetch_nse_pit_symbol, symbol, span_start, span_end)
+                    for symbol in symbols
+                ]
+                for future in futures:
+                    try:
+                        merged.extend(future.result())
+                    except Exception:
+                        continue
+            _nse_insider_cache = (span_start, span_end, merged)
+            cached = merged
+    out: list[dict[str, Any]] = []
+    for row in cached:
+        day = _parse_date(row.get("Fld_StampDate"))
+        if day is None or from_date <= day <= to_date:
+            out.append(row)
+    return out
+
+
 def fetch_insider_rows(
     from_date: date,
     to_date: date,
@@ -258,18 +384,38 @@ def fetch_insider_rows(
 
     Market-wide search (empty ``scrip_code``) is capped at 25 rows. Passing a
     BSE scrip code returns that company's filings without the market-wide cap.
+    When BSE returns 403, holdings and watchlist names come from NSE PIT.
     """
-    return _fetch_table(
-        _INSIDER_URL,
-        {
-            "scripCode": str(scrip_code or "").strip(),
-            "Regulation": "",
-            "fromDT": _fmt_iso(from_date),
-            "ToDate": _fmt_iso(to_date),
-            "Isdefault": "2",
-        },
-        referer="https://www.bseindia.com/corporates/insider_trading_new",
-    )
+    if str(scrip_code or "").strip() and _nse_insider_cache is not None:
+        return []
+    try:
+        return _fetch_table(
+            _INSIDER_URL,
+            {
+                "scripCode": str(scrip_code or "").strip(),
+                "Regulation": "",
+                "fromDT": _fmt_iso(from_date),
+                "ToDate": _fmt_iso(to_date),
+                "Isdefault": "2",
+            },
+            referer="https://www.bseindia.com/corporates/insider_trading_new",
+        )
+    except Exception as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status != 403 and "403" not in str(exc):
+            if isinstance(exc, CorporateDisclosuresFetchError):
+                raise
+            raise CorporateDisclosuresFetchError(
+                f"Failed to fetch BSE insider disclosures: {exc}"
+            ) from exc
+        if str(scrip_code or "").strip():
+            return []
+        try:
+            return _fetch_nse_insider_rows(from_date, to_date)
+        except Exception as nse_exc:
+            raise CorporateDisclosuresFetchError(
+                f"Failed to fetch BSE insider disclosures: {exc}; NSE fallback failed: {nse_exc}"
+            ) from nse_exc
 
 
 def _bse_scrip_from_field(value: object) -> str | None:
