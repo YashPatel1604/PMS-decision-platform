@@ -29,7 +29,7 @@ const KIND_COPY: Record<
     description:
       "BSE Regulation 29 system-driven disclosures (acquirer/seller holdings changes from depositories).",
     sourceNote:
-      "Green days include our firms. Orange days have other market filings only. Grey has none. Source: BSE corporates/regulation_29. Table is paged at 25 rows.",
+      "Green days include our firms. Orange days have other market filings only. Grey has none. Source: BSE Regulation 29, or NSE when BSE blocks the request. Table is paged at 25 rows.",
     emptyDay: "No SAST disclosures reported for",
     hasDealsTitle: (d) => `SAST disclosures on ${d}`,
     noDealsTitle: "No SAST disclosures this day",

@@ -42,12 +42,18 @@ def refresh_bse_scrip_universe(*, force: bool = False) -> None:
             client.get("https://www.bseindia.com/")
         except Exception:
             pass
-        response = client.get(
-            _BSE_LIST_URL,
-            params={"segment": "Equity", "status": "Active"},
-        )
-        response.raise_for_status()
-        payload = response.json()
+        try:
+            response = client.get(
+                _BSE_LIST_URL,
+                params={"segment": "Equity", "status": "Active"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.HTTPError:
+            # Akamai 403s non-browser/non-India callers. Keep going with an empty map.
+            if not _isin_to_code and not _nse_to_code:
+                _cache_loaded_at = now
+            return
 
     if not isinstance(payload, list):
         raise RuntimeError("Unexpected BSE ListOfScripData payload")

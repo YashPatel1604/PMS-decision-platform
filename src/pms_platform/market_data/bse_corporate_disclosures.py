@@ -133,6 +133,64 @@ def _clean_text(value: object) -> str:
     return text
 
 
+_NSE_SAST_URL = "https://www.nseindia.com/api/corporate-sast-reg29"
+
+
+def _nse_sast_as_bse_row(raw: dict[str, Any]) -> dict[str, Any]:
+    """Shape an NSE Reg 29 row like the BSE RTAREG29 fields normalize_sast_row expects."""
+    sale = _to_decimal(raw.get("noOfShareSale"))
+    acquired = _to_decimal(raw.get("noOfShareAcq"))
+    qty = sale if sale not in (None, Decimal(0)) else acquired
+    window = _clean_text(raw.get("acquirerDate"))
+    trans_date = window.split(" to ", 1)[0].strip()
+    promoter = _clean_text(raw.get("promoterType")).upper()
+    return {
+        "ComName": raw.get("company"),
+        "NseSymbol": raw.get("symbol"),
+        "DATETrans": trans_date,
+        "PromName": raw.get("acquirerName"),
+        "Promoter_NonPromoter": "Promoter" if promoter == "Y" else "Non-promoter",
+        "TransType": raw.get("acqSaleType") or raw.get("acquisitionMode"),
+        "QTYTrans": qty,
+        "PerPostHold": raw.get("totAftShare"),
+        "reg29_1_2": raw.get("regType"),
+        "transactiondisplay": raw.get("acquisitionMode"),
+    }
+
+
+def _fetch_nse_sast_rows(from_date: date, to_date: date) -> list[dict[str, Any]]:
+    """NSE Reg 29 disclosures. Used when BSE api.bseindia.com returns 403."""
+    import httpx
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.nseindia.com/companies-listing/corporate-filings-regulation-29",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    params = {
+        "index": "equities",
+        "from_date": from_date.strftime("%d-%m-%Y"),
+        "to_date": to_date.strftime("%d-%m-%Y"),
+    }
+    with httpx.Client(headers=headers, timeout=90.0, follow_redirects=True) as client:
+        try:
+            client.get("https://www.nseindia.com/")
+        except Exception:
+            pass
+        response = client.get(_NSE_SAST_URL, params=params)
+        response.raise_for_status()
+        payload = response.json()
+    rows = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        raise CorporateDisclosuresFetchError("Unexpected NSE SAST payload")
+    return [_nse_sast_as_bse_row(row) for row in rows if isinstance(row, dict)]
+
+
 def _fetch_table(url: str, params: dict[str, str], *, referer: str) -> list[dict[str, Any]]:
     import httpx
 
@@ -163,17 +221,32 @@ def _fetch_table(url: str, params: dict[str, str], *, referer: str) -> list[dict
 
 
 def fetch_sast_rows(from_date: date, to_date: date) -> list[dict[str, Any]]:
-    """SAST system-driven disclosures (Regulation 29) for a date range."""
-    return _fetch_table(
-        _SAST_URL,
-        {
-            "CompanySearch": "",
-            "FromDate": _fmt_dmy(from_date),
-            "ToDate": _fmt_dmy(to_date),
-            "ProISIN": "",
-        },
-        referer="https://www.bseindia.com/corporates/regulation_29",
-    )
+    """SAST Regulation 29 rows. BSE first; NSE when Akamai returns 403."""
+    try:
+        return _fetch_table(
+            _SAST_URL,
+            {
+                "CompanySearch": "",
+                "FromDate": _fmt_dmy(from_date),
+                "ToDate": _fmt_dmy(to_date),
+                "ProISIN": "",
+            },
+            referer="https://www.bseindia.com/corporates/regulation_29",
+        )
+    except Exception as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status != 403 and "403" not in str(exc):
+            if isinstance(exc, CorporateDisclosuresFetchError):
+                raise
+            raise CorporateDisclosuresFetchError(
+                f"Failed to fetch BSE sast disclosures: {exc}"
+            ) from exc
+        try:
+            return _fetch_nse_sast_rows(from_date, to_date)
+        except Exception as nse_exc:
+            raise CorporateDisclosuresFetchError(
+                f"Failed to fetch BSE sast disclosures: {exc}; NSE fallback failed: {nse_exc}"
+            ) from nse_exc
 
 
 def fetch_insider_rows(
@@ -263,12 +336,17 @@ def flag_insider_arbitrage(
 def normalize_sast_row(raw: dict[str, Any]) -> CorporateDisclosureRow | None:
     company = _clean_text(raw.get("ComName"))
     isin = _clean_text(raw.get("ProISIN")).upper() or None
+    nse_symbol = _clean_text(raw.get("NseSymbol")).upper() or None
     code = resolve_bse_code(
         bse_code=raw.get("ScripCode") or raw.get("Scripcode1"),
         isin=isin,
         company_name=company,
+        nse_symbol=nse_symbol,
         allow_soft_name=False,
     )
+    # Portfolio lookup keys include NSE symbols when the BSE universe is blocked.
+    if not code and nse_symbol:
+        code = nse_symbol
     disclosure_date = _parse_date(raw.get("DATETrans")) or _parse_date(
         raw.get("CreatedDate")
     )
@@ -407,7 +485,7 @@ def enrich_disclosures_with_portfolio(
 def enrich_disclosures_with_market_caps(
     rows: list[CorporateDisclosureRow],
 ) -> list[CorporateDisclosureRow]:
-    codes = [r.bse_code for r in rows if r.bse_code]
+    codes = [r.bse_code for r in rows if r.bse_code and str(r.bse_code).isdigit()]
     if not codes:
         return rows
     caps = fetch_bse_market_caps(codes)

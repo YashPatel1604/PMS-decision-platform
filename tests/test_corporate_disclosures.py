@@ -16,6 +16,37 @@ from pms_platform.models.insider_disclosure_day import InsiderDisclosureDay
 from pms_platform.watchlists import service as wl
 
 
+def test_nse_sast_row_normalizes_when_bse_blocked() -> None:
+    from pms_platform.market_data.bse_corporate_disclosures import _nse_sast_as_bse_row
+
+    shaped = _nse_sast_as_bse_row(
+        {
+            "company": "PVR INOX Limited",
+            "symbol": "PVRINOX",
+            "acquirerName": "Selena Bijli",
+            "acquirerDate": "24-SEP-2026 to 24-SEP-2026",
+            "acqSaleType": "Sale",
+            "noOfShareSale": "502200",
+            "noOfShareAcq": None,
+            "promoterType": "Y",
+            "totAftShare": "24.54",
+            "regType": "Reg29(2)",
+            "acquisitionMode": "Others",
+        }
+    )
+    with patch(
+        "pms_platform.market_data.bse_corporate_disclosures.resolve_bse_code",
+        return_value=None,
+    ):
+        row = normalize_sast_row(shaped)
+    assert row is not None
+    assert row.bse_code == "PVRINOX"
+    assert row.disclosure_date == date(2026, 9, 24)
+    assert row.quantity == Decimal("502200")
+    assert row.person_name == "Selena Bijli"
+    assert row.category == "Promoter"
+
+
 def test_normalize_sast_row_resolves_isin() -> None:
     raw = {
         "ScripCode": None,
