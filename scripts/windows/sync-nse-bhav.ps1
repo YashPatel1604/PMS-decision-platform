@@ -1,6 +1,5 @@
-# Download NSE CM-UDiFF Common Bhavcopy Final for today (IST) and commit.
-# Scheduled at 17:00 IST and again at 17:15 IST. No older-day fallback —
-# if both miss, upload manually on Pivot Point Strategy.
+# Download NSE CM-UDiFF Common Bhavcopy Final and commit.
+# Manual only. Pass -Date YYYY-MM-DD for a specific session; otherwise today IST.
 param(
     [string]$Date = ""
 )
@@ -25,7 +24,7 @@ $code = $LASTEXITCODE
 if ($code -ne 0) {
     Write-Host ""
     Write-Host "Final bhav not available yet (or download failed)." -ForegroundColor Yellow
-    Write-Host "Next auto try: 17:15 IST (skipped if today is already uploaded). After that, upload manually on Pivot Point Strategy." -ForegroundColor Yellow
+    Write-Host "Upload the zip on Pivot Point Strategy, or rerun this script with -Date YYYY-MM-DD." -ForegroundColor Yellow
     exit $code
 }
 

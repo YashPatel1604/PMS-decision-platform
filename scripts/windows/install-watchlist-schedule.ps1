@@ -1,12 +1,11 @@
-# Register Windows Task Scheduler jobs for watchlist maintenance + NSE bhav.
+# Register Windows Task Scheduler jobs for watchlist maintenance.
+# NSE bhav is not scheduled; this script removes the old 17:00 and 17:15 tasks.
 # All times are local clock - set the PC timezone to India Standard Time (IST).
 # Run once from PowerShell (elevated if access denied).
 param(
     [string]$AlertsTime = "07:00",
     [string]$QuotesTime = "07:15",
     [string]$ScreenerTime = "18:30",
-    [string]$BhavTime = "17:00",
-    [string]$BhavRetryTime = "17:15",
     [string]$WeeklyDay = "Sunday",
     [string]$WeeklyTime = "03:00"
 )
@@ -18,14 +17,15 @@ $AlertsScript = Join-Path $Root "scripts\windows\refresh-watchlists.ps1"
 $QuotesScript = Join-Path $Root "scripts\windows\refresh-watchlist-quotes.ps1"
 $ScreenerScript = Join-Path $Root "scripts\windows\sync-screener-export.ps1"
 $WeeklyScript = Join-Path $Root "scripts\windows\refresh-watchlist-fundamentals.ps1"
-$BhavScript = Join-Path $Root "scripts\windows\sync-nse-bhav.ps1"
 
-foreach ($path in @($AlertsScript, $QuotesScript, $ScreenerScript, $WeeklyScript, $BhavScript)) {
+foreach ($path in @($AlertsScript, $QuotesScript, $ScreenerScript, $WeeklyScript)) {
     if (-not (Test-Path $path)) { throw "Missing $path" }
 }
 
-# Drop older single-shot bhav task if present (replaced by 17:00 + 17:15).
-Unregister-ScheduledTask -TaskName "PMS NSE Bhav Final" -Confirm:$false -ErrorAction SilentlyContinue
+# Bhav is manual only (Pivot upload or sync-nse-bhav.ps1). Remove the 17:00 and 17:15 pulls.
+foreach ($name in @("PMS NSE Bhav Final", "PMS NSE Bhav Final 17:00", "PMS NSE Bhav Final 17:15")) {
+    Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
+}
 
 $Settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
@@ -50,18 +50,6 @@ Register-ScheduledTask -TaskName "PMS Screener Export Sync" `
     -Trigger (New-ScheduledTaskTrigger -Daily -At $ScreenerTime) `
     -Settings $Settings -Force | Out-Null
 
-Register-ScheduledTask -TaskName "PMS NSE Bhav Final 17:00" `
-    -Description 'IST 17:00 NSE CM-UDiFF Common Bhavcopy Final for current day only.' `
-    -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$BhavScript`"") `
-    -Trigger (New-ScheduledTaskTrigger -Daily -At $BhavTime) `
-    -Settings $Settings -Force | Out-Null
-
-Register-ScheduledTask -TaskName "PMS NSE Bhav Final 17:15" `
-    -Description 'IST 17:15 retry for current day only; upload manually on Pivot if still missing.' `
-    -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$BhavScript`"") `
-    -Trigger (New-ScheduledTaskTrigger -Daily -At $BhavRetryTime) `
-    -Settings $Settings -Force | Out-Null
-
 Register-ScheduledTask -TaskName "PMS Watchlist Fundamentals" `
     -Description "Weekly full BSE quarterly + annual + snapshot recompute (overnight)." `
     -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$WeeklyScript`"") `
@@ -72,10 +60,8 @@ Write-Host "Registered scheduled tasks (PC clock must be IST):" -ForegroundColor
 Write-Host "  PMS Watchlist Alerts         - daily $AlertsTime IST"
 Write-Host "  PMS Watchlist Quotes         - daily $QuotesTime IST"
 Write-Host "  PMS Screener Export Sync     - daily $ScreenerTime IST (drop Screener export first)"
-Write-Host "  PMS NSE Bhav Final 17:00     - daily $BhavTime IST"
-Write-Host "  PMS NSE Bhav Final 17:15     - daily $BhavRetryTime IST retry"
 Write-Host "  PMS Watchlist Fundamentals   - weekly $WeeklyDay $WeeklyTime IST"
 Write-Host ""
 Write-Host "Docker Desktop must be running before each task." -ForegroundColor Yellow
 Write-Host "Screener: Export watchlist/screen, save into external fundamentals/screener/ before $ScreenerTime." -ForegroundColor Yellow
-Write-Host "If Final bhav is still missing after 17:15 IST, upload manually on Pivot Point Strategy." -ForegroundColor Yellow
+Write-Host "NSE bhav is manual: upload on Pivot Point Strategy, or run scripts\windows\sync-nse-bhav.ps1." -ForegroundColor Yellow

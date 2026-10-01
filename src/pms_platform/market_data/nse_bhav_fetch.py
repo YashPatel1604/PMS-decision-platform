@@ -121,7 +121,7 @@ def download_cm_udiff_bhav(
         target = candidates[0].isoformat()
         raise BhavFetchError(
             f"CM-UDiFF Final bhav not published yet for {target} IST. "
-            "Retry at 17:15 IST, or upload the zip manually on Pivot Point Strategy."
+            "Upload the zip on Pivot Point Strategy."
         )
 
 

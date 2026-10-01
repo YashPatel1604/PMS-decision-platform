@@ -19,7 +19,7 @@ A fresh Docker Postgres volume has **no**:
 | Pivot firms + bhav history | Pivot Point Strategy empty |
 | Committed NSE bhav days | Client Portfolio / Pivot stuck on old or blank as-of |
 | Watchlist members + annual history | Watchlists blank / weak 5Y metrics |
-| Scheduled tasks | Daily bhav / alerts never run |
+| Scheduled tasks | Daily alerts / quotes never run |
 
 Rebuild (`docker compose up -d --build`) keeps data **unless** someone runs `docker compose down -v` (that wipes the DB — then re-run the seed section below).
 
@@ -233,11 +233,11 @@ That registers roughly:
 |------|------------|
 | Watchlist alerts | ~07:00 daily |
 | Watchlist quotes / screener cache | ~07:15 daily |
-| NSE bhav Final | ~17:00 + 17:15 daily (today only) |
+| NSE bhav Final | Manual (Pivot upload or `sync-nse-bhav.ps1`) |
 | Screener export sync | ~18:30 daily |
 | Watchlist fundamentals | weekly overnight |
 
-Docker Desktop must be running when those fire. If the laptop sleeps through 17:00–17:15, Friday’s bhav will not appear until you pull that date manually (see below).
+Docker Desktop must be running when those fire. Bhav does not pull itself; upload that date on Pivot or run `.\scripts\windows\sync-nse-bhav.ps1 -Date YYYY-MM-DD`.
 
 ---
 
