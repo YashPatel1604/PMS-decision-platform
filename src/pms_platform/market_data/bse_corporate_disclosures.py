@@ -143,11 +143,14 @@ def _nse_sast_as_bse_row(raw: dict[str, Any]) -> dict[str, Any]:
     qty = sale if sale not in (None, Decimal(0)) else acquired
     window = _clean_text(raw.get("acquirerDate"))
     trans_date = window.split(" to ", 1)[0].strip()
+    # Calendar day is when NSE published the filing, not the start of the trade window.
+    broadcast = _clean_text(raw.get("timestamp") or raw.get("sysTime"))
+    broadcast_date = broadcast.split(" ", 1)[0].strip()
     promoter = _clean_text(raw.get("promoterType")).upper()
     return {
         "ComName": raw.get("company"),
         "NseSymbol": raw.get("symbol"),
-        "DATETrans": trans_date,
+        "DATETrans": broadcast_date or trans_date,
         "PromName": raw.get("acquirerName"),
         "Promoter_NonPromoter": "Promoter" if promoter == "Y" else "Non-promoter",
         "TransType": raw.get("acqSaleType") or raw.get("acquisitionMode"),
@@ -693,15 +696,15 @@ def fetch_corporate_disclosures(
                     sync_insider_days,
                 )
 
-                # Always fill missing calendar days. Refresh re-pulls recent days and
-                # runs the scrip sweep on BSE's 25-row capped days (Aurionpro-class gaps).
+                # Always refill the last two weeks. Days saved empty while BSE was
+                # blocked stay blank until something asks for them again.
                 sync_insider_days(
                     session,
                     start,
                     end,
                     today=today,
                     scrip_backfill=refresh_insider,
-                    refresh_recent=refresh_insider,
+                    refresh_recent=True,
                 )
                 session.commit()
                 raw_rows = load_insider_raw_rows(session, start, end)

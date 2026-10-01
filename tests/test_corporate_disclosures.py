@@ -25,6 +25,7 @@ def test_nse_sast_row_normalizes_when_bse_blocked() -> None:
             "symbol": "PVRINOX",
             "acquirerName": "Selena Bijli",
             "acquirerDate": "24-SEP-2026 to 24-SEP-2026",
+            "timestamp": "30-Sep-2026 18:01",
             "acqSaleType": "Sale",
             "noOfShareSale": "502200",
             "noOfShareAcq": None,
@@ -41,7 +42,7 @@ def test_nse_sast_row_normalizes_when_bse_blocked() -> None:
         row = normalize_sast_row(shaped)
     assert row is not None
     assert row.bse_code == "PVRINOX"
-    assert row.disclosure_date == date(2026, 9, 24)
+    assert row.disclosure_date == date(2026, 9, 30)
     assert row.quantity == Decimal("502200")
     assert row.person_name == "Selena Bijli"
     assert row.category == "Promoter"
