@@ -177,7 +177,11 @@ def sync_insider_days(
         market = fetched.get(day, [])
         extra = extras_by_day.get(day, [])
         prior = list((existing.get(day).rows if existing.get(day) else None) or [])
-        merged = _merge_insider_rows(market, extra, prior)
+        # NSE replacement is the full market. Keeping the old BSE slice double-counts.
+        if any(row.get("_nse") for row in market):
+            merged = _merge_insider_rows(market, extra)
+        else:
+            merged = _merge_insider_rows(market, extra, prior)
         if coverage and len(market) >= _BSE_SEARCH_CAP:
             truncated = False
         else:

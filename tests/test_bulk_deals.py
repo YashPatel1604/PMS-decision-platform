@@ -39,6 +39,45 @@ def test_normalize_bulk_purchase_sell_codes() -> None:
     assert deals[0].quantity == Decimal("2876465")
 
 
+def test_normalize_nse_bulk_columns() -> None:
+    frame = [
+        {
+            "Date ": "30-SEP-2026",
+            "Symbol ": "AAREYDRUGS",
+            "Security Name ": "Aarey Drugs & Pharm Ltd",
+            "Client Name ": "ARYA RAVI MANIRAM",
+            "Buy / Sell ": "BUY",
+            "Quantity Traded ": "1,44,423",
+            "Trade Price / Wght. Avg. Price ": "100.01",
+            "Remarks ": "-",
+        }
+    ]
+    deals = normalize_disclosed_deals_frame(frame, kind="bulk")
+    assert len(deals) == 1
+    assert deals[0].deal_date == date(2026, 9, 30)
+    assert deals[0].bse_code == "AAREYDRUGS"
+    assert deals[0].deal_type == "BUY"
+    assert deals[0].quantity == Decimal("144423")
+    assert deals[0].price == Decimal("100.01")
+
+
+def test_rupee_market_cap_becomes_crores() -> None:
+    from pms_platform.market_data.bse_disclosed_deals import (
+        _market_cap_cr_from_screener_html,
+        _parse_market_cap_cr,
+    )
+
+    # ₹2,000 Cr written out in rupees.
+    assert _parse_market_cap_cr("20000000000") == Decimal("2000.00")
+    # Already crores (under ₹1 Cr of rupees).
+    assert _parse_market_cap_cr("1587299") == Decimal("1587299")
+    html = (
+        'Market Cap</span><span class="nowrap value">₹'
+        '<span class="number">15,87,299</span> Cr.</span>'
+    )
+    assert _market_cap_cr_from_screener_html(html) == Decimal("1587299")
+
+
 def test_filter_deals_by_market_cap() -> None:
     from pms_platform.market_data.bse_disclosed_deals import (
         DisclosedDealRow,

@@ -27,9 +27,9 @@ const KIND_COPY: Record<
     loading: "Loading block deals…",
     errorTitle: "Could not load block deals.",
     description:
-      "Official BSE disclosed block deals by session date. Same client buying and selling the same security on the same day is flagged as arbitrage.",
+      "Official block deals by session date, from BSE and NSE. Same client buying and selling the same security on the same day is flagged as arbitrage.",
     sourceNote:
-      "Green days include our firms. Orange days have market deals only. Grey has none. Source: BSE Bulk / Block Deals (Block Deal type).",
+      "Green days include our firms. Orange days have market deals only. Grey has none. Source: BSE and NSE block deals.",
     emptyDay: "No block deals reported for",
     hasDealsTitle: (d) => `Block deals on ${d}`,
     noDealsTitle: "No block deals this day",
@@ -39,9 +39,9 @@ const KIND_COPY: Record<
     loading: "Loading bulk deals…",
     errorTitle: "Could not load bulk deals.",
     description:
-      "Official BSE disclosed bulk deals by session date. Same client buying and selling the same security on the same day is flagged as arbitrage.",
+      "Official bulk deals by session date, from BSE and NSE. Same client buying and selling the same security on the same day is flagged as arbitrage.",
     sourceNote:
-      "Green days include our firms. Orange days have market deals only. Grey has none. Source: BSE Bulk / Block Deals (Bulk Deal type).",
+      "Green days include our firms. Orange days have market deals only. Grey has none. Source: BSE and NSE bulk deals.",
     emptyDay: "No bulk deals reported for",
     hasDealsTitle: (d) => `Bulk deals on ${d}`,
     noDealsTitle: "No bulk deals this day",

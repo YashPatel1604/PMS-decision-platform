@@ -29,6 +29,7 @@ _COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
         "code",
         "securitycode",
         "bse code",
+        "symbol",
     ),
     "scrip_name": (
         "security name",
@@ -39,8 +40,8 @@ _COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
         "name",
     ),
     "client_name": ("client name", "clientname", "client", "client/firm"),
-    "deal_type": ("deal type", "dealtype", "buy/sell", "type", "bs", "b/s"),
-    "quantity": ("quantity", "qty", "quantity share", "traded quantity"),
+    "deal_type": ("deal type", "dealtype", "buy/sell", "buy / sell", "type", "bs", "b/s"),
+    "quantity": ("quantity", "qty", "quantity share", "traded quantity", "quantity traded"),
     "price": (
         "price",
         "deal price",
@@ -48,6 +49,7 @@ _COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
         "average price",
         "avg price",
         "weighted average price",
+        "trade price / wght. avg. price",
         "rate",
         "traded price",
     ),
@@ -66,8 +68,55 @@ _MARKET_CAP_CACHE: dict[str, tuple[float, Decimal | None]] = {}
 _MARKET_CAP_TTL_SEC = 6 * 60 * 60
 
 
+_CRORE = Decimal("10000000")
+_SCREENER_MCAP = re.compile(
+    r"Market Cap.*?class=\"number\">\s*([0-9,]+(?:\.[0-9]+)?)\s*</span>\s*Cr",
+    re.I | re.S,
+)
+
+
 def _parse_market_cap_cr(raw: object) -> Decimal | None:
-    return _to_decimal(raw)
+    """Market cap in ₹ Cr.
+
+    BSE ``MktCapFull`` is rupees. A value of at least ₹1 Cr (1e7) is divided
+    down. Smaller numbers are already crores (Screener, or a mid-cap in Cr).
+    """
+    value = _to_decimal(raw)
+    if value is None or value <= 0:
+        return None
+    if value >= _CRORE:
+        return (value / _CRORE).quantize(Decimal("0.01"))
+    return value
+
+
+def _market_cap_cr_from_screener_html(html: str) -> Decimal | None:
+    match = _SCREENER_MCAP.search(html or "")
+    if match is None:
+        return None
+    return _parse_market_cap_cr(match.group(1).replace(",", ""))
+
+
+def _screener_market_cap_cr(code: str) -> Decimal | None:
+    import httpx
+
+    if not re.fullmatch(r"[A-Za-z0-9&-]+", code):
+        return None
+    from urllib.parse import quote
+
+    response = httpx.get(
+        f"https://www.screener.in/company/{quote(code, safe='')}/",
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            )
+        },
+        timeout=20.0,
+        follow_redirects=True,
+    )
+    response.raise_for_status()
+    return _market_cap_cr_from_screener_html(response.text)
 
 
 def fetch_bse_market_caps(bse_codes: list[str]) -> dict[str, Decimal | None]:
@@ -99,25 +148,50 @@ def fetch_bse_market_caps(bse_codes: list[str]) -> dict[str, Decimal | None]:
             "Accept": "application/json,text/plain,*/*",
             "Referer": "https://www.bseindia.com/",
         }
+        missing: list[str] = []
+        bse_blocked = False
         with httpx.Client(headers=headers, timeout=20.0, follow_redirects=True) as client:
             try:
                 client.get("https://www.bseindia.com/")
             except Exception:
                 pass
             for code in unique:
-                try:
-                    response = client.get(
-                        _BSE_STOCK_TRADING_URL,
-                        params={"flag": "", "quotetype": "EQ", "scripcode": code},
-                    )
-                    response.raise_for_status()
-                    payload = response.json()
-                    cap = _parse_market_cap_cr(
-                        payload.get("MktCapFull") if isinstance(payload, dict) else None
-                    )
-                except Exception:
-                    cap = None
-                _MARKET_CAP_CACHE[code] = (now, cap)
+                cap = None
+                if code.isdigit() and not bse_blocked:
+                    try:
+                        response = client.get(
+                            _BSE_STOCK_TRADING_URL,
+                            params={"flag": "", "quotetype": "EQ", "scripcode": code},
+                        )
+                        response.raise_for_status()
+                        payload = response.json()
+                        cap = _parse_market_cap_cr(
+                            payload.get("MktCapFull") if isinstance(payload, dict) else None
+                        )
+                    except Exception as exc:
+                        status = getattr(getattr(exc, "response", None), "status_code", None)
+                        if status == 403 or "403" in str(exc):
+                            bse_blocked = True
+                        cap = None
+                if cap is None:
+                    missing.append(code)
+                else:
+                    _MARKET_CAP_CACHE[code] = (now, cap)
+        if missing:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            # ponytail: one Screener page per name; BSE's cap API is blocked from here.
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                futures = {
+                    pool.submit(_screener_market_cap_cr, code): code for code in missing
+                }
+                for future in as_completed(futures):
+                    code = futures[future]
+                    try:
+                        cap = future.result()
+                    except Exception:
+                        cap = None
+                    _MARKET_CAP_CACHE[code] = (now, cap)
 
     return {
         code: (
@@ -389,6 +463,84 @@ def normalize_disclosed_deals_frame(
             )
         )
     return deals
+
+
+def _dedupe_deals(deals: list[DisclosedDealRow]) -> list[DisclosedDealRow]:
+    """Drop the NSE copy when the same print is already on the BSE file."""
+    best: dict[tuple[object, ...], DisclosedDealRow] = {}
+    order: list[tuple[object, ...]] = []
+    for deal in deals:
+        key = (
+            deal.deal_date,
+            normalize_client_name(deal.client_name),
+            deal.deal_type,
+            deal.quantity,
+            deal.price,
+        )
+        prev = best.get(key)
+        if prev is None:
+            best[key] = deal
+            order.append(key)
+        elif deal.bse_code.isdigit() and not prev.bse_code.isdigit():
+            best[key] = deal
+    return [best[key] for key in order]
+
+
+def _fetch_nse_deal_rows(kind: DealKind, from_date: date, to_date: date) -> list[dict[str, Any]]:
+    """NSE bulk or block history. BSE's file does not include NSE-only prints."""
+    import csv
+    from io import StringIO
+
+    import httpx
+
+    option = "bulk_deals" if kind == "bulk" else "block_deals"
+    referer = "https://www.nseindia.com/report-detail/display-bulk-and-block-deals"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/csv,application/json,*/*",
+        "Referer": referer,
+    }
+    params = {
+        "optionType": option,
+        "from": from_date.strftime("%d-%m-%Y"),
+        "to": to_date.strftime("%d-%m-%Y"),
+        "csv": "true",
+    }
+    with httpx.Client(headers=headers, timeout=60.0, follow_redirects=True) as client:
+        try:
+            client.get(referer)
+        except Exception:
+            pass
+        response = client.get(
+            "https://www.nseindia.com/api/historicalOR/bulk-block-short-deals",
+            params=params,
+        )
+        response.raise_for_status()
+        text = response.content.decode("utf-8-sig", errors="replace")
+    if "date" not in text.lower()[:300]:
+        raise DisclosedDealsFetchError(f"NSE {kind} history was not CSV")
+    return list(csv.DictReader(StringIO(text)))
+
+
+def _history_frames(kind: DealKind, start: date, end: date) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    bse_error: Exception | None = None
+    try:
+        rows.extend(fetch_bse_disclosed_deals_history(kind, start, end))
+    except Exception as exc:
+        bse_error = exc
+    try:
+        rows.extend(_fetch_nse_deal_rows(kind, start, end))
+    except Exception as exc:
+        if not rows:
+            raise DisclosedDealsFetchError(
+                f"Failed to fetch {kind} deals: BSE ({bse_error}); NSE ({exc})"
+            ) from exc
+    return rows
 
 
 def _as_deal_row_dicts(frame: Any) -> list[dict[str, Any]]:
@@ -687,7 +839,7 @@ def fetch_disclosed_deals(
             end = max(end, as_of_date)
         end = min(end, today)
         try:
-            frame = fetch_bse_disclosed_deals_history(kind, start, end)
+            frame = _history_frames(kind, start, end)
         except DisclosedDealsFetchError:
             raise
         except Exception as exc:
@@ -700,8 +852,8 @@ def fetch_disclosed_deals(
             max(end.toordinal() - 120, date(2015, 1, 1).toordinal())
         )
         try:
-            frame = fetch_bse_disclosed_deals_history(kind, start, end)
-        except Exception as hist_exc:
+            frame = _history_frames(kind, start, end)
+        except DisclosedDealsFetchError as hist_exc:
             # Latest-session HTML is a last resort for block only, and only when
             # the caller did not ask for a specific month/day (calendar accuracy).
             if kind != "block":
@@ -717,7 +869,7 @@ def fetch_disclosed_deals(
                 ) from exc
 
     try:
-        all_deals = normalize_disclosed_deals_frame(frame, kind=kind)
+        all_deals = _dedupe_deals(normalize_disclosed_deals_frame(frame, kind=kind))
     except DisclosedDealsFetchError:
         raise
     except Exception as exc:

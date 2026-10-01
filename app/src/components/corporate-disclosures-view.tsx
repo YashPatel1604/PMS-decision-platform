@@ -29,7 +29,7 @@ const KIND_COPY: Record<
     description:
       "BSE Regulation 29 system-driven disclosures (acquirer/seller holdings changes from depositories).",
     sourceNote:
-      "Green days include our firms. Orange days have other market filings only. Grey has none. Source: BSE Regulation 29, or NSE when BSE blocks the request. Table is paged at 25 rows.",
+      "Green days include our firms. Orange days have other market filings only. Grey has none. Days are when the filing was published. The line under the trade type is the trade window. Source: BSE Regulation 29, or NSE when BSE blocks the request. Table is paged at 25 rows.",
     emptyDay: "No SAST disclosures reported for",
     hasDealsTitle: (d) => `SAST disclosures on ${d}`,
     noDealsTitle: "No SAST disclosures this day",
@@ -41,7 +41,7 @@ const KIND_COPY: Record<
     description:
       "BSE Insider Trading Regulations 2015 disclosures submitted by the company (Reg 7(2)).",
     sourceNote:
-      "Green = our firms. Orange = other filings. Grey = none. When BSE blocks the request, filings are loaded from NSE for holdings and the watchlist only. Table is paged at 25 rows.",
+      "Green = our firms. Orange = other filings. Grey = none. Days are the date the filing was published. When BSE blocks the request, the market list comes from NSE. Table is paged at 25 rows.",
     emptyDay: "No insider disclosures reported for",
     hasDealsTitle: (d) => `Insider disclosures on ${d}`,
     noDealsTitle: "No insider disclosures this day",

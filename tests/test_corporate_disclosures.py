@@ -43,6 +43,7 @@ def test_nse_sast_row_normalizes_when_bse_blocked() -> None:
     assert row is not None
     assert row.bse_code == "PVRINOX"
     assert row.disclosure_date == date(2026, 9, 30)
+    assert row.mode == "24-SEP-2026 to 24-SEP-2026"
     assert row.quantity == Decimal("502200")
     assert row.person_name == "Selena Bijli"
     assert row.category == "Promoter"
@@ -79,33 +80,37 @@ def test_normalize_sast_row_resolves_isin() -> None:
     assert row.regulation == "29(1)"
 
 
-def test_nse_insider_row_normalizes() -> None:
-    from pms_platform.market_data.bse_corporate_disclosures import _nse_insider_as_bse_row
+def test_nse_insider_xbrl_normalizes() -> None:
+    from pms_platform.market_data.bse_corporate_disclosures import _pit_xml_as_bse_rows
 
-    shaped = _nse_insider_as_bse_row(
-        {
-            "symbol": "RELIANCE",
-            "company": "Reliance Industries Limited",
-            "acqName": "BALANADU NARAYAN",
-            "personCategory": "Other",
-            "tdpTransactionType": "Sell",
-            "secAcq": "2320",
-            "secVal": "3294168",
-            "befAcqSharesPer": "0",
-            "afterAcqSharesPer": "0",
-            "date": "18-Feb-2026 19:06",
-            "acqMode": "Off Market",
-            "did": "563850",
-            "remarks": "-",
-        }
+    xml = (
+        '<xbrli:xbrl>'
+        '<in-bse-co:Symbol contextRef="MainI">360ONE</in-bse-co:Symbol>'
+        '<in-bse-co:NameOfTheCompany contextRef="MainI">360 ONE WAM LIMITED</in-bse-co:NameOfTheCompany>'
+        '<in-bse-co:ISINCode contextRef="MainI">INE466L01038</in-bse-co:ISINCode>'
+        '<in-bse-co:NameOfThePerson contextRef="Disclosure1">Navin Upadhyaya</in-bse-co:NameOfThePerson>'
+        '<in-bse-co:CategoryOfPerson contextRef="Disclosure1">Designated Person</in-bse-co:CategoryOfPerson>'
+        '<in-bse-co:SecuritiesAcquiredOrDisposedTransactionType contextRef="Disclosure1">Pledge</in-bse-co:SecuritiesAcquiredOrDisposedTransactionType>'
+        '<in-bse-co:SecuritiesAcquiredOrDisposedNumberOfSecurity contextRef="Disclosure1" unitRef="shares" decimals="INF">5000</in-bse-co:SecuritiesAcquiredOrDisposedNumberOfSecurity>'
+        '<in-bse-co:SecuritiesAcquiredOrDisposedValueOfSecurity contextRef="Disclosure1" unitRef="INR" decimals="0">5150000</in-bse-co:SecuritiesAcquiredOrDisposedValueOfSecurity>'
+        '<in-bse-co:ModeOfAcquisitionOrDisposal contextRef="Disclosure1">Pledge Creation</in-bse-co:ModeOfAcquisitionOrDisposal>'
+        '<in-bse-co:DateOfAllotmentAdviceOrAcquisitionOfSharesOrSaleOfSharesSpecifyFromDate contextRef="Disclosure1">2026-09-30</in-bse-co:DateOfAllotmentAdviceOrAcquisitionOfSharesOrSaleOfSharesSpecifyFromDate>'
+        "</xbrli:xbrl>"
     )
-    row = normalize_insider_row(shaped)
+    shaped = _pit_xml_as_bse_rows(
+        {"appId": "3871", "broadcastDateTime": "01-Oct-2026 12:20:24", "symbol": "360ONE"},
+        xml,
+    )
+    assert len(shaped) == 1
+    row = normalize_insider_row(shaped[0])
     assert row is not None
-    assert row.bse_code == "RELIANCE"
-    assert row.disclosure_date == date(2026, 2, 18)
-    assert row.quantity == Decimal("2320")
-    assert row.person_name == "BALANADU NARAYAN"
-    assert row.transaction_type == "Sell"
+    assert row.bse_code == "360ONE"
+    assert row.disclosure_date == date(2026, 10, 1)
+    assert row.quantity == Decimal("5000")
+    assert row.person_name == "Navin Upadhyaya"
+    assert row.transaction_type == "Pledge"
+    assert row.isin == "INE466L01038"
+    assert "2026-09-30" in row.mode
 
 
 def test_normalize_insider_row() -> None:

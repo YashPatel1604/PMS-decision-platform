@@ -158,6 +158,7 @@ def _nse_sast_as_bse_row(raw: dict[str, Any]) -> dict[str, Any]:
         "PerPostHold": raw.get("totAftShare"),
         "reg29_1_2": raw.get("regType"),
         "transactiondisplay": raw.get("acquisitionMode"),
+        "TradeWindow": window,
     }
 
 
@@ -252,90 +253,90 @@ def fetch_sast_rows(from_date: date, to_date: date) -> list[dict[str, Any]]:
             ) from nse_exc
 
 
-_NSE_PIT_URL = "https://www.nseindia.com/api/corporates-pit"
+_NSE_PIT_GG_URL = "https://www.nseindia.com/api/corporates-pit-gg"
 # Filled once per process when BSE 403s, then sliced per day (insider_store calls day-by-day).
 _nse_insider_cache: tuple[date, date, list[dict[str, Any]]] | None = None
 _nse_insider_lock = __import__("threading").Lock()
+_XBRL_FACT = re.compile(
+    r"<(?:[\w.-]+:)?([A-Za-z0-9]+)\b([^>]*)>([^<]*)</(?:[\w.-]+:)?\1>"
+)
 
 
-def _book_nse_symbols() -> list[str]:
-    from pms_platform.db.base import get_session_factory
-
-    session = get_session_factory()()
-    try:
-        symbols: set[str] = set()
-        for raw in session.scalars(select(Security.current_nse_symbol)):
-            text = _clean_text(raw).upper()
-            if text:
-                symbols.add(text)
-        for raw in session.scalars(select(WatchlistMember.nse_symbol)):
-            text = _clean_text(raw).upper()
-            if text:
-                symbols.add(text)
-        return sorted(symbols)
-    finally:
-        session.close()
+def _xbrl_by_context(xml: str) -> dict[str, dict[str, str]]:
+    grouped: dict[str, dict[str, str]] = {}
+    for tag, attrs, text in _XBRL_FACT.findall(xml):
+        match = re.search(r'contextRef="([^"]+)"', attrs)
+        if match is None:
+            continue
+        grouped.setdefault(match.group(1), {})[tag] = text.strip()
+    return grouped
 
 
-def _nse_insider_as_bse_row(raw: dict[str, Any]) -> dict[str, Any]:
-    """Shape an NSE PIT row like BSE insider fields so the existing normalizer works."""
-    broadcast = _clean_text(raw.get("date")).split(" ", 1)[0]
-    qty = _to_decimal(raw.get("secAcq"))
-    if qty in (None, Decimal(0)):
-        sold = _to_decimal(raw.get("sellquantity"))
-        bought = _to_decimal(raw.get("buyQuantity"))
-        qty = sold if sold not in (None, Decimal(0)) else bought
-    return {
-        "Fld_ID": raw.get("did"),
-        "Fld_ScripCode": raw.get("symbol"),
-        "Companyname": raw.get("company"),
-        "Fld_PromoterName": raw.get("acqName"),
-        "Fld_PersonCatgName": raw.get("personCategory"),
-        "Fld_TransactionType": raw.get("tdpTransactionType"),
-        "Fld_SecurityNo": qty,
-        "Fld_SecurityValue": raw.get("secVal"),
-        "Fld_PercentofShareholdingPre": raw.get("befAcqSharesPer"),
-        "Fld_PercentofShareholdingPost": raw.get("afterAcqSharesPer"),
-        "Fld_StampDate": broadcast or raw.get("intimDt"),
-        "ModeOfAquisation": raw.get("acqMode"),
-        "Fld_Notes": raw.get("remarks"),
-    }
+def _pit_xml_as_bse_rows(filing: dict[str, Any], xml: str) -> list[dict[str, Any]]:
+    """One NSE PIT XBRL filing → BSE-shaped insider rows (one per disclosure)."""
+    facts = _xbrl_by_context(xml)
+    main = facts.get("MainI", {})
+    broadcast = _clean_text(filing.get("broadcastDateTime")).split(" ", 1)[0]
+    symbol = _clean_text(main.get("Symbol") or filing.get("symbol"))
+    company = _clean_text(main.get("NameOfTheCompany") or filing.get("companyName"))
+    code = _clean_text(main.get("ScripCode")) or symbol
+    rows: list[dict[str, Any]] = []
+    for ctx, fact in facts.items():
+        person = _clean_text(fact.get("NameOfThePerson"))
+        if ctx == "MainI" or not person:
+            continue
+        trade = _clean_text(
+            fact.get(
+                "DateOfAllotmentAdviceOrAcquisitionOfSharesOrSaleOfSharesSpecifyFromDate"
+            )
+        )
+        mode = _clean_text(fact.get("ModeOfAcquisitionOrDisposal"))
+        if trade:
+            mode = f"{mode} · {trade}".strip(" ·")
+        rows.append(
+            {
+                "_nse": "1",
+                "Fld_ID": f"{filing.get('appId')}:{ctx}",
+                "Fld_ScripCode": symbol or code,
+                "Companyname": company,
+                "Fld_PromoterName": person,
+                "Fld_PersonCatgName": fact.get("CategoryOfPerson"),
+                "Fld_TransactionType": fact.get(
+                    "SecuritiesAcquiredOrDisposedTransactionType"
+                ),
+                "Fld_SecurityNo": fact.get("SecuritiesAcquiredOrDisposedNumberOfSecurity"),
+                "Fld_SecurityValue": fact.get(
+                    "SecuritiesAcquiredOrDisposedValueOfSecurity"
+                ),
+                "Fld_PercentofShareholdingPre": fact.get(
+                    "SecuritiesHeldPriorToAcquisitionOrDisposalPercentageOfShareholding"
+                ),
+                "Fld_PercentofShareholdingPost": fact.get(
+                    "SecuritiesHeldPostAcquistionOrDisposalPercentageOfShareholding"
+                ),
+                "Fld_StampDate": broadcast or main.get("DateOfFiling"),
+                "ModeOfAquisation": mode,
+                "ISINCode": main.get("ISINCode"),
+            }
+        )
+    return rows
 
 
-def _fetch_nse_pit_symbol(symbol: str, from_date: date, to_date: date) -> list[dict[str, Any]]:
+def _download_pit_xml(url: str) -> str:
     import httpx
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://www.nseindia.com/companies-listing/corporate-filings-insider-trading",
-    }
-    params = {
-        "index": "equities",
-        "symbol": symbol,
-        "from_date": from_date.strftime("%d-%m-%Y"),
-        "to_date": to_date.strftime("%d-%m-%Y"),
-    }
-    with httpx.Client(headers=headers, timeout=30.0, follow_redirects=True) as client:
-        try:
-            client.get("https://www.nseindia.com/")
-        except Exception:
-            pass
-        response = client.get(_NSE_PIT_URL, params=params)
-        response.raise_for_status()
-        payload = response.json()
-    rows = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(rows, list):
-        return []
-    return [_nse_insider_as_bse_row(row) for row in rows if isinstance(row, dict)]
+    response = httpx.get(
+        url,
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=20.0,
+        follow_redirects=True,
+    )
+    response.raise_for_status()
+    return response.text
 
 
 def _fetch_nse_insider_rows(from_date: date, to_date: date) -> list[dict[str, Any]]:
-    """Holdings + watchlist PIT filings. NSE market-wide search returns no rows."""
+    """Market-wide NSE PIT. The old corporates-pit search returns no rows."""
     global _nse_insider_cache
     month_start = date(from_date.year, from_date.month, 1)
     month_last = calendar.monthrange(to_date.year, to_date.month)[1]
@@ -349,31 +350,64 @@ def _fetch_nse_insider_rows(from_date: date, to_date: date) -> list[dict[str, An
         ):
             cached = _nse_insider_cache[2]
         else:
-            symbols = _book_nse_symbols()
-            if not symbols:
-                raise CorporateDisclosuresFetchError(
-                    "BSE insider API returned 403 and no NSE symbols are on file"
-                )
+            import httpx
+
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/122.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/json, text/plain, */*",
+                "Referer": (
+                    "https://www.nseindia.com/companies-listing/"
+                    "corporate-filings-insider-trading"
+                ),
+            }
+            params = {
+                "index": "equities",
+                "from_date": span_start.strftime("%d-%m-%Y"),
+                "to_date": span_end.strftime("%d-%m-%Y"),
+            }
+            with httpx.Client(headers=headers, timeout=60.0, follow_redirects=True) as client:
+                try:
+                    client.get(headers["Referer"])
+                except Exception:
+                    pass
+                response = client.get(_NSE_PIT_GG_URL, params=params)
+                response.raise_for_status()
+                payload = response.json()
+            filings = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(filings, list):
+                raise CorporateDisclosuresFetchError("Unexpected NSE insider payload")
             from concurrent.futures import ThreadPoolExecutor
 
             merged: list[dict[str, Any]] = []
-            # ponytail: one request per book symbol; widen workers if the book grows past ~200.
+            # ponytail: one XBRL per filing; a busy month is a few hundred small files.
             with ThreadPoolExecutor(max_workers=8) as pool:
-                futures = [
-                    pool.submit(_fetch_nse_pit_symbol, symbol, span_start, span_end)
-                    for symbol in symbols
-                ]
-                for future in futures:
+                futures = []
+                for filing in filings:
+                    if not isinstance(filing, dict):
+                        continue
+                    url = _clean_text(filing.get("xmlFileName"))
+                    if not url:
+                        continue
+                    futures.append((filing, pool.submit(_download_pit_xml, url)))
+                for filing, future in futures:
                     try:
-                        merged.extend(future.result())
+                        merged.extend(_pit_xml_as_bse_rows(filing, future.result()))
                     except Exception:
                         continue
+            if filings and not merged:
+                raise CorporateDisclosuresFetchError(
+                    "NSE insider list loaded but filing details did not"
+                )
             _nse_insider_cache = (span_start, span_end, merged)
             cached = merged
     out: list[dict[str, Any]] = []
     for row in cached:
         day = _parse_date(row.get("Fld_StampDate"))
-        if day is None or from_date <= day <= to_date:
+        if day is not None and from_date <= day <= to_date:
             out.append(row)
     return out
 
@@ -387,7 +421,7 @@ def fetch_insider_rows(
 
     Market-wide search (empty ``scrip_code``) is capped at 25 rows. Passing a
     BSE scrip code returns that company's filings without the market-wide cap.
-    When BSE returns 403, holdings and watchlist names come from NSE PIT.
+    When BSE returns 403, the market list comes from NSE PIT filings.
     """
     if str(scrip_code or "").strip() and _nse_insider_cache is not None:
         return []
@@ -513,7 +547,7 @@ def normalize_sast_row(raw: dict[str, Any]) -> CorporateDisclosureRow | None:
         value=None,
         pct_pre=_to_decimal(raw.get("PerPreHold")),
         pct_post=_to_decimal(raw.get("PerPostHold")),
-        mode=_clean_text(raw.get("TransType")),
+        mode=_clean_text(raw.get("TradeWindow")) or _clean_text(raw.get("TransType")),
         regulation=_clean_text(raw.get("reg29_1_2")),
         isin=isin,
         raw_notes=_clean_text(raw.get("transactiondisplay")) or None,
@@ -547,6 +581,7 @@ def normalize_insider_row(raw: dict[str, Any]) -> CorporateDisclosureRow | None:
         pct_post=_to_decimal(raw.get("Fld_PercentofShareholdingPost")),
         mode=_clean_text(raw.get("ModeOfAquisation") or raw.get("Fld_ModeofAcquisition")),
         regulation="PIT 7(2)",
+        isin=_clean_text(raw.get("ISINCode")).upper() or None,
         raw_notes=_clean_text(raw.get("Fld_Notes")) or None,
     )
 
@@ -634,7 +669,7 @@ def enrich_disclosures_with_portfolio(
 def enrich_disclosures_with_market_caps(
     rows: list[CorporateDisclosureRow],
 ) -> list[CorporateDisclosureRow]:
-    codes = [r.bse_code for r in rows if r.bse_code and str(r.bse_code).isdigit()]
+    codes = [r.bse_code for r in rows if r.bse_code]
     if not codes:
         return rows
     caps = fetch_bse_market_caps(codes)
