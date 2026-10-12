@@ -43,6 +43,8 @@ export function ResearchCompanyView({ securityId }: { securityId: string }) {
   const [thesisPaste, setThesisPaste] = useState("");
   const [monitorPaste, setMonitorPaste] = useState("");
   const [reviewNote, setReviewNote] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadKey, setUploadKey] = useState(0);
 
   const overviewQuery = useQuery({
     queryKey: ["research-company", securityId],
@@ -71,6 +73,14 @@ export function ResearchCompanyView({ securityId }: { securityId: string }) {
   const approveMutation = useMutation({
     mutationFn: (thesisId: number) => api.approveInvestmentThesis(thesisId),
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["research-company", securityId] });
+    },
+  });
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => api.uploadResearchNote(file, securityId),
+    onSuccess: () => {
+      setUploadFile(null);
+      setUploadKey((key) => key + 1);
       void queryClient.invalidateQueries({ queryKey: ["research-company", securityId] });
     },
   });
@@ -414,6 +424,35 @@ export function ResearchCompanyView({ securityId }: { securityId: string }) {
       {panel === "documents" && company ? (
         <section className="space-y-3">
           <h2 className="text-lg text-stone-900">Documents linked to this company</h2>
+          <p className="text-sm text-stone-600">
+            A file added here is saved for {company.name} only.
+          </p>
+          <label className="block text-sm text-stone-700">
+            PDF, Markdown, or text
+            <input
+              key={uploadKey}
+              type="file"
+              accept=".pdf,.md,.markdown,.txt,text/plain,application/pdf"
+              className="mt-1 block w-full text-sm"
+              onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          <button
+            type="button"
+            className="min-h-11 border border-stone-800 px-4 py-2 text-sm disabled:opacity-50"
+            disabled={uploadMutation.isPending || !uploadFile}
+            onClick={() => {
+              if (uploadFile) uploadMutation.mutate(uploadFile);
+            }}
+          >
+            {uploadMutation.isPending ? "Saving…" : "Add document"}
+          </button>
+          {uploadMutation.isError ? (
+            <p className="text-sm text-red-800">{errorText(uploadMutation.error)}</p>
+          ) : null}
+          {uploadMutation.isSuccess ? (
+            <p className="text-sm text-stone-600">Saved for this company.</p>
+          ) : null}
           {company.documents.length === 0 ? (
             <p className="text-sm text-stone-600">No documents are linked to this company yet.</p>
           ) : (
