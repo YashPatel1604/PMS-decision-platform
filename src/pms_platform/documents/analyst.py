@@ -688,12 +688,28 @@ def generate_research_ask(
         as_of=as_of,
         linked_only=bool(security_id),
     )
+    if not hits and security_id:
+        hits = list_linked_pages(
+            session,
+            security_id,
+            limit=settings.research_ask_max_chunks,
+            snippet_chars=settings.research_rag_snippet_chars,
+        )
 
     if not hits:
+        if security_id:
+            answer = (
+                f"No notes are linked to {label}. Upload a file with this company selected, "
+                "then ask again."
+            )
+            gap = "This company has no linked notes."
+        else:
+            answer = "Insufficient evidence — no indexed snippets matched this question."
+            gap = "No matching research pages in the index."
         response = {
-            "answer": "Insufficient evidence — no indexed snippets matched this question.",
+            "answer": answer,
             "citations": [],
-            "insufficient_evidence": ["No matching research pages in the index."],
+            "insufficient_evidence": [gap],
         }
         _audit(
             session,

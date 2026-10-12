@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     research_rag_snippet_chars: int = 1200
     research_ask_max_chunks: int = 6
     research_ask_max_context_tokens: int = 3000
-    research_ask_max_output_tokens: int = 500
+    research_ask_max_output_tokens: int = 1500
     research_brief_max_output_tokens: int = 8000
     research_brief_warn_tokens: int = 3000
     research_answer_cache_ttl_days: int = 30
