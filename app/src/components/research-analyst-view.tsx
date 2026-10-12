@@ -555,6 +555,11 @@ export function ResearchAnalystView() {
       {brief && typeof brief.response.brief_error !== "string" ? (
         <section className="space-y-6 border-t border-stone-200 pt-6">
           <h2 className="text-lg text-stone-900">Brief</h2>
+          <p className="text-sm text-stone-600">
+            {brief.cache_hit
+              ? `Saved brief. The original write used ${(brief.token_in ?? 0).toLocaleString("en-IN")} tokens in and ${(brief.token_out ?? 0).toLocaleString("en-IN")} tokens out. This click did not use new tokens.`
+              : `Used ${(brief.token_in ?? 0).toLocaleString("en-IN")} tokens in and ${(brief.token_out ?? 0).toLocaleString("en-IN")} tokens out.`}
+          </p>
           <div className="grid gap-6 md:grid-cols-3">
             <div>
               <h3 className="text-sm uppercase tracking-wide text-stone-500">Beliefs</h3>
