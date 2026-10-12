@@ -40,6 +40,53 @@ export type ResearchAnalystResult = {
   called_llm: boolean;
 };
 
+export type ResearchCompanyOverview = {
+  found: boolean;
+  security_id: string;
+  name: string;
+  nse_symbol: string | null;
+  bse_code: string | null;
+  relationship: string;
+  thesis: {
+    approval: "none" | "unconfirmed" | "approved" | string;
+    thesis_id: number | null;
+    pending_thesis_id: number | null;
+    version: number | null;
+    saved_at: string | null;
+    approved_at: string | null;
+    summary: string | null;
+    assumptions: string[];
+  };
+  last_review: {
+    review_id: number;
+    decision: string;
+    note: string | null;
+    created_at: string | null;
+  } | null;
+  new_since_review: Array<{
+    document_id: number;
+    title: string;
+    relative_path: string;
+    indexed_at: string | null;
+    source_accessible: boolean;
+    reason: string;
+  }>;
+  new_since_review_note: string;
+  questions: Array<{
+    goal_id: number;
+    title: string;
+    status: string;
+    rationale: string | null;
+  }>;
+  documents: Array<{
+    document_id: number;
+    title: string;
+    relative_path: string;
+    indexed_at: string | null;
+    source_accessible: boolean;
+  }>;
+};
+
 export type ResearchFirm = {
   security_id: string;
   display_name: string;
@@ -1819,6 +1866,20 @@ export const api = {
     if (securityId) params.set("security_id", securityId);
     return request<ResearchSearchHit[]>(`/research/search?${params}`);
   },
+  getResearchCompany: (securityId: string) =>
+    request<ResearchCompanyOverview>(
+      `/research/companies/${encodeURIComponent(securityId)}/overview`,
+    ),
+  recordResearchReview: (securityId: string, body: { decision: "unchanged" | "investigate"; note?: string }) =>
+    request<{ review_id: number; decision: string }>(
+      `/research/companies/${encodeURIComponent(securityId)}/reviews`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  askResearch: (body: { question: string; security_id: string }) =>
+    request<ResearchAnalystResult>("/research/ask", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   generateResearchBrief: (body: {
     security_id?: string | null;
     query_name?: string | null;
@@ -1862,6 +1923,10 @@ export const api = {
     params.set("active_only", String(activeOnly));
     return request<InvestmentThesis[]>(`/intelligence/theses?${params}`);
   },
+  approveInvestmentThesis: (thesisId: number) =>
+    request<{ thesis_id: number; status: string }>(`/intelligence/theses/${thesisId}/approve`, {
+      method: "POST",
+    }),
   createInvestmentThesis: (body: {
     security_id: string;
     thesis_summary?: string | null;

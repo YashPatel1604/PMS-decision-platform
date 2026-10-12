@@ -8,10 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pms_platform.documents.analyst import generate_research_brief
+from pms_platform.documents.facts import collect_security_facts
+from pms_platform.documents.goals import list_goals
+from pms_platform.intelligence.theses import get_active_thesis, get_approved_thesis
 from pms_platform.models.enums import EpisodeStatus
 from pms_platform.models.episode import InvestmentEpisode
 from pms_platform.models.investment_thesis import InvestmentThesis
-from pms_platform.models.research_document import ResearchAnswerCache, ResearchDocument
+from pms_platform.models.research_document import ResearchAnswerCache, ResearchDocument, ResearchReview
 from pms_platform.models.security import Security
 from pms_platform.models.watchlist import WatchlistMember
 
@@ -96,7 +99,7 @@ def research_status_by_security(
     for sid in session.scalars(
         select(InvestmentThesis.security_id).where(
             InvestmentThesis.security_id.in_(ids),
-            InvestmentThesis.status == "active",
+            InvestmentThesis.status.in_(("active", "approved")),
         )
     ).all():
         if sid:
@@ -160,6 +163,181 @@ def run_coverage_briefs(
         entry["agenda_count"] = len(brief.response.get("research_agenda") or [])
         results.append(entry)
     return results
+
+
+_REVIEW_DECISIONS = frozenset({"unchanged", "investigate"})
+
+
+def record_review(
+    session: Session,
+    security_id: str,
+    *,
+    decision: str,
+    note: str | None = None,
+    created_by: str | None = None,
+) -> ResearchReview | None:
+    """Store one explicit review. Returns None when the security does not exist."""
+    cleaned = decision.strip().lower()
+    if cleaned not in _REVIEW_DECISIONS:
+        raise ValueError("decision must be unchanged or investigate")
+    sid = security_id.strip()
+    if session.get(Security, sid) is None:
+        return None
+    row = ResearchReview(
+        security_id=sid,
+        decision=cleaned,
+        note=(note or "").strip() or None,
+        created_by=created_by,
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
+def latest_review(session: Session, security_id: str) -> ResearchReview | None:
+    return session.scalar(
+        select(ResearchReview)
+        .where(ResearchReview.security_id == security_id)
+        .order_by(ResearchReview.created_at.desc(), ResearchReview.review_id.desc())
+        .limit(1)
+    )
+
+
+def company_overview(session: Session, security_id: str) -> dict[str, object] | None:
+    """Local company snapshot. Does not call a model or invent review events."""
+    sid = security_id.strip()
+    facts = collect_security_facts(session, sid)
+    if not facts.get("found"):
+        return None
+
+    approved = get_approved_thesis(session, sid)
+    saved = get_active_thesis(session, sid)
+    thesis = approved or saved
+    assumptions: list[str] = []
+    summary: str | None = None
+    if thesis is not None:
+        summary = (thesis.thesis_summary or "").strip() or None
+        assumptions = [
+            line.strip()
+            for line in (thesis.key_monitoring_variables or "").splitlines()
+            if line.strip()
+        ][:3]
+    if approved is not None:
+        approval = "approved"
+    elif thesis is not None:
+        approval = "unconfirmed"
+    else:
+        approval = "none"
+    pending_id = (
+        saved.thesis_id
+        if saved is not None and (approved is None or saved.thesis_id != approved.thesis_id)
+        else None
+    )
+
+    questions = list_goals(session, security_id=sid, open_only=True)[:3]
+    review = latest_review(session, sid)
+    new_docs: list[ResearchDocument] = []
+    if review is not None and review.created_at is not None:
+        new_docs = list(
+            session.scalars(
+                select(ResearchDocument)
+                .where(
+                    ResearchDocument.security_id == sid,
+                    ResearchDocument.parse_status == "ok",
+                    ResearchDocument.indexed_at > review.created_at,
+                )
+                .order_by(ResearchDocument.indexed_at.desc())
+                .limit(8)
+            ).all()
+        )
+    if review is None:
+        new_note = "No review date is stored yet, so older documents are not shown as new."
+    elif not new_docs:
+        new_note = "No new documents since the last review."
+    else:
+        new_note = "Documents linked to this company that were indexed after the last review."
+    documents = list(
+        session.scalars(
+            select(ResearchDocument)
+            .where(
+                ResearchDocument.security_id == sid,
+                ResearchDocument.parse_status == "ok",
+            )
+            .order_by(ResearchDocument.indexed_at.desc())
+            .limit(8)
+        ).all()
+    )
+    open_eps = facts.get("open_episodes") or []
+    watchlists = facts.get("watchlists") or []
+    if open_eps and watchlists:
+        relationship = "Held and watchlisted"
+    elif open_eps:
+        relationship = "Held"
+    elif watchlists:
+        relationship = "Watchlisted"
+    else:
+        relationship = "In the security master"
+
+    return {
+        "found": True,
+        "security_id": sid,
+        "name": facts.get("portfolio_name") or facts.get("canonical_name") or sid,
+        "nse_symbol": facts.get("nse_symbol"),
+        "bse_code": facts.get("bse_code"),
+        "relationship": relationship,
+        "thesis": {
+            "approval": approval,
+            "thesis_id": thesis.thesis_id if thesis is not None else None,
+            "pending_thesis_id": pending_id if approved is not None else None,
+            "version": thesis.version if thesis is not None else None,
+            "saved_at": thesis.created_at.isoformat() if thesis is not None else None,
+            "approved_at": approved.approved_at.isoformat() if approved and approved.approved_at else None,
+            "summary": summary,
+            "assumptions": assumptions,
+        },
+        "last_review": (
+            None
+            if review is None
+            else {
+                "review_id": review.review_id,
+                "decision": review.decision,
+                "note": review.note,
+                "created_at": review.created_at.isoformat() if review.created_at else None,
+            }
+        ),
+        "new_since_review": [
+            {
+                "document_id": doc.document_id,
+                "title": doc.title or doc.relative_path,
+                "relative_path": doc.relative_path,
+                "indexed_at": doc.indexed_at.isoformat() if doc.indexed_at else None,
+                "source_accessible": False,
+                "reason": "Indexed after the last review",
+            }
+            for doc in new_docs
+        ],
+        "new_since_review_note": new_note,
+        "questions": [
+            {
+                "goal_id": goal.goal_id,
+                "title": goal.title,
+                "status": goal.status,
+                "rationale": goal.rationale,
+            }
+            for goal in questions
+        ],
+        "documents": [
+            {
+                "document_id": doc.document_id,
+                "title": doc.title or doc.relative_path,
+                "relative_path": doc.relative_path,
+                "indexed_at": doc.indexed_at.isoformat() if doc.indexed_at else None,
+                "source_accessible": False,
+            }
+            for doc in documents
+        ],
+    }
 
 
 def documents_changed_for_security(session: Session, security_id: str) -> list[ResearchDocument]:

@@ -434,6 +434,109 @@ def test_brief_requires_key_when_hits_exist(
         generate_research_brief(session, security_id=sample_security.security_id)
 
 
+def test_ask_sends_only_linked_pages(
+    session: Session, sample_security: Security, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pms_platform.documents.xai_client import XaiChatResult
+    from pms_platform.models.research_document import ResearchDocument, ResearchDocumentPage
+
+    linked = ResearchDocument(
+        relative_path="linked.md",
+        content_hash="c" * 64,
+        source_root="ui",
+        parse_status="ok",
+        security_id=sample_security.security_id,
+    )
+    loose = ResearchDocument(
+        relative_path="loose.md",
+        content_hash="d" * 64,
+        source_root="ui",
+        parse_status="ok",
+        security_id=None,
+    )
+    session.add_all([linked, loose])
+    session.flush()
+    session.add(ResearchDocumentPage(document_id=linked.document_id, page_number=1, text="LINKED_PLEDGE_FACT"))
+    session.add(ResearchDocumentPage(document_id=loose.document_id, page_number=1, text="SECRET_UNLINKED_NOTE"))
+    session.commit()
+
+    seen: dict[str, object] = {}
+
+    def _fake(messages, **kwargs):
+        seen["messages"] = messages
+        seen["max_tokens"] = kwargs.get("max_tokens")
+        return XaiChatResult(
+            content='{"answer":"ok","citations":[{"page_id":999,"relative_path":"loose.md"}]}',
+            model="grok-test",
+            token_in=10,
+            token_out=5,
+            raw={},
+        )
+
+    monkeypatch.setattr(settings, "xai_api_key", "test-key")
+    monkeypatch.setattr("pms_platform.documents.analyst.chat_completion", _fake)
+    result = generate_research_ask(
+        session,
+        question="pledge",
+        security_id=sample_security.security_id,
+    )
+    blob = json.dumps(seen["messages"])
+    assert "LINKED_PLEDGE_FACT" in blob
+    assert "SECRET_UNLINKED_NOTE" not in blob
+    assert seen["max_tokens"] == settings.research_ask_max_output_tokens
+    assert result.called_llm is True
+    assert result.response["citations"] == []
+
+
+def test_brief_omits_unlinked_pages(
+    session: Session, sample_security: Security, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pms_platform.documents.xai_client import XaiChatResult
+    from pms_platform.models.research_document import ResearchDocument, ResearchDocumentPage
+
+    linked = ResearchDocument(
+        relative_path="brief-linked.md",
+        content_hash="e" * 64,
+        source_root="ui",
+        parse_status="ok",
+        security_id=sample_security.security_id,
+    )
+    loose = ResearchDocument(
+        relative_path="brief-loose.md",
+        content_hash="f" * 64,
+        source_root="ui",
+        parse_status="ok",
+        security_id=None,
+    )
+    session.add_all([linked, loose])
+    session.flush()
+    session.add(ResearchDocumentPage(document_id=linked.document_id, page_number=1, text="LINKED_BRIEF_FACT"))
+    session.add(ResearchDocumentPage(document_id=loose.document_id, page_number=1, text="SECRET_BRIEF_NOTE"))
+    session.commit()
+
+    seen: dict[str, object] = {}
+
+    def _fake(messages, **kwargs):
+        seen["messages"] = messages
+        seen["max_tokens"] = kwargs.get("max_tokens")
+        return XaiChatResult(
+            content='{"security_query":"TestCo","thesis_map":{},"citations":[{"relative_path":"brief-loose.md","page":1}]}',
+            model="grok-test",
+            token_in=10,
+            token_out=5,
+            raw={},
+        )
+
+    monkeypatch.setattr(settings, "xai_api_key", "test-key")
+    monkeypatch.setattr("pms_platform.documents.analyst.chat_completion", _fake)
+    result = generate_research_brief(session, security_id=sample_security.security_id)
+    blob = json.dumps(seen["messages"])
+    assert "LINKED_BRIEF_FACT" in blob
+    assert "SECRET_BRIEF_NOTE" not in blob
+    assert seen["max_tokens"] == settings.research_brief_max_output_tokens
+    assert result.response["citations"] == []
+
+
 def test_ask_empty_index(session: Session) -> None:
     result = generate_research_ask(session, question="What changed in governance?")
     assert result.called_llm is False
@@ -619,3 +722,119 @@ def test_list_book_firms_and_api(session: Session, sample_security: Security) ->
 
     api_rows = research_routes.get_firms(session=session, _user=None)
     assert api_rows[0]["security_id"] == sample_security.security_id
+
+
+def test_company_overview_is_local_and_unapproved(
+    session: Session, sample_security: Security, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    called: list[str] = []
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        called.append("xai")
+        raise AssertionError("overview must not call xAI")
+
+    monkeypatch.setattr("pms_platform.documents.xai_client.chat_completion", _boom)
+    from pms_platform.documents.coverage import company_overview
+    from pms_platform.intelligence.theses import create_thesis
+
+    empty = company_overview(session, sample_security.security_id)
+    assert empty is not None
+    assert empty["new_since_review"] == []
+    assert empty["thesis"]["approval"] == "none"
+    assert company_overview(session, "MISSING") is None
+
+    create_thesis(
+        session,
+        security_id=sample_security.security_id,
+        thesis_summary="We own TestCo for its distribution.",
+        key_monitoring_variables="Pledge\nWorking capital",
+        status="active",
+    )
+    saved = company_overview(session, sample_security.security_id)
+    assert saved is not None
+    assert saved["thesis"]["approval"] == "unconfirmed"
+    assert saved["thesis"]["assumptions"] == ["Pledge", "Working capital"]
+    assert saved["new_since_review"] == []
+    assert called == []
+
+    from datetime import UTC, datetime, timedelta
+
+    from pms_platform.documents.coverage import record_review
+    from pms_platform.models.research_document import ResearchDocument
+
+    review = record_review(session, sample_security.security_id, decision="unchanged", note="looks fine")
+    assert review is not None
+    old = ResearchDocument(
+        relative_path="old.md",
+        content_hash="a" * 64,
+        source_root="ui",
+        parse_status="ok",
+        security_id=sample_security.security_id,
+        indexed_at=datetime.now(UTC) - timedelta(days=2),
+    )
+    fresh = ResearchDocument(
+        relative_path="fresh.md",
+        content_hash="b" * 64,
+        source_root="ui",
+        parse_status="ok",
+        security_id=sample_security.security_id,
+        indexed_at=datetime.now(UTC) + timedelta(days=1),
+    )
+    session.add_all([old, fresh])
+    session.commit()
+    after = company_overview(session, sample_security.security_id)
+    assert after is not None
+    assert after["last_review"]["decision"] == "unchanged"
+    paths = [row["relative_path"] for row in after["new_since_review"]]
+    assert paths == ["fresh.md"]
+    assert record_review(session, "MISSING", decision="investigate") is None
+
+
+def test_approve_keeps_one_current_thesis(session: Session, sample_security: Security) -> None:
+    from pms_platform.documents.coverage import company_overview
+    from pms_platform.intelligence.theses import approve_thesis, create_thesis, get_approved_thesis
+
+    first = create_thesis(
+        session,
+        security_id=sample_security.security_id,
+        thesis_summary="First case.",
+        status="active",
+    )
+    before = company_overview(session, sample_security.security_id)
+    assert before is not None
+    assert before["thesis"]["approval"] == "unconfirmed"
+
+    approved = approve_thesis(session, first.thesis_id, approved_by="tester")
+    assert approved.status == "approved"
+    current = company_overview(session, sample_security.security_id)
+    assert current is not None
+    assert current["thesis"]["approval"] == "approved"
+    assert current["thesis"]["summary"] == "First case."
+
+    second = create_thesis(
+        session,
+        security_id=sample_security.security_id,
+        thesis_summary="Newer draft.",
+        status="active",
+    )
+    waiting = company_overview(session, sample_security.security_id)
+    assert waiting is not None
+    assert waiting["thesis"]["summary"] == "First case."
+    assert waiting["thesis"]["pending_thesis_id"] == second.thesis_id
+
+    approve_thesis(session, second.thesis_id, approved_by="tester")
+    only = get_approved_thesis(session, sample_security.security_id)
+    assert only is not None
+    assert only.thesis_id == second.thesis_id
+    assert only.thesis_summary == "Newer draft."
+    try:
+        create_thesis(
+            session,
+            security_id=sample_security.security_id,
+            thesis_summary="skip",
+            status="approved",
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("creating a thesis as approved must fail")

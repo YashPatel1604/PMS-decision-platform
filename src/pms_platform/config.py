@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     research_rag_max_chunks: int = 8
     research_rag_max_context_tokens: int = 4000
     research_rag_snippet_chars: int = 1200
+    research_ask_max_chunks: int = 6
+    research_ask_max_context_tokens: int = 3000
+    research_ask_max_output_tokens: int = 500
+    research_brief_max_output_tokens: int = 1000
     research_answer_cache_ttl_days: int = 30
     research_prompt_retention_days: int = 0
     research_analyst_prompt_version: str = "v1"

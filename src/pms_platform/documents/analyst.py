@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from pms_platform.config import settings
 from pms_platform.documents.facts import collect_security_facts
+from pms_platform.intelligence.theses import get_approved_thesis
 from pms_platform.documents.prompts import assemble_ask_messages, assemble_brief_messages
 from pms_platform.documents.search import SearchHit, search_research_pages
 from pms_platform.documents.xai_client import XaiConfigError, chat_completion, xai_configured
@@ -50,6 +51,7 @@ def _cache_key(
     chunk_ids: list[int],
     model: str,
     prompt_version: str,
+    scope: str = "",
 ) -> str:
     payload = "|".join(
         [
@@ -59,9 +61,30 @@ def _cache_key(
             ",".join(str(i) for i in sorted(chunk_ids)),
             model,
             prompt_version,
+            scope,
         ]
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _ground_citations(payload: dict[str, Any], chunk_ids: list[int]) -> dict[str, Any]:
+    """Keep only citations whose page_id was actually retrieved."""
+    allowed = set(chunk_ids)
+    out = dict(payload)
+    grounded: list[dict[str, Any]] = []
+    for item in out.get("citations") or []:
+        if not isinstance(item, dict) or item.get("page_id") is None:
+            continue
+        try:
+            page_id = int(item["page_id"])
+        except (TypeError, ValueError):
+            continue
+        if page_id in allowed:
+            grounded.append(item)
+    out["citations"] = grounded
+    if not isinstance(out.get("insufficient_evidence"), list):
+        out["insufficient_evidence"] = []
+    return out
 
 
 def _parse_json_content(content: str) -> dict[str, Any]:
@@ -178,6 +201,7 @@ def _retrieve(
     query: str,
     security_id: str | None,
     as_of: date | None,
+    linked_only: bool = False,
 ) -> list[SearchHit]:
     return search_research_pages(
         session,
@@ -186,6 +210,7 @@ def _retrieve(
         limit=settings.research_rag_max_chunks * 3,
         snippet_chars=settings.research_rag_snippet_chars,
         as_of=as_of,
+        linked_only=linked_only,
     )
 
 
@@ -287,8 +312,13 @@ def generate_research_brief(
         ).strip()
         or label
     )
-    hits = _retrieve(session, query=search_q, security_id=security_id, as_of=as_of)
-    # If name-only retrieval is empty, broaden to any pages linked to the security.
+    linked = bool(security_id)
+    approved = get_approved_thesis(session, security_id) if security_id else None
+    scope = f"linked:{approved.version if approved else 0}" if security_id else "open"
+    hits = _retrieve(
+        session, query=search_q, security_id=security_id, as_of=as_of, linked_only=linked
+    )
+    # If the question misses, use pages already linked to this company only.
     if not hits and security_id:
         hits = search_research_pages(
             session,
@@ -297,6 +327,7 @@ def generate_research_brief(
             limit=settings.research_rag_max_chunks * 3,
             snippet_chars=settings.research_rag_snippet_chars,
             as_of=as_of,
+            linked_only=True,
         )
     if not hits and security_id:
         from sqlalchemy import select
@@ -374,6 +405,7 @@ def generate_research_brief(
         chunk_ids=assembled.chunk_ids,
         model=settings.xai_model,
         prompt_version=settings.research_analyst_prompt_version,
+        scope=scope,
     )
     if not force_refresh:
         cached = _get_fresh_cache(session, key)
@@ -414,11 +446,18 @@ def generate_research_brief(
         session.commit()
         raise XaiConfigError("XAI_API_KEY is not configured")
 
-    result = chat_completion(assembled.messages, client=http_client)
+    result = chat_completion(
+        assembled.messages,
+        client=http_client,
+        max_tokens=settings.research_brief_max_output_tokens,
+    )
     try:
-        response = _validate_brief_schema(
-            _parse_json_content(result.content),
-            chunk_ids=assembled.chunk_ids,
+        response = _ground_citations(
+            _validate_brief_schema(
+                _parse_json_content(result.content),
+                chunk_ids=assembled.chunk_ids,
+            ),
+            assembled.chunk_ids,
         )
     except json.JSONDecodeError:
         response = _insufficient_brief(label, "Model returned non-JSON content")
@@ -476,8 +515,16 @@ def generate_research_ask(
 
     facts = collect_security_facts(session, security_id, as_of=as_of) if security_id else None
     label = _security_label(session, security_id, None)
-    hits = _retrieve(
-        session, query=q if not label else f"{label} {q}", security_id=security_id, as_of=as_of
+    approved = get_approved_thesis(session, security_id) if security_id else None
+    scope = f"linked:{approved.version if approved else 0}" if security_id else "open"
+    hits = search_research_pages(
+        session,
+        q if not label else f"{label} {q}",
+        security_id=security_id,
+        limit=settings.research_ask_max_chunks * 3,
+        snippet_chars=settings.research_rag_snippet_chars,
+        as_of=as_of,
+        linked_only=bool(security_id),
     )
 
     if not hits:
@@ -508,7 +555,13 @@ def generate_research_ask(
             called_llm=False,
         )
 
-    assembled = assemble_ask_messages(question=q, facts=facts, hits=hits)
+    assembled = assemble_ask_messages(
+        question=q,
+        facts=facts,
+        hits=hits,
+        max_chunks=settings.research_ask_max_chunks,
+        max_context_tokens=settings.research_ask_max_context_tokens,
+    )
     key = _cache_key(
         kind="ask",
         security_id=security_id,
@@ -516,6 +569,7 @@ def generate_research_ask(
         chunk_ids=assembled.chunk_ids,
         model=settings.xai_model,
         prompt_version=settings.research_analyst_prompt_version,
+        scope=scope,
     )
     if not force_refresh:
         cached = _get_fresh_cache(session, key)
@@ -556,9 +610,13 @@ def generate_research_ask(
         session.commit()
         raise XaiConfigError("XAI_API_KEY is not configured")
 
-    result = chat_completion(assembled.messages, client=http_client)
+    result = chat_completion(
+        assembled.messages,
+        client=http_client,
+        max_tokens=settings.research_ask_max_output_tokens,
+    )
     try:
-        response = _parse_json_content(result.content)
+        response = _ground_citations(_parse_json_content(result.content), assembled.chunk_ids)
     except json.JSONDecodeError:
         response = {
             "answer": result.content.strip(),

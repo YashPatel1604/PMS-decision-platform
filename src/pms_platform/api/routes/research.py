@@ -14,7 +14,9 @@ from sqlalchemy.orm import Session
 from pms_platform.api.deps import get_current_user, get_db
 from pms_platform.documents.analyst import generate_research_ask, generate_research_brief
 from pms_platform.documents.coverage import (
+    company_overview,
     list_book_firms,
+    record_review,
     run_coverage_briefs,
     securities_needing_coverage,
 )
@@ -92,6 +94,11 @@ class GoalResponse(BaseModel):
     created_by_user: str | None
     created_at: str
     updated_at: str
+
+
+class ReviewCreateRequest(BaseModel):
+    decision: str
+    note: str | None = None
 
 
 class GoalCreateRequest(BaseModel):
@@ -351,6 +358,46 @@ def patch_goal(
     if goal is None:
         raise HTTPException(status_code=404, detail="Goal not found")
     return _goal_response(goal)
+
+
+@router.get("/companies/{security_id}/overview")
+def get_company_overview(
+    security_id: str,
+    session: Session = Depends(get_db),
+    _user: User | None = Depends(get_current_user),
+) -> dict[str, object]:
+    overview = company_overview(session, security_id)
+    if overview is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return overview
+
+
+@router.post("/companies/{security_id}/reviews", status_code=201)
+def post_company_review(
+    security_id: str,
+    body: ReviewCreateRequest,
+    session: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+) -> dict[str, object]:
+    try:
+        row = record_review(
+            session,
+            security_id,
+            decision=body.decision,
+            note=body.note,
+            created_by=user.email if user is not None else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return {
+        "review_id": row.review_id,
+        "security_id": row.security_id,
+        "decision": row.decision,
+        "note": row.note,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
 
 
 @router.get("/firms")

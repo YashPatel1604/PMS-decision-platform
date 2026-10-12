@@ -45,8 +45,12 @@ def search_research_pages(
     limit: int = 20,
     snippet_chars: int = 400,
     as_of: date | None = None,
+    linked_only: bool = False,
 ) -> list[SearchHit]:
-    """Rank pages by relevance. Empty query returns []."""
+    """Rank pages by relevance. Empty query returns [].
+
+    ``linked_only`` keeps pages tied to ``security_id`` and drops unlinked pages.
+    """
     q = (query or "").strip()
     if not q:
         return []
@@ -60,6 +64,7 @@ def search_research_pages(
             limit=limit,
             snippet_chars=snippet_chars,
             as_of=as_of,
+            linked_only=linked_only,
         )
     return _search_fallback(
         session,
@@ -68,6 +73,7 @@ def search_research_pages(
         limit=limit,
         snippet_chars=snippet_chars,
         as_of=as_of,
+        linked_only=linked_only,
     )
 
 
@@ -76,9 +82,12 @@ def _base_filters(
     *,
     security_id: str | None,
     as_of: date | None,
+    linked_only: bool = False,
 ) -> Select:
     stmt = stmt.where(ResearchDocument.parse_status == "ok")
-    if security_id:
+    if security_id and linked_only:
+        stmt = stmt.where(ResearchDocument.security_id == security_id)
+    elif security_id:
         stmt = stmt.where(
             or_(
                 ResearchDocument.security_id == security_id,
@@ -102,6 +111,7 @@ def _search_postgres(
     limit: int,
     snippet_chars: int,
     as_of: date | None,
+    linked_only: bool = False,
 ) -> list[SearchHit]:
     ts_query = func.plainto_tsquery("english", query)
     # tsv column is maintained by Postgres migration; fall back if missing.
@@ -121,7 +131,7 @@ def _search_postgres(
         .where(text("research_document_pages.tsv @@ plainto_tsquery('english', :q)"))
         .params(q=query)
     )
-    stmt = _base_filters(stmt, security_id=security_id, as_of=as_of)
+    stmt = _base_filters(stmt, security_id=security_id, as_of=as_of, linked_only=linked_only)
     stmt = stmt.order_by(text("rank DESC"), ResearchDocumentPage.page_id).limit(limit)
     try:
         rows = session.execute(stmt).all()
@@ -133,6 +143,7 @@ def _search_postgres(
             limit=limit,
             snippet_chars=snippet_chars,
             as_of=as_of,
+            linked_only=linked_only,
         )
     return [
         SearchHit(
@@ -157,6 +168,7 @@ def _search_fallback(
     limit: int,
     snippet_chars: int,
     as_of: date | None,
+    linked_only: bool = False,
 ) -> list[SearchHit]:
     tokens = [t for t in query.lower().split() if len(t) >= 2]
     stmt = select(
@@ -168,7 +180,7 @@ def _search_fallback(
         ResearchDocument.security_id,
         ResearchDocumentPage.text,
     ).join(ResearchDocument, ResearchDocument.document_id == ResearchDocumentPage.document_id)
-    stmt = _base_filters(stmt, security_id=security_id, as_of=as_of)
+    stmt = _base_filters(stmt, security_id=security_id, as_of=as_of, linked_only=linked_only)
     if tokens:
         stmt = stmt.where(or_(*[ResearchDocumentPage.text.ilike(f"%{token}%") for token in tokens]))
     stmt = stmt.limit(max(limit * 10, 100))

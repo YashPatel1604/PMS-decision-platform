@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -311,7 +312,11 @@ export function ResearchAnalystView() {
   return (
     <div className="mx-auto max-w-5xl space-y-10 px-4 py-8">
       <header className="space-y-3">
-        <p className="text-sm uppercase tracking-[0.2em] text-stone-500">Research</p>
+        <p className="text-sm uppercase tracking-[0.2em] text-stone-500">
+          <Link href="/research" className="underline-offset-2 hover:underline">
+            Research
+          </Link>
+        </p>
         <h1 className="font-serif text-3xl text-stone-900 md:text-4xl">Analyst assistant</h1>
         <p className="max-w-2xl text-stone-600">
           Upload research notes here (PDF, Markdown, or text), search the index, then generate a

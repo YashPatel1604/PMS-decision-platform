@@ -40,6 +40,7 @@ from pms_platform.models.research_document import (
     ResearchDocumentPage,
     ResearchGoal,
     ResearchQueryAudit,
+    ResearchReview,
 )
 from pms_platform.models.security import Security
 from pms_platform.models.security_identity_alias import SecurityIdentityAlias
@@ -98,6 +99,7 @@ __all__ = [
     "ResearchDocumentPage",
     "ResearchGoal",
     "ResearchQueryAudit",
+    "ResearchReview",
     "Transaction",
     "ClientPosition",
     "ClientBookSettings",

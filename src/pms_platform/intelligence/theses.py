@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from pms_platform.models.investment_thesis import InvestmentThesis
 
-_ALLOWED_STATUS = frozenset({"draft", "active", "superseded", "archived"})
+_ALLOWED_STATUS = frozenset({"draft", "active", "approved", "superseded", "archived"})
 
 _THESIS_FIELDS = (
     "thesis_summary",
@@ -42,8 +45,54 @@ def list_theses(
     if security_id:
         stmt = stmt.where(InvestmentThesis.security_id == security_id)
     if active_only:
-        stmt = stmt.where(InvestmentThesis.status == "active")
+        stmt = stmt.where(InvestmentThesis.status.in_(("active", "approved")))
     return list(session.scalars(stmt).all())
+
+
+def get_approved_thesis(session: Session, security_id: str) -> InvestmentThesis | None:
+    return session.scalar(
+        select(InvestmentThesis)
+        .where(
+            InvestmentThesis.security_id == security_id,
+            InvestmentThesis.status == "approved",
+        )
+        .limit(1)
+    )
+
+
+def approve_thesis(
+    session: Session,
+    thesis_id: int,
+    *,
+    approved_by: str | None = None,
+) -> InvestmentThesis:
+    """Mark one saved version approved. Any other approved version is superseded."""
+    row = session.get(InvestmentThesis, thesis_id)
+    if row is None:
+        raise ValueError("thesis not found")
+    if row.status == "approved":
+        return row
+    if row.status not in {"active", "draft"}:
+        raise ValueError("only a saved thesis can be approved")
+    others = session.scalars(
+        select(InvestmentThesis).where(
+            InvestmentThesis.security_id == row.security_id,
+            InvestmentThesis.status == "approved",
+            InvestmentThesis.thesis_id != row.thesis_id,
+        )
+    ).all()
+    for other in others:
+        other.status = "superseded"
+    row.status = "approved"
+    row.approved_by = approved_by
+    row.approved_at = datetime.now(UTC)
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ValueError("another thesis is already approved for this company") from exc
+    session.refresh(row)
+    return row
 
 
 def get_active_thesis(session: Session, security_id: str) -> InvestmentThesis | None:
@@ -67,6 +116,8 @@ def create_thesis(
     **fields: str | None,
 ) -> InvestmentThesis:
     cleaned = (status or "active").strip().lower()
+    if cleaned == "approved":
+        raise ValueError("approve a saved thesis; do not create one as approved")
     if cleaned not in _ALLOWED_STATUS:
         raise ValueError(f"status must be one of {sorted(_ALLOWED_STATUS)}")
 

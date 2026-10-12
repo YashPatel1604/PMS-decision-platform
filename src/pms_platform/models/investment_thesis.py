@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from pms_platform.db.base import Base
@@ -16,6 +16,13 @@ class InvestmentThesis(Base):
     __tablename__ = "investment_theses"
     __table_args__ = (
         UniqueConstraint("security_id", "version", name="uq_investment_thesis_version"),
+        Index(
+            "uq_one_approved_thesis",
+            "security_id",
+            unique=True,
+            sqlite_where=text("status = 'approved'"),
+            postgresql_where=text("status = 'approved'"),
+        ),
     )
 
     thesis_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -42,6 +49,8 @@ class InvestmentThesis(Base):
     key_monitoring_variables: Mapped[str | None] = mapped_column(Text)
     disconfirming_evidence: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[str | None] = mapped_column(String(128))
+    approved_by: Mapped[str | None] = mapped_column(String(128))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

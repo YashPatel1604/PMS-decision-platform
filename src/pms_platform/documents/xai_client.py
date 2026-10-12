@@ -41,6 +41,7 @@ def chat_completion(
     model: str | None = None,
     timeout_s: float = 60.0,
     client: httpx.Client | None = None,
+    max_tokens: int | None = None,
 ) -> XaiChatResult:
     """Call xAI chat completions. Never send files — messages only."""
     if not xai_configured():
@@ -57,6 +58,8 @@ def chat_completion(
         "messages": messages,
         "temperature": 0.2,
     }
+    if max_tokens is not None:
+        body["max_tokens"] = max_tokens
 
     owns_client = client is None
     http = client or httpx.Client(timeout=timeout_s)

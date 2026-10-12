@@ -17,7 +17,7 @@ from pms_platform.intelligence.conflicts import (
     update_conflict_flag,
 )
 from pms_platform.intelligence.events import list_events, sync_insider_events, upsert_event
-from pms_platform.intelligence.theses import create_thesis, list_theses, revise_thesis
+from pms_platform.intelligence.theses import approve_thesis, create_thesis, list_theses, revise_thesis
 from pms_platform.models.user import User
 
 router = APIRouter()
@@ -232,6 +232,23 @@ def post_thesis(
             status=status,
             created_by=user.email if user else None,
             **data,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _thesis_dict(row)
+
+
+@router.post("/theses/{thesis_id}/approve")
+def post_approve_thesis(
+    thesis_id: int,
+    session: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+) -> dict[str, Any]:
+    try:
+        row = approve_thesis(
+            session,
+            thesis_id,
+            approved_by=user.email if user else None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
