@@ -21,6 +21,7 @@ from pms_platform.documents.analyst import (
 )
 from pms_platform.documents.coverage import (
     company_overview,
+    ensure_research_company,
     list_book_firms,
     record_review,
     run_coverage_briefs,
@@ -68,6 +69,17 @@ class BriefRequest(BaseModel):
     extra_question: str | None = None
     as_of: date | None = None
     force_refresh: bool = False
+
+
+class EnsureCompanyRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=128)
+    nse_symbol: str | None = None
+    bse_code: str | None = None
+
+
+class EnsureCompanyResponse(BaseModel):
+    security_id: str
+    display_name: str
 
 
 class SavedBriefItem(BaseModel):
@@ -444,6 +456,27 @@ def patch_goal(
     if goal is None:
         raise HTTPException(status_code=404, detail="Goal not found")
     return _goal_response(goal)
+
+
+@router.post("/companies", response_model=EnsureCompanyResponse)
+def post_company(
+    body: EnsureCompanyRequest,
+    session: Session = Depends(get_db),
+    _user: User | None = Depends(get_current_user),
+) -> EnsureCompanyResponse:
+    try:
+        sec = ensure_research_company(
+            session,
+            body.name,
+            nse_symbol=body.nse_symbol,
+            bse_code=body.bse_code,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return EnsureCompanyResponse(
+        security_id=sec.security_id,
+        display_name=sec.canonical_name or sec.portfolio_name,
+    )
 
 
 @router.get("/companies/{security_id}/overview")

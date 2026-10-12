@@ -19,6 +19,15 @@ function asStringList(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string");
 }
 
+function companyFromFilename(filename: string): string {
+  const stem = filename.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
+  const cleaned = stem
+    .replace(/\b(research|notes|note|memo|thesis|final|draft)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.length >= 3 ? cleaned : "";
+}
+
 function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     try {
@@ -148,7 +157,7 @@ export function ResearchAnalystView() {
 
   const firmHitsQuery = useQuery({
     queryKey: ["research-firm-search", debouncedFirmSearch],
-    queryFn: () => api.searchWatchlistSecurities(debouncedFirmSearch, 20, false),
+    queryFn: () => api.searchWatchlistSecurities(debouncedFirmSearch, 20, true),
     enabled: debouncedFirmSearch.trim().length >= 2,
   });
 
@@ -224,7 +233,20 @@ export function ResearchAnalystView() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: (file: File) => api.uploadResearchNote(file, securityId || null),
+    mutationFn: async (file: File) => {
+      let sid = securityId.trim();
+      if (!sid) {
+        const guessed = firmSearch.trim() || companyFromFilename(file.name);
+        if (!guessed) {
+          throw new Error("Type the company name. It does not have to be on a watchlist.");
+        }
+        const created = await api.ensureResearchCompany({ name: guessed });
+        sid = created.security_id;
+        setSecurityId(sid);
+        setFirmLabel(created.display_name);
+      }
+      return api.uploadResearchNote(file, sid);
+    },
     onSuccess: () => {
       setError(null);
       setUploadFile(null);
@@ -360,6 +382,29 @@ export function ResearchAnalystView() {
     [brief],
   );
 
+  async function useCompany(hit: WatchlistSearchHit) {
+    try {
+      let sid = hit.security_id;
+      let label = hit.portfolio_name;
+      if (!sid) {
+        const created = await api.ensureResearchCompany({
+          name: hit.portfolio_name,
+          nse_symbol: hit.nse_symbol,
+          bse_code: hit.bse_code,
+        });
+        sid = created.security_id;
+        label = created.display_name;
+      }
+      setSecurityId(sid);
+      setFirmLabel(label);
+      setFirmSearch("");
+      setSearchQ((prev) => prev.trim() || label);
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
   return (
     <div className="mx-auto max-w-5xl space-y-10 px-4 py-8">
       <header className="space-y-3">
@@ -388,7 +433,7 @@ export function ResearchAnalystView() {
           </div>
         ) : (
           <p className="text-sm text-stone-600">
-            No company selected. Choose one before uploading so the file is not left unattached.
+            No company selected. Type a name, even if it is not on a watchlist, or put the name in the file.
           </p>
         )}
       </header>
@@ -480,19 +525,34 @@ export function ResearchAnalystView() {
                 {firmHitsQuery.isFetching ? (
                   <li className="px-3 py-2 text-sm text-stone-500">Searching…</li>
                 ) : (firmHitsQuery.data ?? []).length === 0 ? (
-                  <li className="px-3 py-2 text-sm text-stone-500">No matches</li>
+                  <li>
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-stone-50"
+                      onClick={() =>
+                        void useCompany({
+                          source: "typed",
+                          security_id: null,
+                          portfolio_name: debouncedFirmSearch.trim(),
+                          nse_symbol: null,
+                          bse_code: null,
+                          isin: null,
+                          sector: null,
+                          industry: null,
+                        })
+                      }
+                    >
+                      <span>Use {debouncedFirmSearch.trim()}</span>
+                      <span className="text-xs text-emerald-800">Add</span>
+                    </button>
+                  </li>
                 ) : (
                   (firmHitsQuery.data ?? []).map((hit: WatchlistSearchHit, index: number) => (
                     <li key={`${hit.security_id ?? hit.portfolio_name}-${index}`}>
                       <button
                         type="button"
                         className="flex w-full items-start justify-between gap-3 px-3 py-2 text-left hover:bg-stone-50"
-                        onClick={() => {
-                          if (hit.security_id) setSecurityId(hit.security_id);
-                          setFirmLabel(hit.portfolio_name);
-                          setFirmSearch("");
-                          setSearchQ((prev) => prev.trim() || hit.portfolio_name);
-                        }}
+                        onClick={() => void useCompany(hit)}
                       >
                         <span>
                           <span className="block text-sm text-stone-900">{hit.portfolio_name}</span>
@@ -500,7 +560,9 @@ export function ResearchAnalystView() {
                             {[hit.nse_symbol, hit.bse_code].filter(Boolean).join(" · ")}
                           </span>
                         </span>
-                        <span className="shrink-0 text-xs text-emerald-800">Use</span>
+                        <span className="shrink-0 text-xs text-emerald-800">
+                          {hit.security_id ? "Use" : "Add"}
+                        </span>
                       </button>
                     </li>
                   ))

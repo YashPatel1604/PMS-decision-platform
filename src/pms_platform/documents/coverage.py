@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from pms_platform.documents.analyst import generate_research_brief
@@ -83,6 +84,54 @@ def list_book_firms(session: Session) -> list[BookFirm]:
         out.append(BookFirm(security_id=sid, display_name=display, source=source))
     out.sort(key=lambda f: f.display_name.casefold())
     return out
+
+
+def ensure_research_company(
+    session: Session,
+    name: str,
+    *,
+    nse_symbol: str | None = None,
+    bse_code: str | None = None,
+) -> Security:
+    """Find a company by name or symbol, or create one so a note can be attached."""
+    cleaned = " ".join(name.split()).strip()[:128]
+    if len(cleaned) < 2:
+        raise ValueError("Type the company name")
+    symbol = (nse_symbol or "").strip().upper() or None
+    if symbol and symbol.endswith(".NS"):
+        symbol = symbol[:-3]
+    bse = (bse_code or "").strip() or None
+    existing = session.scalar(
+        select(Security).where(
+            or_(
+                func.lower(Security.portfolio_name) == cleaned.lower(),
+                func.lower(Security.canonical_name) == cleaned.lower(),
+            )
+        )
+    )
+    if existing is None and symbol:
+        existing = session.scalar(
+            select(Security).where(func.upper(Security.current_nse_symbol) == symbol)
+        )
+    if existing is not None:
+        return existing
+    digest = hashlib.sha256(cleaned.lower().encode()).hexdigest().upper()
+    sec_id = f"RS{digest[:12]}"
+    if session.get(Security, sec_id) is not None:
+        sec_id = f"RS{digest[12:26]}"
+    sec = Security(
+        security_id=sec_id[:16],
+        portfolio_name=cleaned,
+        canonical_name=cleaned,
+        current_nse_symbol=symbol,
+        bse_code=bse,
+        status="ACTIVE",
+        verification_status="RESEARCH",
+    )
+    session.add(sec)
+    session.commit()
+    session.refresh(sec)
+    return sec
 
 
 def research_status_by_security(

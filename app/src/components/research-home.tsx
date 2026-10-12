@@ -26,6 +26,7 @@ function isOpenGoal(goal: ResearchGoal): boolean {
 export function ResearchHome() {
   const router = useRouter();
   const [firmSearch, setFirmSearch] = useState("");
+  const [chooseError, setChooseError] = useState<string | null>(null);
   const [debounced, setDebounced] = useState("");
 
   useEffect(() => {
@@ -44,7 +45,7 @@ export function ResearchHome() {
 
   const firmHitsQuery = useQuery({
     queryKey: ["research-firm-search", debounced],
-    queryFn: () => api.searchWatchlistSecurities(debounced, 20, false),
+    queryFn: () => api.searchWatchlistSecurities(debounced, 20, true),
     enabled: debounced.trim().length >= 2,
   });
 
@@ -73,6 +74,39 @@ export function ResearchHome() {
 
   function openFirm(securityId: string) {
     router.push(`/research/company/${encodeURIComponent(securityId)}`);
+  }
+
+  async function chooseHit(hit: WatchlistSearchHit) {
+    setChooseError(null);
+    try {
+      if (hit.security_id) {
+        openFirm(hit.security_id);
+        return;
+      }
+      const created = await api.ensureResearchCompany({
+        name: hit.portfolio_name,
+        nse_symbol: hit.nse_symbol,
+        bse_code: hit.bse_code,
+      });
+      openFirm(created.security_id);
+    } catch (err) {
+      setChooseError(err instanceof Error ? err.message : "Could not add that company");
+    }
+  }
+
+  async function chooseTypedName() {
+    const name = debounced.trim();
+    if (name.length < 2) return;
+    await chooseHit({
+      source: "typed",
+      security_id: null,
+      portfolio_name: name,
+      nse_symbol: null,
+      bse_code: null,
+      isin: null,
+      sector: null,
+      industry: null,
+    });
   }
 
   const loadError = statusQuery.isError || goalsQuery.isError;
@@ -117,17 +151,23 @@ export function ResearchHome() {
             ) : firmHitsQuery.isError ? (
               <li className="px-3 py-3 text-sm text-red-800">Search failed. Try again.</li>
             ) : (firmHitsQuery.data ?? []).length === 0 ? (
-              <li className="px-3 py-3 text-sm text-stone-500">No matches</li>
+              <li>
+                <button
+                  type="button"
+                  className="flex min-h-11 w-full items-center justify-between px-3 py-3 text-left text-sm hover:bg-stone-50"
+                  onClick={() => void chooseTypedName()}
+                >
+                  <span>Research {debounced.trim()}</span>
+                  <span className="text-xs text-emerald-800">Add</span>
+                </button>
+              </li>
             ) : (
               (firmHitsQuery.data ?? []).map((hit: WatchlistSearchHit, index: number) => (
                 <li key={`${hit.security_id ?? hit.portfolio_name}-${index}`}>
                   <button
                     type="button"
                     className="flex min-h-11 w-full items-start justify-between gap-3 px-3 py-3 text-left hover:bg-stone-50"
-                    disabled={!hit.security_id}
-                    onClick={() => {
-                      if (hit.security_id) openFirm(hit.security_id);
-                    }}
+                    onClick={() => void chooseHit(hit)}
                   >
                     <span>
                       <span className="block text-sm text-stone-900">{hit.portfolio_name}</span>
@@ -135,13 +175,16 @@ export function ResearchHome() {
                         {[hit.nse_symbol, hit.bse_code].filter(Boolean).join(" · ") || "Open this company"}
                       </span>
                     </span>
-                    <span className="shrink-0 text-xs text-emerald-800">Open</span>
+                    <span className="shrink-0 text-xs text-emerald-800">
+                      {hit.security_id ? "Open" : "Add"}
+                    </span>
                   </button>
                 </li>
               ))
             )}
           </ul>
         ) : null}
+        {chooseError ? <p className="text-sm text-red-800">{chooseError}</p> : null}
       </section>
 
       <section aria-labelledby="companies-heading" className="space-y-3 border-t border-stone-200 pt-6">

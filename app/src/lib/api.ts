@@ -1867,6 +1867,11 @@ export const api = {
     if (securityId) params.set("security_id", securityId);
     return request<ResearchSearchHit[]>(`/research/search?${params}`);
   },
+  ensureResearchCompany: (body: { name: string; nse_symbol?: string | null; bse_code?: string | null }) =>
+    request<{ security_id: string; display_name: string }>("/research/companies", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   getResearchCompany: (securityId: string) =>
     request<ResearchCompanyOverview>(
       `/research/companies/${encodeURIComponent(securityId)}/overview`,
