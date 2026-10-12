@@ -73,10 +73,10 @@ class Settings(BaseSettings):
     research_ask_max_chunks: int = 6
     research_ask_max_context_tokens: int = 3000
     research_ask_max_output_tokens: int = 500
-    research_brief_max_output_tokens: int = 1000
+    research_brief_max_output_tokens: int = 2500
     research_answer_cache_ttl_days: int = 30
     research_prompt_retention_days: int = 0
-    research_analyst_prompt_version: str = "v1"
+    research_analyst_prompt_version: str = "v2"
 
     @property
     def migration_database_url(self) -> str:

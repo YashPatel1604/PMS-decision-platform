@@ -27,7 +27,7 @@ from pms_platform.documents.indexer import (
     index_uploaded_file,
 )
 from pms_platform.documents.scan import ui_corpus_dir
-from pms_platform.documents.search import search_research_pages
+from pms_platform.documents.search import list_linked_pages, search_research_pages
 from pms_platform.documents.xai_client import XaiConfigError, XaiRequestError
 from pms_platform.models.user import User
 
@@ -214,7 +214,16 @@ def get_search(
     session: Session = Depends(get_db),
     _user: User | None = Depends(get_current_user),
 ) -> list[SearchHitResponse]:
-    hits = search_research_pages(session, q, security_id=security_id, limit=limit, as_of=as_of)
+    hits = search_research_pages(
+        session,
+        q,
+        security_id=security_id,
+        limit=limit,
+        as_of=as_of,
+        linked_only=bool(security_id),
+    )
+    if not hits and security_id:
+        hits = list_linked_pages(session, security_id, limit=limit)
     return [
         SearchHitResponse(
             page_id=hit.page_id,

@@ -37,6 +37,47 @@ def _snippet(text_value: str, query: str, *, max_chars: int) -> str:
     return text_value[:max_chars].strip() + ("…" if len(text_value) > max_chars else "")
 
 
+def list_linked_pages(
+    session: Session,
+    security_id: str,
+    *,
+    limit: int = 8,
+    snippet_chars: int = 400,
+) -> list[SearchHit]:
+    """Pages already tied to one company, newest document first."""
+    rows = session.execute(
+        select(
+            ResearchDocumentPage.page_id,
+            ResearchDocumentPage.document_id,
+            ResearchDocument.relative_path,
+            ResearchDocumentPage.page_number,
+            ResearchDocument.title,
+            ResearchDocument.security_id,
+            ResearchDocumentPage.text,
+        )
+        .join(ResearchDocument, ResearchDocument.document_id == ResearchDocumentPage.document_id)
+        .where(
+            ResearchDocument.security_id == security_id,
+            ResearchDocument.parse_status == "ok",
+        )
+        .order_by(ResearchDocument.document_id.desc(), ResearchDocumentPage.page_number)
+        .limit(limit)
+    ).all()
+    return [
+        SearchHit(
+            page_id=row.page_id,
+            document_id=row.document_id,
+            relative_path=row.relative_path,
+            page_number=row.page_number,
+            title=row.title,
+            security_id=row.security_id,
+            snippet=_snippet(row.text or "", security_id, max_chars=snippet_chars),
+            rank=1.0,
+        )
+        for row in rows
+    ]
+
+
 def search_research_pages(
     session: Session,
     query: str,

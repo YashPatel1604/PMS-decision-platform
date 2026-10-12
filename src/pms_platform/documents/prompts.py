@@ -19,6 +19,7 @@ Hard rules:
 - If evidence is missing, list it under insufficient_evidence — do not guess.
 - Every scenario claim must cite snippets when docs exist (path + page).
 - Prefer specific, falsifiable research tasks over vague advice.
+- Keep each list to at most 3 short sentences so the JSON can finish.
 - Respond with a single JSON object matching the required schema. No markdown fences.
 """
 

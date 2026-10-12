@@ -403,17 +403,20 @@ export function ResearchAnalystView() {
       </section>
 
       <section className="space-y-4 border-t border-stone-200 pt-6">
-        <h2 className="text-lg text-stone-900">Search and brief</h2>
+        <h2 className="text-lg text-stone-900">Search this company's notes</h2>
+        <p className="text-sm text-stone-600">
+          Search looks only at notes linked to the selected company. A brief uses those same notes.
+        </p>
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
             <label className="block text-sm text-stone-700">
-              Firm
+              Company
               <input
                 type="search"
                 className="mt-1 w-full border border-stone-300 bg-transparent px-3 py-2"
                 value={firmSearch}
                 onChange={(e) => setFirmSearch(e.target.value)}
-                placeholder="Type name or symbol (min 2 chars)"
+                placeholder="Type a company name"
               />
             </label>
             {securityId ? (
@@ -453,9 +456,7 @@ export function ResearchAnalystView() {
                         <span>
                           <span className="block text-sm text-stone-900">{hit.portfolio_name}</span>
                           <span className="block text-xs text-stone-500">
-                            {[hit.source, hit.security_id, hit.nse_symbol, hit.bse_code]
-                              .filter(Boolean)
-                              .join(" · ")}
+                            {[hit.nse_symbol, hit.bse_code].filter(Boolean).join(" · ")}
                           </span>
                         </span>
                         <span className="shrink-0 text-xs text-emerald-800">Use</span>
@@ -467,12 +468,12 @@ export function ResearchAnalystView() {
             ) : null}
           </div>
           <label className="block text-sm text-stone-700">
-            Search query / topic
+            Words in the notes
             <input
               className="mt-1 w-full border border-stone-300 bg-transparent px-3 py-2"
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
-              placeholder="promoter pledge"
+              placeholder="pledge, margin, order book"
             />
           </label>
         </div>
@@ -483,7 +484,7 @@ export function ResearchAnalystView() {
             onClick={() => searchMutation.mutate()}
             disabled={searchMutation.isPending || !searchQ.trim()}
           >
-            {searchMutation.isPending ? "Searching…" : "Search index"}
+            {searchMutation.isPending ? "Searching…" : "Search notes"}
           </button>
           <button
             type="button"
@@ -491,14 +492,15 @@ export function ResearchAnalystView() {
             onClick={() => briefMutation.mutate()}
             disabled={briefMutation.isPending || (!securityId.trim() && !searchQ.trim())}
           >
-            {briefMutation.isPending ? "Generating…" : "Generate research brief"}
+            {briefMutation.isPending ? "Writing…" : "Write a brief"}
           </button>
         </div>
         {error ? <p className="text-sm text-red-800">{error}</p> : null}
-        {brief ? (
-          <p className="text-xs text-stone-500">
-            cache_hit={String(brief.cache_hit)} · called_llm={String(brief.called_llm)} · tokens_in=
-            {brief.token_in ?? "—"} · tokens_out={brief.token_out ?? "—"}
+        {searchMutation.isSuccess && hits.length === 0 ? (
+          <p className="text-sm text-stone-700">
+            {securityId.trim()
+              ? "No notes are linked to this company. Upload the file again with the company selected."
+              : "Choose a company, then search. Search does not look through other companies."}
           </p>
         ) : null}
       </section>
@@ -510,23 +512,7 @@ export function ResearchAnalystView() {
             {hits.map((hit) => (
               <li key={hit.page_id} className="border-l-2 border-stone-300 pl-3">
                 <p className="text-sm text-stone-900">
-                  {hit.relative_path}:{hit.page_number}
-                  {hit.security_id ? (
-                    <>
-                      {" "}
-                      ·{" "}
-                      <button
-                        type="button"
-                        className="underline-offset-2 hover:underline"
-                        onClick={() => {
-                          setSecurityId(hit.security_id!);
-                          setFirmLabel(hit.security_id!);
-                        }}
-                      >
-                        use {hit.security_id}
-                      </button>
-                    </>
-                  ) : null}
+                  {hit.title || hit.relative_path}, page {hit.page_number}
                 </p>
                 <p className="text-sm text-stone-600">{hit.snippet}</p>
               </li>
@@ -535,7 +521,14 @@ export function ResearchAnalystView() {
         </section>
       ) : null}
 
-      {brief ? (
+      {brief && typeof brief.response.brief_error === "string" ? (
+        <section className="space-y-2 border-t border-stone-200 pt-6">
+          <h2 className="text-lg text-stone-900">Brief did not finish</h2>
+          <p className="text-sm text-stone-800">{brief.response.brief_error}</p>
+        </section>
+      ) : null}
+
+      {brief && typeof brief.response.brief_error !== "string" ? (
         <section className="space-y-6 border-t border-stone-200 pt-6">
           <h2 className="text-lg text-stone-900">Brief</h2>
           <div className="grid gap-6 md:grid-cols-3">

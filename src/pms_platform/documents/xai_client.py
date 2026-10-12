@@ -29,6 +29,7 @@ class XaiChatResult:
     token_in: int | None
     token_out: int | None
     raw: dict[str, Any]
+    finish_reason: str | None = None
 
 
 def xai_configured() -> bool:
@@ -103,5 +104,6 @@ def chat_completion(
         model=payload.get("model") or model_name,
         token_in=usage.get("prompt_tokens"),
         token_out=usage.get("completion_tokens"),
+        finish_reason=choices[0].get("finish_reason"),
         raw=payload,
     )

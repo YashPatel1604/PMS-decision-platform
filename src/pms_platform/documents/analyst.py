@@ -17,7 +17,7 @@ from pms_platform.config import settings
 from pms_platform.documents.facts import collect_security_facts
 from pms_platform.intelligence.theses import get_approved_thesis
 from pms_platform.documents.prompts import assemble_ask_messages, assemble_brief_messages
-from pms_platform.documents.search import SearchHit, search_research_pages
+from pms_platform.documents.search import SearchHit, list_linked_pages, search_research_pages
 from pms_platform.documents.xai_client import XaiConfigError, chat_completion, xai_configured
 from pms_platform.models.research_document import (
     ResearchAnswerCache,
@@ -187,6 +187,19 @@ def _insufficient_brief(security_label: str, reason: str) -> dict[str, Any]:
     }
 
 
+def _note_names(hits: list[SearchHit]) -> str:
+    names: list[str] = []
+    for hit in hits:
+        name = (hit.title or hit.relative_path or "").strip()
+        if name and name not in names:
+            names.append(name)
+    if not names:
+        return "the selected company"
+    shown = ", ".join(names[:4])
+    extra = len(names) - 4
+    return f"{shown} and {extra} more" if extra > 0 else shown
+
+
 def _security_label(session: Session, security_id: str | None, fallback: str | None) -> str:
     if security_id:
         security = session.get(Security, security_id)
@@ -330,45 +343,18 @@ def generate_research_brief(
             linked_only=True,
         )
     if not hits and security_id:
-        from sqlalchemy import select
-
-        from pms_platform.models.research_document import ResearchDocument, ResearchDocumentPage
-
-        rows = session.execute(
-            select(
-                ResearchDocumentPage.page_id,
-                ResearchDocumentPage.document_id,
-                ResearchDocument.relative_path,
-                ResearchDocumentPage.page_number,
-                ResearchDocument.title,
-                ResearchDocument.security_id,
-                ResearchDocumentPage.text,
-            )
-            .join(ResearchDocument)
-            .where(
-                ResearchDocument.security_id == security_id,
-                ResearchDocument.parse_status == "ok",
-            )
-            .limit(settings.research_rag_max_chunks)
-        ).all()
-        hits = [
-            SearchHit(
-                page_id=row.page_id,
-                document_id=row.document_id,
-                relative_path=row.relative_path,
-                page_number=row.page_number,
-                title=row.title,
-                security_id=row.security_id,
-                snippet=row.text[: settings.research_rag_snippet_chars],
-                rank=1.0,
-            )
-            for row in rows
-        ]
+        hits = list_linked_pages(
+            session,
+            security_id,
+            limit=settings.research_rag_max_chunks,
+            snippet_chars=settings.research_rag_snippet_chars,
+        )
 
     if not hits:
         response = _insufficient_brief(
             label,
-            "No indexed research snippets matched this security. Run research-index and widen corpus globs if needed.",
+            f"No notes are linked to {label}. Upload the file again with this company selected. "
+            "A file uploaded without a company is not used.",
         )
         _audit(
             session,
@@ -451,6 +437,7 @@ def generate_research_brief(
         client=http_client,
         max_tokens=settings.research_brief_max_output_tokens,
     )
+    parsed_ok = True
     try:
         response = _ground_citations(
             _validate_brief_schema(
@@ -460,21 +447,38 @@ def generate_research_brief(
             assembled.chunk_ids,
         )
     except json.JSONDecodeError:
-        response = _insufficient_brief(label, "Model returned non-JSON content")
-        response["raw_content_preview"] = result.content[:500]
-        response["retrieved_page_ids"] = list(assembled.chunk_ids)
+        parsed_ok = False
+        notes = _note_names(hits)
+        cut_off = result.finish_reason == "length" or (
+            result.token_out is not None
+            and result.token_out >= settings.research_brief_max_output_tokens
+        )
+        if cut_off:
+            reason = (
+                f"The reply was cut off after {result.token_out or settings.research_brief_max_output_tokens} tokens, "
+                f"before it finished. These notes were included: {notes}. Nothing from this attempt was saved."
+            )
+        else:
+            reason = (
+                f"The reply could not be read. These notes were included: {notes}. "
+                "Nothing from this attempt was saved."
+            )
+        response = _insufficient_brief(label, reason)
+        response["brief_error"] = reason
 
-    row = _store_cache(
-        session,
-        key=key,
-        kind="brief",
-        security_id=security_id,
-        response=response,
-        chunk_ids=assembled.chunk_ids,
-        model=result.model,
-        token_in=result.token_in,
-        token_out=result.token_out,
-    )
+    row = None
+    if parsed_ok:
+        row = _store_cache(
+            session,
+            key=key,
+            kind="brief",
+            security_id=security_id,
+            response=response,
+            chunk_ids=assembled.chunk_ids,
+            model=result.model,
+            token_in=result.token_in,
+            token_out=result.token_out,
+        )
     _audit(
         session,
         kind="brief",
@@ -483,13 +487,14 @@ def generate_research_brief(
         token_in=result.token_in,
         token_out=result.token_out,
         latency_ms=int((time.perf_counter() - started) * 1000),
+        error=None if parsed_ok else "brief reply was not usable",
     )
     session.commit()
     return AnalystResult(
         kind="brief",
         response=response,
         cache_hit=False,
-        cache_id=row.cache_id,
+        cache_id=row.cache_id if row is not None else None,
         model=result.model,
         token_in=result.token_in,
         token_out=result.token_out,
