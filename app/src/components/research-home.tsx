@@ -45,7 +45,7 @@ export function ResearchHome() {
 
   const firmHitsQuery = useQuery({
     queryKey: ["research-firm-search", debounced],
-    queryFn: () => api.searchWatchlistSecurities(debounced, 20, true),
+    queryFn: () => api.searchWatchlistSecurities(debounced, 20, true, true),
     enabled: debounced.trim().length >= 2,
   });
 

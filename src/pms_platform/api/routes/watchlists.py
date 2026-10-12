@@ -402,9 +402,12 @@ def search_securities(
     q: str = Query(min_length=1),
     limit: int = Query(default=20, ge=1, le=50),
     yahoo: bool = Query(default=False),
+    bse: bool = Query(default=False),
     session: Session = Depends(get_db),
 ) -> list[SecuritySearchHitResponse]:
-    hits = wl.search_securities_combined(session, q, limit=limit, include_yahoo=yahoo)
+    hits = wl.search_securities_combined(
+        session, q, limit=limit, include_yahoo=yahoo, include_bse=bse
+    )
     return [
         SecuritySearchHitResponse(
             source=row.source,

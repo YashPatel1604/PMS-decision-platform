@@ -109,6 +109,10 @@ def ensure_research_company(
             )
         )
     )
+    if bse:
+        by_bse = session.scalar(select(Security).where(Security.bse_code == bse))
+        if by_bse is not None:
+            return by_bse
     if existing is None and symbol:
         existing = session.scalar(
             select(Security).where(func.upper(Security.current_nse_symbol) == symbol)

@@ -235,12 +235,14 @@ def search_securities_combined(
     *,
     limit: int = 20,
     include_yahoo: bool = False,
+    include_bse: bool = False,
 ) -> list[CombinedSearchHit]:
     """Search security master first. Yahoo is opt-in so typeahead stays local."""
     q = query.strip()
     if not q:
         return []
-    master = search_securities(session, q, limit=limit)
+    master_limit = max(5, limit // 2) if include_bse else limit
+    master = search_securities(session, q, limit=master_limit)
     hits: list[CombinedSearchHit] = [
         CombinedSearchHit(
             source="MASTER",
@@ -254,6 +256,41 @@ def search_securities_combined(
         )
         for row in master
     ]
+    seen = {h.portfolio_name.casefold() for h in hits}
+    if include_bse:
+        from pms_platform.market_data.bse_scrip_universe import search_bse_scrips
+
+        bse_rows = search_bse_scrips(q, limit=limit)
+        codes = [row.get("bse_code") or "" for row in bse_rows if row.get("bse_code")]
+        known: dict[str, str] = {}
+        if codes:
+            for sec in session.scalars(select(Security).where(Security.bse_code.in_(codes))).all():
+                if sec.bse_code:
+                    known[sec.bse_code] = sec.security_id
+        seen_bse = {h.bse_code for h in hits if h.bse_code}
+        for row in bse_rows:
+            code = row.get("bse_code") or ""
+            name = row.get("scrip_name") or code
+            if not code or code in seen_bse or name.casefold() in seen:
+                continue
+            nse_symbol = row.get("nse_symbol") or None
+            hits.append(
+                CombinedSearchHit(
+                    source="BSE",
+                    security_id=known.get(code),
+                    portfolio_name=name,
+                    nse_symbol=nse_symbol,
+                    bse_code=code,
+                    isin=row.get("isin") or None,
+                    sector=None,
+                    industry=None,
+                )
+            )
+            seen.add(name.casefold())
+            seen_bse.add(code)
+            if len(hits) >= limit:
+                break
+
     if not include_yahoo or len(hits) >= limit:
         return hits[:limit]
 

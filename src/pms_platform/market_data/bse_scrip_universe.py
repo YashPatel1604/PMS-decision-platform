@@ -155,6 +155,31 @@ def resolve_bse_code(
     return None
 
 
+def search_bse_scrips(query: str, *, limit: int = 20) -> list[dict[str, str]]:
+    """Active BSE equities whose name, NSE symbol, or code matches the query."""
+    needle = _norm_name(query)
+    raw = str(query or "").strip().upper()
+    if len(needle) < 2 and not raw.isdigit():
+        return []
+    refresh_bse_scrip_universe()
+    ranked: list[tuple[int, str, dict[str, str]]] = []
+    for meta in _code_to_meta.values():
+        name = _norm_name(meta.get("scrip_name"))
+        nse = str(meta.get("nse_symbol") or "").upper()
+        code = meta.get("bse_code") or ""
+        if raw.isdigit() and (code == raw or code.startswith(raw)):
+            rank = 0
+        elif needle and (name.startswith(needle) or nse.startswith(raw)):
+            rank = 1
+        elif needle and needle in name:
+            rank = 2
+        else:
+            continue
+        ranked.append((rank, name, meta))
+    ranked.sort(key=lambda item: (item[0], item[1], item[2].get("bse_code") or ""))
+    return [meta for _, _, meta in ranked[:limit]]
+
+
 def lookup_bse_scrip(bse_code: str) -> dict[str, str] | None:
     """Return ISIN/NSE/scrip name for an active BSE equity code."""
     code = str(bse_code or "").strip()

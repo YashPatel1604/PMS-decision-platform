@@ -1559,9 +1559,9 @@ export const api = {
     }),
   deleteWatchlist: (watchlistId: number) =>
     request<void>(`/watchlists/${watchlistId}?confirm=true`, { method: "DELETE" }),
-  searchWatchlistSecurities: (q: string, limit = 20, yahoo = false) =>
+  searchWatchlistSecurities: (q: string, limit = 20, yahoo = false, bse = false) =>
     request<WatchlistSearchHit[]>(
-      `/watchlists/search?q=${encodeURIComponent(q)}&limit=${limit}&yahoo=${yahoo ? "true" : "false"}`,
+      `/watchlists/search?q=${encodeURIComponent(q)}&limit=${limit}&yahoo=${yahoo ? "true" : "false"}&bse=${bse ? "true" : "false"}`,
     ),
   listWatchlistMembers: (watchlistId: number) =>
     request<WatchlistMember[]>(`/watchlists/${watchlistId}/members`),
