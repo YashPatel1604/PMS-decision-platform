@@ -3,7 +3,6 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
-import { ResearchAnalystView } from "@/components/research-analyst-view";
 import { ResearchHome } from "@/components/research-home";
 
 export function ResearchPageClient() {
@@ -14,16 +13,20 @@ export function ResearchPageClient() {
   const openCompany = Boolean(securityId) && view !== "tools";
 
   useEffect(() => {
+    if (view === "tools") {
+      const next = securityId
+        ? `/research/library?security_id=${encodeURIComponent(securityId)}`
+        : "/research/library";
+      router.replace(next);
+      return;
+    }
     if (openCompany) {
       router.replace(`/research/company/${encodeURIComponent(securityId)}`);
     }
-  }, [openCompany, router, securityId]);
+  }, [openCompany, router, securityId, view]);
 
-  if (openCompany) {
-    return <p className="px-4 py-8 text-sm text-stone-600">Opening company…</p>;
-  }
-  if (view === "tools") {
-    return <ResearchAnalystView />;
+  if (view === "tools" || openCompany) {
+    return <p className="px-4 py-8 text-sm text-stone-600">Opening…</p>;
   }
   return <ResearchHome />;
 }

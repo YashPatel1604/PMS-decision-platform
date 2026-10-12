@@ -28,6 +28,7 @@ const navGroups: NavGroup[] = [
       { href: "/episodes", label: "Episodes" },
       { href: "/watchlists", label: "Watchlists", badgeKey: "watchlists" },
       { href: "/research", label: "Research" },
+      { href: "/research/library", label: "File library" },
       { href: "/intelligence", label: "Intelligence" },
     ],
   },
@@ -65,6 +66,9 @@ const navGroups: NavGroup[] = [
 
 function pathMatches(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
+  if (href === "/research") {
+    return pathname === "/research" || pathname.startsWith("/research/company");
+  }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

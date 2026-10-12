@@ -86,7 +86,7 @@ export function ResearchHome() {
           </p>
         </div>
         <Link
-          href="/research?view=tools"
+          href="/research/library"
           className="inline-flex min-h-11 items-center justify-center border border-stone-800 px-4 py-2 text-sm text-stone-900 hover:bg-stone-900 hover:text-white"
         >
           Add a file
@@ -192,7 +192,7 @@ export function ResearchHome() {
         Library updated {formatWhen(statusQuery.data?.last_indexed_at)}
         {statusQuery.data ? ` · ${statusQuery.data.document_count} documents` : ""}
         {" · "}
-        <Link href="/research?view=tools" className="underline-offset-2 hover:underline">
+        <Link href="/research/library" className="underline-offset-2 hover:underline">
           File library
         </Link>
       </footer>

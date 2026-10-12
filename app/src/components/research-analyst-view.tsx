@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -110,6 +110,7 @@ function citationLabels(response: Record<string, unknown>): string[] {
 
 export function ResearchAnalystView() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialSecurity = searchParams.get("security_id")?.trim() ?? "";
   const [searchQ, setSearchQ] = useState(searchParams.get("q")?.trim() ?? "");
@@ -322,20 +323,30 @@ export function ResearchAnalystView() {
   return (
     <div className="mx-auto max-w-5xl space-y-10 px-4 py-8">
       <header className="space-y-3">
-        <p className="text-sm uppercase tracking-[0.2em] text-stone-500">
-          <Link href="/research" className="underline-offset-2 hover:underline">
-            Research
-          </Link>
-        </p>
+        <Link
+          href="/research"
+          className="inline-flex min-h-11 items-center text-sm text-stone-800 underline-offset-2 hover:underline"
+        >
+          ← All companies
+        </Link>
         <h1 className="font-serif text-3xl text-stone-900 md:text-4xl">File library</h1>
         <p className="max-w-2xl text-stone-600">
           Add a PDF or note, then search the library. Thesis, approval, and open questions belong on
           the company page, and they stay limited to that one company.
         </p>
         {securityId.trim() ? (
-          <p className="text-sm text-stone-800">
-            Selected company: {selectedName}. Uploads and search on this visit stay with that company.
-          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-stone-800">
+              Selected company: {selectedName}. Uploads and search on this visit stay with that company.
+            </p>
+            <button
+              type="button"
+              className="inline-flex min-h-11 items-center border border-stone-800 px-3 py-2 text-sm"
+              onClick={() => router.push(`/research/company/${encodeURIComponent(securityId.trim())}`)}
+            >
+              Open this company
+            </button>
+          </div>
         ) : (
           <p className="text-sm text-stone-600">
             No company selected. Choose one before uploading so the file is not left unattached.

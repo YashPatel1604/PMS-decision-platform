@@ -152,7 +152,7 @@ export function ResearchCompanyView({ securityId }: { securityId: string }) {
           </button>
         ))}
         <Link
-          href={`/research?view=tools&security_id=${encodeURIComponent(securityId)}`}
+          href={`/research/library?security_id=${encodeURIComponent(securityId)}`}
           className="inline-flex min-h-11 items-center border border-stone-300 px-3 py-2 text-sm text-stone-700"
         >
           Search this company's files
