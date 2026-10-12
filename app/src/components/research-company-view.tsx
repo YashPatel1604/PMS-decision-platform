@@ -117,12 +117,14 @@ export function ResearchCompanyView({ securityId }: { securityId: string }) {
           <>
             <h1 className="font-serif text-3xl text-stone-900">{company.name}</h1>
             <p className="text-sm text-stone-600">
-              {[company.nse_symbol, company.bse_code, company.security_id].filter(Boolean).join(" · ")}
-              {" · "}
-              {company.relationship}
+              This page is only for {company.name}
+              {company.nse_symbol || company.bse_code
+                ? ` (${[company.nse_symbol, company.bse_code].filter(Boolean).join(" · ")})`
+                : ""}
+              . {company.relationship}.
               {company.last_review
-                ? ` · Last reviewed ${formatWhen(company.last_review.created_at)} (${reviewLabel(company.last_review.decision)})`
-                : " · Not yet reviewed"}
+                ? ` Last reviewed ${formatWhen(company.last_review.created_at)} (${reviewLabel(company.last_review.decision)}).`
+                : " Not yet reviewed."}
             </p>
           </>
         ) : null}
@@ -153,7 +155,7 @@ export function ResearchCompanyView({ securityId }: { securityId: string }) {
           href={`/research?view=tools&security_id=${encodeURIComponent(securityId)}`}
           className="inline-flex min-h-11 items-center border border-stone-300 px-3 py-2 text-sm text-stone-700"
         >
-          Full brief
+          Search this company's files
         </Link>
       </nav>
 
@@ -356,7 +358,8 @@ export function ResearchCompanyView({ securityId }: { securityId: string }) {
               <ul className="space-y-2">
                 {company.questions.map((goal) => (
                   <li key={goal.goal_id} className="text-sm text-stone-800">
-                    {goal.title}
+                    <p>{goal.title}</p>
+                    {goal.rationale ? <p className="text-stone-600">{goal.rationale}</p> : null}
                   </li>
                 ))}
               </ul>
@@ -429,17 +432,23 @@ export function ResearchCompanyView({ securityId }: { securityId: string }) {
 
       {panel === "questions" ? (
         <section className="space-y-3">
-          <h2 className="text-lg text-stone-900">Questions</h2>
+          <h2 className="text-lg text-stone-900">Questions for this company</h2>
+          <p className="text-sm text-stone-600">
+            These were saved for this company only. “Still open” means nobody has marked the question done.
+          </p>
           {goalsQuery.isLoading ? (
             <p className="text-sm text-stone-500">Loading…</p>
-          ) : (goalsQuery.data ?? []).length === 0 ? (
-            <p className="text-sm text-stone-600">No questions yet.</p>
+          ) : (goalsQuery.data ?? []).filter((goal) => goal.status === "accepted" || goal.status === "proposed").length === 0 ? (
+            <p className="text-sm text-stone-600">No open questions for this company.</p>
           ) : (
             <ul className="space-y-3">
-              {(goalsQuery.data ?? []).map((goal) => (
+              {(goalsQuery.data ?? [])
+                .filter((goal) => goal.status === "accepted" || goal.status === "proposed")
+                .map((goal) => (
                 <li key={goal.goal_id} className="text-sm">
                   <p className="text-stone-900">{goal.title}</p>
-                  <p className="text-xs text-stone-500">{goal.status}</p>
+                  <p className="text-xs text-stone-500">Still open</p>
+                  {goal.rationale ? <p className="text-stone-600">{goal.rationale}</p> : null}
                 </li>
               ))}
             </ul>

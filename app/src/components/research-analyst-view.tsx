@@ -142,9 +142,19 @@ export function ResearchAnalystView() {
   const [thesisPaste, setThesisPaste] = useState("");
   const [monitorPaste, setMonitorPaste] = useState("");
 
+  const firmsQuery = useQuery({
+    queryKey: ["research-firms"],
+    queryFn: () => api.listResearchFirms(),
+  });
+  const selectedName = useMemo(() => {
+    const match = (firmsQuery.data ?? []).find((firm) => firm.security_id === securityId);
+    return match?.display_name || firmLabel;
+  }, [firmsQuery.data, securityId, firmLabel]);
+
   const goalsQuery = useQuery({
     queryKey: ["research-goals", securityId || null],
-    queryFn: () => api.listResearchGoals(securityId || null),
+    queryFn: () => api.listResearchGoals(securityId.trim()),
+    enabled: Boolean(securityId.trim()),
   });
 
   const thesesQuery = useQuery({
@@ -317,16 +327,20 @@ export function ResearchAnalystView() {
             Research
           </Link>
         </p>
-        <h1 className="font-serif text-3xl text-stone-900 md:text-4xl">Analyst assistant</h1>
+        <h1 className="font-serif text-3xl text-stone-900 md:text-4xl">File library</h1>
         <p className="max-w-2xl text-stone-600">
-          Upload research notes here (PDF, Markdown, or text), search the index, then generate a
-          citation-backed agenda. No local Research folder is required on cloud — portfolio math
-          stays in deterministic code; Grok only helps set future research goals.
+          Add a PDF or note, then search the library. Thesis, approval, and open questions belong on
+          the company page, and they stay limited to that one company.
         </p>
-        <p className="max-w-2xl text-xs text-stone-500">
-          When a brief is generated, retrieved text snippets (not whole PDFs) may be sent to xAI.
-          Leave XAI_API_KEY unset to keep search local-only.
-        </p>
+        {securityId.trim() ? (
+          <p className="text-sm text-stone-800">
+            Selected company: {selectedName}. Uploads and search on this visit stay with that company.
+          </p>
+        ) : (
+          <p className="text-sm text-stone-600">
+            No company selected. Choose one before uploading so the file is not left unattached.
+          </p>
+        )}
       </header>
 
       <section className="space-y-3 border-t border-stone-200 pt-6">
@@ -642,8 +656,8 @@ export function ResearchAnalystView() {
       <section className="space-y-3 border-t border-stone-200 pt-6">
         <h2 className="text-lg text-stone-900">Save thesis from memo</h2>
         <p className="text-sm text-stone-600">
-          Paste a Gemini (or other) memo to store a versioned thesis for this security — no extra Grok
-          call. Works for holdings and watchlist ids (e.g. WL544081).
+          Paste a memo for the selected company. Saving stores a version. Approval happens on the
+          company page.
         </p>
         <label className="block text-sm text-stone-700">
           Memo / thesis text
@@ -686,9 +700,13 @@ export function ResearchAnalystView() {
       </section>
 
       <section className="space-y-3 border-t border-stone-200 pt-6">
-        <h2 className="text-lg text-stone-900">Open research goals</h2>
-        {openGoals.length === 0 ? (
-          <p className="text-sm text-stone-600">No open research goals yet.</p>
+        <h2 className="text-lg text-stone-900">Questions for this company</h2>
+        {!securityId.trim() ? (
+          <p className="text-sm text-stone-600">
+            Choose a company first. Questions are not listed across the whole library.
+          </p>
+        ) : openGoals.length === 0 ? (
+          <p className="text-sm text-stone-600">No open questions for this company.</p>
         ) : (
           <ul className="space-y-4">
             {openGoals.map((goal) => (
@@ -698,9 +716,7 @@ export function ResearchAnalystView() {
               >
                 <div>
                   <p className="text-stone-900">{goal.title}</p>
-                  <p className="text-xs text-stone-500">
-                    {goal.security_id} · priority {goal.priority} · {goal.status}
-                  </p>
+                  <p className="text-xs text-stone-500">Still open</p>
                   {goal.rationale ? (
                     <p className="text-sm text-stone-600">{goal.rationale}</p>
                   ) : null}

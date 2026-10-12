@@ -2,7 +2,7 @@
 
 ## Phase
 
-Both Ask Grok and the full brief, when a company is selected, use only pages linked to that company. Ask stays near 3,000 input tokens and 500 output tokens. The full brief stays near 4,000 input tokens and 1,000 output tokens. Loading Research still does not call Grok. Migrations from earlier slices are still not applied to production.
+Research Home lists companies by name. The file library no longer shows every company's questions at once. Both Ask Grok and the full brief, when a company is selected, use only pages linked to that company. Ask stays near 3,000 input tokens and 500 output tokens. The full brief stays near 4,000 input tokens and 1,000 output tokens. Loading Research still does not call Grok. Migrations from earlier slices are still not applied to production.
 
 ## Assumptions verified in code
 

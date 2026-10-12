@@ -47,17 +47,27 @@ export function ResearchHome() {
     enabled: debounced.trim().length >= 2,
   });
 
+  const firmsQuery = useQuery({
+    queryKey: ["research-firms"],
+    queryFn: () => api.listResearchFirms(),
+  });
+  const companyName = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const firm of firmsQuery.data ?? []) names.set(firm.security_id, firm.display_name);
+    return (securityId: string) => names.get(securityId) || "Unnamed company";
+  }, [firmsQuery.data]);
   const openGoals = useMemo(
     () => (goalsQuery.data ?? []).filter(isOpenGoal),
     [goalsQuery.data],
   );
-  const attention = openGoals.slice(0, 8);
-  const continueFirms = useMemo(() => {
-    const counts = new Map<string, number>();
+  const byCompany = useMemo(() => {
+    const groups = new Map<string, ResearchGoal[]>();
     for (const goal of openGoals) {
-      counts.set(goal.security_id, (counts.get(goal.security_id) ?? 0) + 1);
+      const list = groups.get(goal.security_id) ?? [];
+      list.push(goal);
+      groups.set(goal.security_id, list);
     }
-    return [...counts.entries()].slice(0, 6);
+    return [...groups.entries()].slice(0, 8);
   }, [openGoals]);
 
   function openFirm(securityId: string) {
@@ -72,14 +82,14 @@ export function ResearchHome() {
         <div className="space-y-2">
           <h1 className="font-serif text-3xl text-stone-900 md:text-4xl">Research</h1>
           <p className="max-w-xl text-stone-600">
-            Your investment research, organized. Open a company, or add a note.
+            Pick a company. Each company page holds only that company’s thesis, files, and questions.
           </p>
         </div>
         <Link
           href="/research?view=tools"
           className="inline-flex min-h-11 items-center justify-center border border-stone-800 px-4 py-2 text-sm text-stone-900 hover:bg-stone-900 hover:text-white"
         >
-          + Add research
+          Add a file
         </Link>
       </header>
 
@@ -121,7 +131,7 @@ export function ResearchHome() {
                     <span>
                       <span className="block text-sm text-stone-900">{hit.portfolio_name}</span>
                       <span className="block text-xs text-stone-500">
-                        {[hit.nse_symbol, hit.bse_code, hit.security_id].filter(Boolean).join(" · ")}
+                        {[hit.nse_symbol, hit.bse_code].filter(Boolean).join(" · ") || "Open this company"}
                       </span>
                     </span>
                     <span className="shrink-0 text-xs text-emerald-800">Open</span>
@@ -133,70 +143,44 @@ export function ResearchHome() {
         ) : null}
       </section>
 
-      <section aria-labelledby="needs-attention-heading" className="space-y-3 border-t border-stone-200 pt-6">
-        <h2 id="needs-attention-heading" className="text-lg text-stone-900">
-          Needs attention
+      <section aria-labelledby="companies-heading" className="space-y-3 border-t border-stone-200 pt-6">
+        <h2 id="companies-heading" className="text-lg text-stone-900">
+          Companies with open questions
         </h2>
+        <p className="text-sm text-stone-600">
+          These are questions already saved for a company. Opening one shows only that company.
+        </p>
         {loadError ? (
           <p className="text-sm text-red-800">Could not load research. Refresh the page.</p>
         ) : goalsQuery.isLoading ? (
           <p className="text-sm text-stone-500">Loading…</p>
-        ) : attention.length === 0 ? (
+        ) : byCompany.length === 0 ? (
           <p className="text-sm text-stone-600">
-            Nothing waiting. Your research workspace is ready. Import a thesis or open a company to
-            begin.
+            No open questions yet. Search for a company above, or add a file to the library.
           </p>
         ) : (
-          <ul className="space-y-3">
-            {attention.map((goal) => (
+          <ul className="space-y-4">
+            {byCompany.map(([securityId, goals]) => (
               <li
-                key={goal.goal_id}
-                className="flex flex-col gap-2 border-b border-stone-100 pb-3 sm:flex-row sm:items-center sm:justify-between"
+                key={securityId}
+                className="flex flex-col gap-2 border-b border-stone-100 pb-3 sm:flex-row sm:items-start sm:justify-between"
               >
                 <div>
-                  <p className="text-stone-900">{goal.title}</p>
-                  <p className="text-xs text-stone-500">
-                    Open question · {goal.security_id}
-                  </p>
+                  <p className="text-stone-900">{companyName(securityId)}</p>
+                  <ul className="mt-1 space-y-1">
+                    {goals.slice(0, 3).map((goal) => (
+                      <li key={goal.goal_id} className="text-sm text-stone-600">
+                        {goal.title}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
                 <button
                   type="button"
                   className="inline-flex min-h-11 items-center border border-stone-800 px-3 py-2 text-sm"
-                  onClick={() => openFirm(goal.security_id)}
-                >
-                  Continue
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section aria-labelledby="continue-heading" className="space-y-3 border-t border-stone-200 pt-6">
-        <h2 id="continue-heading" className="text-lg text-stone-900">
-          Continue researching
-        </h2>
-        {continueFirms.length === 0 ? (
-          <p className="text-sm text-stone-600">No companies with open questions yet.</p>
-        ) : (
-          <ul className="space-y-3">
-            {continueFirms.map(([securityId, count]) => (
-              <li
-                key={securityId}
-                className="flex flex-col gap-2 border-b border-stone-100 pb-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <p className="text-stone-900">
-                  {securityId}
-                  <span className="block text-xs text-stone-500">
-                    {count} open {count === 1 ? "question" : "questions"}
-                  </span>
-                </p>
-                <button
-                  type="button"
-                  className="inline-flex min-h-11 items-center border border-stone-300 px-3 py-2 text-sm"
                   onClick={() => openFirm(securityId)}
                 >
-                  Open
+                  Open company
                 </button>
               </li>
             ))}
@@ -209,7 +193,7 @@ export function ResearchHome() {
         {statusQuery.data ? ` · ${statusQuery.data.document_count} documents` : ""}
         {" · "}
         <Link href="/research?view=tools" className="underline-offset-2 hover:underline">
-          Advanced tools
+          File library
         </Link>
       </footer>
     </div>
