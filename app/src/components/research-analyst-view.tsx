@@ -117,6 +117,7 @@ export function ResearchAnalystView() {
   const [securityId, setSecurityId] = useState(initialSecurity);
   const [firmSearch, setFirmSearch] = useState("");
   const [debouncedFirmSearch, setDebouncedFirmSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState(searchQ);
   const [firmLabel, setFirmLabel] = useState(initialSecurity);
   const [hits, setHits] = useState<ResearchSearchHit[]>([]);
   const [brief, setBrief] = useState<ResearchAnalystResult | null>(null);
@@ -132,6 +133,10 @@ export function ResearchAnalystView() {
     const timer = window.setTimeout(() => setDebouncedFirmSearch(firmSearch), 300);
     return () => window.clearTimeout(timer);
   }, [firmSearch]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(searchQ), 400);
+    return () => window.clearTimeout(timer);
+  }, [searchQ]);
 
   const firmHitsQuery = useQuery({
     queryKey: ["research-firm-search", debouncedFirmSearch],
@@ -151,6 +156,16 @@ export function ResearchAnalystView() {
     const match = (firmsQuery.data ?? []).find((firm) => firm.security_id === securityId);
     return match?.display_name || firmLabel;
   }, [firmsQuery.data, securityId, firmLabel]);
+
+  const briefPreviewQuery = useQuery({
+    queryKey: ["research-brief-preview", securityId, debouncedSearch],
+    queryFn: () =>
+      api.previewResearchBrief({
+        security_id: securityId.trim() || null,
+        query_name: debouncedSearch.trim() || null,
+      }),
+    enabled: Boolean(securityId.trim() || debouncedSearch.trim()),
+  });
 
   const goalsQuery = useQuery({
     queryKey: ["research-goals", securityId || null],
@@ -477,6 +492,15 @@ export function ResearchAnalystView() {
             />
           </label>
         </div>
+        {briefPreviewQuery.data ? (
+          <p className={`text-sm ${briefPreviewQuery.data.warn ? "text-amber-900" : "text-stone-600"}`}>
+            {briefPreviewQuery.data.page_count === 0
+              ? "No notes are linked to this company yet."
+              : briefPreviewQuery.data.warn
+                ? `These notes are about ${briefPreviewQuery.data.approx_tokens.toLocaleString("en-IN")} tokens, above about 3,000. A brief still runs, and sends about ${briefPreviewQuery.data.sent_tokens.toLocaleString("en-IN")} of them.`
+                : `These notes are about ${briefPreviewQuery.data.approx_tokens.toLocaleString("en-IN")} tokens. The reply length follows that size.`}
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-3">
           <button
             type="button"

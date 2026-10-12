@@ -488,6 +488,41 @@ def test_ask_sends_only_linked_pages(
     assert result.response["citations"] == []
 
 
+def test_brief_preview_warns_without_calling_model(
+    session: Session, sample_security: Security, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pms_platform.documents.analyst import preview_research_brief
+    from pms_platform.models.research_document import ResearchDocument, ResearchDocumentPage
+
+    doc = ResearchDocument(
+        relative_path="long-note.md",
+        content_hash="a" * 64,
+        source_root="ui",
+        parse_status="ok",
+        title="Vadilal note",
+        security_id=sample_security.security_id,
+    )
+    session.add(doc)
+    session.flush()
+    session.add(
+        ResearchDocumentPage(
+            document_id=doc.document_id,
+            page_number=1,
+            text="margin " * 4000,
+        )
+    )
+    session.commit()
+
+    def _fail(*_args, **_kwargs):
+        raise AssertionError("preview must not call the model")
+
+    monkeypatch.setattr("pms_platform.documents.analyst.chat_completion", _fail)
+    preview = preview_research_brief(session, security_id=sample_security.security_id)
+    assert preview["warn"] is True
+    assert preview["approx_tokens"] >= 3000
+    assert preview["output_cap"] >= 2000
+
+
 def test_brief_omits_unlinked_pages(
     session: Session, sample_security: Security, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -533,7 +568,9 @@ def test_brief_omits_unlinked_pages(
     blob = json.dumps(seen["messages"])
     assert "LINKED_BRIEF_FACT" in blob
     assert "SECRET_BRIEF_NOTE" not in blob
-    assert seen["max_tokens"] == settings.research_brief_max_output_tokens
+    assert isinstance(seen["max_tokens"], int)
+    assert seen["max_tokens"] >= 2000
+    assert seen["max_tokens"] <= settings.research_brief_max_output_tokens
     assert result.response["citations"] == []
 
 

@@ -12,7 +12,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from pms_platform.api.deps import get_current_user, get_db
-from pms_platform.documents.analyst import generate_research_ask, generate_research_brief
+from pms_platform.documents.analyst import (
+    generate_research_ask,
+    generate_research_brief,
+    preview_research_brief,
+)
 from pms_platform.documents.coverage import (
     company_overview,
     list_book_firms,
@@ -62,6 +66,16 @@ class BriefRequest(BaseModel):
     extra_question: str | None = None
     as_of: date | None = None
     force_refresh: bool = False
+
+
+class BriefPreviewResponse(BaseModel):
+    approx_tokens: int
+    sent_tokens: int
+    page_count: int
+    notes: list[str]
+    warn: bool
+    output_cap: int
+    company: str
 
 
 class AskRequest(BaseModel):
@@ -237,6 +251,24 @@ def get_search(
         )
         for hit in hits
     ]
+
+
+@router.post("/brief/preview", response_model=BriefPreviewResponse)
+def post_brief_preview(
+    body: BriefRequest,
+    session: Session = Depends(get_db),
+    _user: User | None = Depends(get_current_user),
+) -> BriefPreviewResponse:
+    if not body.security_id and not body.query_name:
+        raise HTTPException(status_code=400, detail="security_id or query_name required")
+    preview = preview_research_brief(
+        session,
+        security_id=body.security_id,
+        query_name=body.query_name,
+        extra_question=body.extra_question,
+        as_of=body.as_of,
+    )
+    return BriefPreviewResponse(**preview)
 
 
 @router.post("/brief", response_model=AnalystResponse)

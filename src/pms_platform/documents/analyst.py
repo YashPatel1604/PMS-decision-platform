@@ -294,18 +294,92 @@ def _audit(
     )
 
 
-def generate_research_brief(
+def brief_output_cap(sent_tokens: int) -> int:
+    """Reply room follows the notes. Short notes do not get a long cap."""
+    return max(2000, min(settings.research_brief_max_output_tokens, sent_tokens))
+
+
+def _linked_note_size(session: Session, security_id: str) -> tuple[int, list[str]]:
+    from sqlalchemy import func
+
+    from pms_platform.models.research_document import ResearchDocument, ResearchDocumentPage
+
+    chars = session.scalar(
+        select(func.coalesce(func.sum(func.length(ResearchDocumentPage.text)), 0))
+        .join(ResearchDocument, ResearchDocument.document_id == ResearchDocumentPage.document_id)
+        .where(
+            ResearchDocument.security_id == security_id,
+            ResearchDocument.parse_status == "ok",
+        )
+    )
+    titles = session.scalars(
+        select(ResearchDocument.title)
+        .where(
+            ResearchDocument.security_id == security_id,
+            ResearchDocument.parse_status == "ok",
+        )
+        .order_by(ResearchDocument.document_id.desc())
+    ).all()
+    names = [title.strip() for title in titles if title and title.strip()]
+    return max(0, int(chars or 0) // 4), names
+
+
+def preview_research_brief(
     session: Session,
     *,
     security_id: str | None = None,
     query_name: str | None = None,
     extra_question: str | None = None,
     as_of: date | None = None,
-    force_refresh: bool = False,
-    http_client: Any | None = None,
-) -> AnalystResult:
-    """Produce citation-backed research brief; skip LLM when no snippets."""
-    started = time.perf_counter()
+) -> dict[str, Any]:
+    """Token size of a brief before any model call."""
+    label, _facts, hits = _brief_inputs(
+        session,
+        security_id=security_id,
+        query_name=query_name,
+        extra_question=extra_question,
+        as_of=as_of,
+    )
+    note_tokens = 0
+    note_names: list[str] = []
+    if security_id:
+        note_tokens, note_names = _linked_note_size(session, security_id)
+    if not hits:
+        return {
+            "approx_tokens": note_tokens,
+            "sent_tokens": 0,
+            "page_count": 0,
+            "notes": note_names,
+            "warn": note_tokens >= settings.research_brief_warn_tokens,
+            "output_cap": 0,
+            "company": label,
+        }
+    assembled = assemble_brief_messages(
+        security_label=label,
+        facts=_facts,
+        hits=hits,
+        extra_question=extra_question,
+    )
+    sent = assembled.approx_tokens
+    return {
+        "approx_tokens": max(note_tokens, sent),
+        "sent_tokens": sent,
+        "page_count": len(assembled.chunk_ids),
+        "notes": note_names or _note_names(hits).split(", "),
+        "warn": max(note_tokens, sent) >= settings.research_brief_warn_tokens,
+        "output_cap": brief_output_cap(sent),
+        "company": label,
+    }
+
+
+def _brief_inputs(
+    session: Session,
+    *,
+    security_id: str | None,
+    query_name: str | None,
+    extra_question: str | None,
+    as_of: date | None,
+) -> tuple[str, dict[str, Any], list[SearchHit]]:
     label = _security_label(session, security_id, query_name)
     facts = (
         collect_security_facts(session, security_id, as_of=as_of)
@@ -326,12 +400,9 @@ def generate_research_brief(
         or label
     )
     linked = bool(security_id)
-    approved = get_approved_thesis(session, security_id) if security_id else None
-    scope = f"linked:{approved.version if approved else 0}" if security_id else "open"
     hits = _retrieve(
         session, query=search_q, security_id=security_id, as_of=as_of, linked_only=linked
     )
-    # If the question misses, use pages already linked to this company only.
     if not hits and security_id:
         hits = search_research_pages(
             session,
@@ -349,6 +420,30 @@ def generate_research_brief(
             limit=settings.research_rag_max_chunks,
             snippet_chars=settings.research_rag_snippet_chars,
         )
+    return label, facts, hits
+
+
+def generate_research_brief(
+    session: Session,
+    *,
+    security_id: str | None = None,
+    query_name: str | None = None,
+    extra_question: str | None = None,
+    as_of: date | None = None,
+    force_refresh: bool = False,
+    http_client: Any | None = None,
+) -> AnalystResult:
+    """Produce citation-backed research brief; skip LLM when no snippets."""
+    started = time.perf_counter()
+    label, facts, hits = _brief_inputs(
+        session,
+        security_id=security_id,
+        query_name=query_name,
+        extra_question=extra_question,
+        as_of=as_of,
+    )
+    approved = get_approved_thesis(session, security_id) if security_id else None
+    scope = f"linked:{approved.version if approved else 0}" if security_id else "open"
 
     if not hits:
         response = _insufficient_brief(
@@ -432,10 +527,11 @@ def generate_research_brief(
         session.commit()
         raise XaiConfigError("XAI_API_KEY is not configured")
 
+    output_cap = brief_output_cap(assembled.approx_tokens)
     result = chat_completion(
         assembled.messages,
         client=http_client,
-        max_tokens=settings.research_brief_max_output_tokens,
+        max_tokens=output_cap,
     )
     parsed_ok = True
     try:
@@ -451,11 +547,11 @@ def generate_research_brief(
         notes = _note_names(hits)
         cut_off = result.finish_reason == "length" or (
             result.token_out is not None
-            and result.token_out >= settings.research_brief_max_output_tokens
+            and result.token_out >= output_cap
         )
         if cut_off:
             reason = (
-                f"The reply was cut off after {result.token_out or settings.research_brief_max_output_tokens} tokens, "
+                f"The reply was cut off after {result.token_out or output_cap} tokens, "
                 f"before it finished. These notes were included: {notes}. Nothing from this attempt was saved."
             )
         else:

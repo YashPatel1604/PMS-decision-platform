@@ -1880,6 +1880,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  previewResearchBrief: (body: { security_id?: string | null; query_name?: string | null }) =>
+    request<{
+      approx_tokens: number;
+      sent_tokens: number;
+      page_count: number;
+      notes: string[];
+      warn: boolean;
+      output_cap: number;
+      company: string;
+    }>("/research/brief/preview", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   generateResearchBrief: (body: {
     security_id?: string | null;
     query_name?: string | null;
