@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
+import { ResearchPastBriefs } from "@/components/research-past-briefs";
 import { api, type ResearchGoal, type WatchlistSearchHit } from "@/lib/api";
 
 function formatWhen(iso: string | null | undefined): string {
@@ -187,6 +188,8 @@ export function ResearchHome() {
           </ul>
         )}
       </section>
+
+      <ResearchPastBriefs />
 
       <footer className="border-t border-stone-200 pt-4 text-sm text-stone-500">
         Library updated {formatWhen(statusQuery.data?.last_indexed_at)}

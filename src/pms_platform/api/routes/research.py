@@ -15,6 +15,8 @@ from pms_platform.api.deps import get_current_user, get_db
 from pms_platform.documents.analyst import (
     generate_research_ask,
     generate_research_brief,
+    get_saved_brief,
+    list_saved_briefs,
     preview_research_brief,
 )
 from pms_platform.documents.coverage import (
@@ -66,6 +68,16 @@ class BriefRequest(BaseModel):
     extra_question: str | None = None
     as_of: date | None = None
     force_refresh: bool = False
+
+
+class SavedBriefItem(BaseModel):
+    cache_id: int
+    security_id: str | None
+    company: str
+    created_at: str | None
+    token_in: int | None
+    token_out: int | None
+    summary: str
 
 
 class BriefPreviewResponse(BaseModel):
@@ -251,6 +263,37 @@ def get_search(
         )
         for hit in hits
     ]
+
+
+@router.get("/briefs", response_model=list[SavedBriefItem])
+def get_briefs(
+    limit: int = Query(default=40, ge=1, le=100),
+    session: Session = Depends(get_db),
+    _user: User | None = Depends(get_current_user),
+) -> list[SavedBriefItem]:
+    return [SavedBriefItem(**item) for item in list_saved_briefs(session, limit=limit)]
+
+
+@router.get("/briefs/{cache_id}", response_model=AnalystResponse)
+def get_brief(
+    cache_id: int,
+    session: Session = Depends(get_db),
+    _user: User | None = Depends(get_current_user),
+) -> AnalystResponse:
+    result = get_saved_brief(session, cache_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Brief not found")
+    return AnalystResponse(
+        kind=result.kind,
+        response=result.response,
+        cache_hit=result.cache_hit,
+        cache_id=result.cache_id,
+        model=result.model,
+        token_in=result.token_in,
+        token_out=result.token_out,
+        chunk_ids=result.chunk_ids,
+        called_llm=result.called_llm,
+    )
 
 
 @router.post("/brief/preview", response_model=BriefPreviewResponse)

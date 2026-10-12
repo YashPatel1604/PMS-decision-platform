@@ -270,6 +270,65 @@ def _store_cache(
     return row
 
 
+def list_saved_briefs(session: Session, *, limit: int = 40) -> list[dict[str, Any]]:
+    """Finished briefs, newest first. A failed reply is not included."""
+    from pms_platform.models.security import Security
+
+    rows = session.execute(
+        select(ResearchAnswerCache, Security.portfolio_name)
+        .outerjoin(Security, Security.security_id == ResearchAnswerCache.security_id)
+        .where(ResearchAnswerCache.request_kind == "brief")
+        .order_by(ResearchAnswerCache.created_at.desc())
+        .limit(max(limit * 2, limit))
+    ).all()
+    items: list[dict[str, Any]] = []
+    for row, company in rows:
+        body = row.response_json if isinstance(row.response_json, dict) else {}
+        if body.get("brief_error"):
+            continue
+        thesis = body.get("thesis_map") if isinstance(body.get("thesis_map"), dict) else {}
+        beliefs = thesis.get("beliefs") if isinstance(thesis, dict) else None
+        summary = ""
+        if isinstance(beliefs, list) and beliefs and isinstance(beliefs[0], str):
+            summary = beliefs[0]
+        elif isinstance(body.get("security_query"), str):
+            summary = body["security_query"]
+        items.append(
+            {
+                "cache_id": row.cache_id,
+                "security_id": row.security_id,
+                "company": company or body.get("security_query") or "Unknown company",
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "token_in": row.token_in,
+                "token_out": row.token_out,
+                "summary": summary,
+            }
+        )
+        if len(items) >= limit:
+            break
+    return items
+
+
+def get_saved_brief(session: Session, cache_id: int) -> AnalystResult | None:
+    row = session.get(ResearchAnswerCache, cache_id)
+    if row is None or row.request_kind != "brief":
+        return None
+    body = row.response_json if isinstance(row.response_json, dict) else {}
+    if body.get("brief_error"):
+        return None
+    return AnalystResult(
+        kind="brief",
+        response=dict(body),
+        cache_hit=True,
+        cache_id=row.cache_id,
+        model=row.model,
+        token_in=row.token_in,
+        token_out=row.token_out,
+        chunk_ids=list(row.citation_page_ids or []),
+        called_llm=False,
+    )
+
+
 def _audit(
     session: Session,
     *,

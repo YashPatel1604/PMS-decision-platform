@@ -488,6 +488,39 @@ def test_ask_sends_only_linked_pages(
     assert result.response["citations"] == []
 
 
+def test_saved_briefs_skip_failed_replies(session: Session, sample_security: Security) -> None:
+    from pms_platform.documents.analyst import list_saved_briefs
+    from pms_platform.models.research_document import ResearchAnswerCache
+
+    session.add_all(
+        [
+            ResearchAnswerCache(
+                cache_key="a" * 64,
+                security_id=sample_security.security_id,
+                request_kind="brief",
+                response_json={"security_query": "TestCo", "thesis_map": {"beliefs": ["Ice cream mix"]}},
+                model="grok-test",
+                prompt_version="v2",
+                token_in=10,
+                token_out=20,
+            ),
+            ResearchAnswerCache(
+                cache_key="b" * 64,
+                security_id=sample_security.security_id,
+                request_kind="brief",
+                response_json={"brief_error": "cut off"},
+                model="grok-test",
+                prompt_version="v2",
+            ),
+        ]
+    )
+    session.commit()
+    items = list_saved_briefs(session)
+    assert len(items) == 1
+    assert items[0]["company"] == "TestCo"
+    assert items[0]["summary"] == "Ice cream mix"
+
+
 def test_brief_preview_warns_without_calling_model(
     session: Session, sample_security: Security, monkeypatch: pytest.MonkeyPatch
 ) -> None:

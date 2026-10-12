@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { ResearchPastBriefs } from "@/components/research-past-briefs";
 import {
   ApiError,
   api,
@@ -113,6 +114,7 @@ export function ResearchAnalystView() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialSecurity = searchParams.get("security_id")?.trim() ?? "";
+  const savedBriefId = Number(searchParams.get("brief") || "");
   const [searchQ, setSearchQ] = useState(searchParams.get("q")?.trim() ?? "");
   const [securityId, setSecurityId] = useState(initialSecurity);
   const [firmSearch, setFirmSearch] = useState("");
@@ -156,6 +158,15 @@ export function ResearchAnalystView() {
     const match = (firmsQuery.data ?? []).find((firm) => firm.security_id === securityId);
     return match?.display_name || firmLabel;
   }, [firmsQuery.data, securityId, firmLabel]);
+
+  const savedBriefQuery = useQuery({
+    queryKey: ["research-brief", savedBriefId],
+    queryFn: () => api.getSavedBrief(savedBriefId),
+    enabled: Number.isFinite(savedBriefId) && savedBriefId > 0,
+  });
+  useEffect(() => {
+    if (savedBriefQuery.data) setBrief(savedBriefQuery.data);
+  }, [savedBriefQuery.data]);
 
   const briefPreviewQuery = useQuery({
     queryKey: ["research-brief-preview", securityId, debouncedSearch],
@@ -233,6 +244,11 @@ export function ResearchAnalystView() {
     onSuccess: (result) => {
       setBrief(result);
       setError(null);
+      void queryClient.invalidateQueries({ queryKey: ["research-briefs"] });
+      const next = new URLSearchParams(searchParams.toString());
+      next.delete("brief");
+      const query = next.toString();
+      router.replace(query ? `/research/library?${query}` : "/research/library");
     },
     onError: (err: unknown) => {
       setBrief(null);
@@ -346,8 +362,7 @@ export function ResearchAnalystView() {
         </Link>
         <h1 className="font-serif text-3xl text-stone-900 md:text-4xl">File library</h1>
         <p className="max-w-2xl text-stone-600">
-          Add a PDF or note, then search the library. Thesis, approval, and open questions belong on
-          the company page, and they stay limited to that one company.
+          Add a PDF or note, then search that company’s notes. Past briefs are listed below.
         </p>
         {securityId.trim() ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -368,6 +383,8 @@ export function ResearchAnalystView() {
           </p>
         )}
       </header>
+
+      <ResearchPastBriefs />
 
       <section className="space-y-3 border-t border-stone-200 pt-6">
         <h2 className="text-lg text-stone-900">Upload notes</h2>

@@ -1880,6 +1880,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  listSavedBriefs: () =>
+    request<
+      Array<{
+        cache_id: number;
+        security_id: string | null;
+        company: string;
+        created_at: string | null;
+        token_in: number | null;
+        token_out: number | null;
+        summary: string;
+      }>
+    >("/research/briefs"),
+  getSavedBrief: (cacheId: number) =>
+    request<ResearchAnalystResult>(`/research/briefs/${cacheId}`),
   previewResearchBrief: (body: { security_id?: string | null; query_name?: string | null }) =>
     request<{
       approx_tokens: number;
