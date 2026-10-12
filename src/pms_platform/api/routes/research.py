@@ -107,6 +107,7 @@ class AnalystResponse(BaseModel):
     token_out: int | None
     chunk_ids: list[int]
     called_llm: bool
+    security_id: str | None = None
 
 
 class GoalResponse(BaseModel):
@@ -293,6 +294,7 @@ def get_brief(
         token_out=result.token_out,
         chunk_ids=result.chunk_ids,
         called_llm=result.called_llm,
+        security_id=result.security_id,
     )
 
 

@@ -38,6 +38,7 @@ export type ResearchAnalystResult = {
   token_out: number | null;
   chunk_ids: number[];
   called_llm: boolean;
+  security_id?: string | null;
 };
 
 export type ResearchCompanyOverview = {

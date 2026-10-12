@@ -132,6 +132,12 @@ export function ResearchAnalystView() {
   });
 
   useEffect(() => {
+    const fromUrl = searchParams.get("security_id")?.trim() ?? "";
+    if (!fromUrl) return;
+    setSecurityId(fromUrl);
+    setFirmLabel((current) => current || fromUrl);
+  }, [searchParams]);
+  useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedFirmSearch(firmSearch), 300);
     return () => window.clearTimeout(timer);
   }, [firmSearch]);
@@ -165,7 +171,10 @@ export function ResearchAnalystView() {
     enabled: Number.isFinite(savedBriefId) && savedBriefId > 0,
   });
   useEffect(() => {
-    if (savedBriefQuery.data) setBrief(savedBriefQuery.data);
+    if (!savedBriefQuery.data) return;
+    setBrief(savedBriefQuery.data);
+    const savedCompany = savedBriefQuery.data.security_id?.trim();
+    if (savedCompany) setSecurityId(savedCompany);
   }, [savedBriefQuery.data]);
 
   const briefPreviewQuery = useQuery({
@@ -606,12 +615,15 @@ export function ResearchAnalystView() {
 
           <div>
             <h3 className="text-sm uppercase tracking-wide text-stone-500">Research agenda</h3>
+            {error ? <p className="mt-2 text-sm text-red-800">{error}</p> : null}
             <ul className="mt-3 space-y-3">
-              {agenda.map((item) => {
+              {agenda.map((item, index) => {
                 const accepted = acceptedTitles.has(item.title.trim().toLowerCase());
+                const savingThis =
+                  acceptGoalMutation.isPending && acceptGoalMutation.variables?.title === item.title;
                 return (
                   <li
-                    key={item.title}
+                    key={`${item.title}-${index}`}
                     className="flex flex-col gap-2 border-b border-stone-100 pb-3 md:flex-row md:items-start md:justify-between"
                   >
                     <div>
@@ -623,10 +635,17 @@ export function ResearchAnalystView() {
                     <button
                       type="button"
                       className="shrink-0 border border-stone-700 px-3 py-1 text-xs uppercase tracking-wide disabled:opacity-50"
-                      disabled={!securityId.trim() || accepted || acceptGoalMutation.isPending}
-                      onClick={() => acceptGoalMutation.mutate(item)}
+                      disabled={accepted || savingThis}
+                      onClick={() => {
+                        if (!securityId.trim()) {
+                          setError("Choose the company before saving this question.");
+                          return;
+                        }
+                        setError(null);
+                        acceptGoalMutation.mutate(item);
+                      }}
                     >
-                      {accepted ? "Accepted" : "Accept goal"}
+                      {accepted ? "Saved" : savingThis ? "Saving…" : "Accept goal"}
                     </button>
                   </li>
                 );

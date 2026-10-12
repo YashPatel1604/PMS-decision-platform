@@ -37,6 +37,7 @@ class AnalystResult:
     token_out: int | None
     chunk_ids: list[int]
     called_llm: bool
+    security_id: str | None = None
 
 
 def _normalize_question(text: str) -> str:
@@ -326,6 +327,7 @@ def get_saved_brief(session: Session, cache_id: int) -> AnalystResult | None:
         token_out=row.token_out,
         chunk_ids=list(row.citation_page_ids or []),
         called_llm=False,
+        security_id=row.security_id,
     )
 
 

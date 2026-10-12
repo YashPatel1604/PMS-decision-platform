@@ -38,7 +38,9 @@ export function ResearchPastBriefs() {
           {briefs.map((brief) => (
             <li key={brief.cache_id} className="border-b border-stone-100 pb-3">
               <Link
-                href={`/research/library?brief=${brief.cache_id}`}
+                href={`/research/library?brief=${brief.cache_id}${
+                  brief.security_id ? `&security_id=${encodeURIComponent(brief.security_id)}` : ""
+                }`}
                 className="block hover:bg-stone-50"
               >
                 <p className="text-stone-900">
